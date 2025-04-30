@@ -259,7 +259,8 @@ export const Vehicle: React.FC = () => {
         </div>
        )}
 
-      {/* Maintenance Section Placeholder */}
+      {/* Maintenance Section Placeholder REMOVED */}
+      {/*
       <Card className="shadow-md mt-6">
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-primary">
@@ -271,9 +272,10 @@ export const Vehicle: React.FC = () => {
           <p className="text-muted-foreground">
             Aqui será exibido o histórico geral de manutenções e lembretes para todos os veículos. Detalhes por veículo estarão acima.
           </p>
-          {/* Placeholder for general maintenance records */}
+          {/* Placeholder for general maintenance records * /}
         </CardContent>
       </Card>
+      */}
     </div>
   );
 };
