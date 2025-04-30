@@ -53,7 +53,7 @@ const initialTrips: Trip[] = [
 
 export const Trips: React.FC = () => {
   const { user } = useAuth();
-  const [trips, setTrips] = useState<Trip[]>(initialTrips);
+  const [trips, setTrips] = useState<Trip[]>([]); // Initialize empty and sort later
   const [vehicles, setVehicles] = useState<VehicleInfo[]>(initialVehicles);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -62,19 +62,29 @@ export const Trips: React.FC = () => {
   const { toast } = useToast();
 
   // --- Form State for Create/Edit ---
+  // tripName is still needed for the edit modal
   const [tripName, setTripName] = useState('');
   const [description, setDescription] = useState('');
   const [selectedVehicleId, setSelectedVehicleId] = useState('');
 
    useEffect(() => {
        setVehicles(initialVehicles);
-       setTrips(currentTrips => [...currentTrips].sort((a, b) => {
+       // Load and sort initial trips
+       const sortedTrips = [...initialTrips].sort((a, b) => {
             // Sort primarily by status ('Andamento' first), then by ID descending
              if (a.status === 'Andamento' && b.status === 'Finalizado') return -1;
              if (a.status === 'Finalizado' && b.status === 'Andamento') return 1;
+             // Assuming IDs are numeric strings or can be compared numerically
              return Number(b.id) - Number(a.id);
-        }));
+        });
+       setTrips(sortedTrips);
      }, []);
+
+
+    const getVehicleDisplay = (vehicleId: string) => {
+        const vehicle = vehicles.find(v => v.id === vehicleId);
+        return vehicle ? `${vehicle.model} (${vehicle.licensePlate})` : 'Veículo Desconhecido';
+    }
 
   // --- Handlers ---
   const handleCreateTrip = (e: React.FormEvent) => {
@@ -83,14 +93,20 @@ export const Trips: React.FC = () => {
       toast({ variant: "destructive", title: "Erro", description: "Usuário não autenticado." });
       return;
     }
-    if (!tripName || !selectedVehicleId) {
-      toast({ variant: "destructive", title: "Erro", description: "Nome da viagem e veículo são obrigatórios." });
+    // Removed tripName validation
+    if (!selectedVehicleId) {
+      toast({ variant: "destructive", title: "Erro", description: "Veículo é obrigatório." });
       return;
     }
 
+    // Generate automatic trip name
+    const vehicleDisplay = getVehicleDisplay(selectedVehicleId);
+    const dateStr = new Date().toLocaleDateString('pt-BR');
+    const generatedTripName = `Viagem ${vehicleDisplay} - ${dateStr}`;
+
     const newTrip: Trip = {
       id: String(Date.now()),
-      name: tripName,
+      name: generatedTripName, // Use generated name
       description,
       vehicleId: selectedVehicleId,
       userId: user.id,
@@ -110,6 +126,7 @@ export const Trips: React.FC = () => {
   const handleEditTrip = (e: React.FormEvent) => {
      e.preventDefault();
      if (!currentTrip || !user) return;
+      // Keep tripName validation for editing
       if (!tripName || !selectedVehicleId) {
         toast({ variant: "destructive", title: "Erro", description: "Nome da viagem e veículo são obrigatórios." });
         return;
@@ -143,10 +160,12 @@ export const Trips: React.FC = () => {
    const handleFinishTrip = (tripId: string, event: React.MouseEvent) => {
        event.stopPropagation(); // Prevent accordion from toggling
 
-        const updatedTrip: Trip | undefined = initialTrips.find(t => t.id === tripId);
-        if (!updatedTrip) return;
+        const index = initialTrips.findIndex(t => t.id === tripId);
+        if (index === -1) return;
 
-        updatedTrip.status = 'Finalizado';
+        const updatedTrip = { ...initialTrips[index], status: 'Finalizado' as const };
+        initialTrips[index] = updatedTrip;
+
 
         // Update local state and re-sort
         setTrips(prevTrips => [...prevTrips].map(trip => trip.id === tripId ? updatedTrip : trip)
@@ -179,14 +198,14 @@ export const Trips: React.FC = () => {
   const openEditModal = (trip: Trip, event: React.MouseEvent) => {
     event.stopPropagation();
     setCurrentTrip(trip);
-    setTripName(trip.name);
+    setTripName(trip.name); // Populate name for editing
     setDescription(trip.description || '');
     setSelectedVehicleId(trip.vehicleId);
     setIsEditModalOpen(true);
   };
 
   const resetForm = () => {
-    setTripName('');
+    setTripName(''); // Reset name state used in edit modal
     setDescription('');
     setSelectedVehicleId('');
   };
@@ -201,11 +220,6 @@ export const Trips: React.FC = () => {
      setIsEditModalOpen(false);
      setCurrentTrip(null);
    }
-
-    const getVehicleDisplay = (vehicleId: string) => {
-        const vehicle = vehicles.find(v => v.id === vehicleId);
-        return vehicle ? `${vehicle.model} (${vehicle.licensePlate})` : 'Veículo não encontrado';
-    }
 
 
   return (
@@ -223,10 +237,7 @@ export const Trips: React.FC = () => {
                <DialogTitle>Criar Nova Viagem</DialogTitle>
              </DialogHeader>
              <form onSubmit={handleCreateTrip} className="grid gap-4 py-4">
-                <div className="space-y-2">
-                  <Label htmlFor="tripName">Nome da Viagem*</Label>
-                  <Input id="tripName" value={tripName} onChange={(e) => setTripName(e.target.value)} required placeholder="Ex: Entrega São Paulo" />
-                </div>
+                {/* Nome da Viagem Input Removed */}
                  <div className="space-y-2">
                    <Label htmlFor="vehicleId">Veículo*</Label>
                    <Select value={selectedVehicleId} onValueChange={setSelectedVehicleId} required>
@@ -254,6 +265,7 @@ export const Trips: React.FC = () => {
                     <Label>Motorista</Label>
                     <p className="text-sm text-muted-foreground">{user?.email || 'Não identificado'}</p>
                  </div>
+                 {/* Status is set automatically */}
                  <DialogFooter>
                     <DialogClose asChild>
                        <Button type="button" variant="outline" onClick={closeCreateModal}>Cancelar</Button>
@@ -282,7 +294,7 @@ export const Trips: React.FC = () => {
                     <div className="flex-1 mr-4 space-y-1">
                       <div className="flex items-center gap-2">
                         <CardTitle className="text-lg">{trip.name}</CardTitle>
-                         <Badge variant={trip.status === 'Andamento' ? 'default' : 'secondary'} className="h-5 px-2 text-xs">
+                         <Badge variant={trip.status === 'Andamento' ? 'default' : 'secondary'} className={`h-5 px-2 text-xs ${trip.status === 'Andamento' ? 'bg-emerald-500 hover:bg-emerald-500/80 dark:bg-emerald-600 dark:hover:bg-emerald-600/80 text-white' : ''}`}>
                              {trip.status === 'Andamento' ? <PlayCircle className="h-3 w-3 mr-1" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
                              {trip.status}
                          </Badge>
@@ -320,8 +332,7 @@ export const Trips: React.FC = () => {
                                </AlertDialogContent>
                              </AlertDialog>
                         )}
-                       {/* Edit Button (only if not finished) */}
-                       {trip.status === 'Andamento' && (
+                       {/* Edit Button (always available for name/description/vehicle changes) */}
                        <Dialog open={isEditModalOpen && currentTrip?.id === trip.id} onOpenChange={(isOpen) => !isOpen && closeEditModal()}>
                          <DialogTrigger asChild>
                            <Button variant="ghost" size="icon" onClick={(e) => openEditModal(trip, e)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8">
@@ -361,6 +372,10 @@ export const Trips: React.FC = () => {
                                   <Label>Motorista</Label>
                                   <p className="text-sm text-muted-foreground">{user?.email || 'Não identificado'}</p>
                                </div>
+                              <div className="space-y-2">
+                                 <Label>Status</Label>
+                                 <p className="text-sm font-medium">{currentTrip?.status}</p>
+                              </div>
                              <DialogFooter>
                                 <DialogClose asChild>
                                   <Button type="button" variant="outline" onClick={closeEditModal}>Cancelar</Button>
@@ -370,7 +385,7 @@ export const Trips: React.FC = () => {
                            </form>
                          </DialogContent>
                        </Dialog>
-                       )}
+
 
                        {/* Delete Button */}
                         <AlertDialog>
