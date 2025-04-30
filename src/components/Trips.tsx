@@ -35,7 +35,7 @@ import { Badge } from "@/components/ui/badge"; // Import Badge
 interface Trip {
   id: string;
   name: string;
-  description?: string;
+  description?: string; // Keep description for editing, but remove from create
   vehicleId: string;
   userId: string;
   status: 'Andamento' | 'Finalizado'; // Added status field
@@ -47,8 +47,8 @@ interface Trip {
 
 // Mock data - Updated to include status
 const initialTrips: Trip[] = [
-  { id: '1', name: 'Viagem SP-RJ', description: 'Entrega cliente X e Y', vehicleId: 'v1', userId: '1', status: 'Andamento' },
-  { id: '2', name: 'Coleta Curitiba', vehicleId: 'v2', userId: '1', status: 'Finalizado' },
+  { id: '1', name: 'Viagem Scania R450 (BRA2E19) - 23/07/2024', description: 'Entrega cliente X e Y', vehicleId: 'v1', userId: '1', status: 'Andamento' }, // Example with generated name
+  { id: '2', name: 'Viagem Volvo FH540 (MER1C01) - 22/07/2024', vehicleId: 'v2', userId: '1', status: 'Finalizado' }, // Example with generated name
 ];
 
 export const Trips: React.FC = () => {
@@ -62,9 +62,8 @@ export const Trips: React.FC = () => {
   const { toast } = useToast();
 
   // --- Form State for Create/Edit ---
-  // tripName is still needed for the edit modal
-  const [tripName, setTripName] = useState('');
-  const [description, setDescription] = useState('');
+  const [tripName, setTripName] = useState(''); // Still needed for Edit Modal title consistency & edit form
+  const [description, setDescription] = useState(''); // Only used for Edit Modal
   const [selectedVehicleId, setSelectedVehicleId] = useState('');
 
    useEffect(() => {
@@ -75,7 +74,8 @@ export const Trips: React.FC = () => {
              if (a.status === 'Andamento' && b.status === 'Finalizado') return -1;
              if (a.status === 'Finalizado' && b.status === 'Andamento') return 1;
              // Assuming IDs are numeric strings or can be compared numerically
-             return Number(b.id) - Number(a.id);
+             // Use name for secondary sort if IDs are not reliably numeric/sequential
+             return b.name.localeCompare(a.name); // Sort by name descending as fallback
         });
        setTrips(sortedTrips);
      }, []);
@@ -93,7 +93,6 @@ export const Trips: React.FC = () => {
       toast({ variant: "destructive", title: "Erro", description: "Usuário não autenticado." });
       return;
     }
-    // Removed tripName validation
     if (!selectedVehicleId) {
       toast({ variant: "destructive", title: "Erro", description: "Veículo é obrigatório." });
       return;
@@ -107,7 +106,7 @@ export const Trips: React.FC = () => {
     const newTrip: Trip = {
       id: String(Date.now()),
       name: generatedTripName, // Use generated name
-      description,
+      // Description is not collected in create modal anymore
       vehicleId: selectedVehicleId,
       userId: user.id,
       status: 'Andamento', // Default status
@@ -116,7 +115,7 @@ export const Trips: React.FC = () => {
      setTrips(prevTrips => [newTrip, ...prevTrips].sort((a, b) => {
         if (a.status === 'Andamento' && b.status === 'Finalizado') return -1;
         if (a.status === 'Finalizado' && b.status === 'Andamento') return 1;
-        return Number(b.id) - Number(a.id);
+        return b.name.localeCompare(a.name); // Sort by name descending
      }));
     resetForm();
     setIsCreateModalOpen(false);
@@ -135,7 +134,7 @@ export const Trips: React.FC = () => {
      const updatedTrip: Trip = {
        ...currentTrip,
        name: tripName,
-       description,
+       description, // Description is editable
        vehicleId: selectedVehicleId,
        // Status is not edited here, but via a separate action
      };
@@ -149,7 +148,7 @@ export const Trips: React.FC = () => {
                                     .sort((a,b) => {
                                         if (a.status === 'Andamento' && b.status === 'Finalizado') return -1;
                                         if (a.status === 'Finalizado' && b.status === 'Andamento') return 1;
-                                        return Number(b.id) - Number(a.id);
+                                        return b.name.localeCompare(a.name); // Sort by name descending
                                      }));
      resetForm();
      setIsEditModalOpen(false);
@@ -172,7 +171,7 @@ export const Trips: React.FC = () => {
                                             .sort((a, b) => {
                                               if (a.status === 'Andamento' && b.status === 'Finalizado') return -1;
                                               if (a.status === 'Finalizado' && b.status === 'Andamento') return 1;
-                                              return Number(b.id) - Number(a.id);
+                                              return b.name.localeCompare(a.name); // Sort by name descending
                                             }));
 
          toast({ title: `Viagem "${updatedTrip.name}" marcada como finalizada.` });
@@ -199,14 +198,14 @@ export const Trips: React.FC = () => {
     event.stopPropagation();
     setCurrentTrip(trip);
     setTripName(trip.name); // Populate name for editing
-    setDescription(trip.description || '');
+    setDescription(trip.description || ''); // Populate description for editing
     setSelectedVehicleId(trip.vehicleId);
     setIsEditModalOpen(true);
   };
 
   const resetForm = () => {
     setTripName(''); // Reset name state used in edit modal
-    setDescription('');
+    setDescription(''); // Reset description state used in edit modal
     setSelectedVehicleId('');
   };
 
@@ -237,7 +236,6 @@ export const Trips: React.FC = () => {
                <DialogTitle>Criar Nova Viagem</DialogTitle>
              </DialogHeader>
              <form onSubmit={handleCreateTrip} className="grid gap-4 py-4">
-                {/* Nome da Viagem Input Removed */}
                  <div className="space-y-2">
                    <Label htmlFor="vehicleId">Veículo*</Label>
                    <Select value={selectedVehicleId} onValueChange={setSelectedVehicleId} required>
@@ -257,15 +255,17 @@ export const Trips: React.FC = () => {
                      </SelectContent>
                    </Select>
                  </div>
-                 <div className="space-y-2">
-                   <Label htmlFor="description">Descrição</Label>
-                   <Textarea id="description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Detalhes adicionais (opcional)" />
-                 </div>
+                 {/* Description field removed */}
                  <div className="space-y-2">
                     <Label>Motorista</Label>
                     <p className="text-sm text-muted-foreground">{user?.email || 'Não identificado'}</p>
                  </div>
-                 {/* Status is set automatically */}
+                 <div className="space-y-2">
+                   <Label>Status</Label>
+                    <p className="text-sm font-medium text-emerald-600 flex items-center gap-1">
+                       <PlayCircle className="h-4 w-4" /> Andamento
+                    </p>
+                 </div>
                  <DialogFooter>
                     <DialogClose asChild>
                        <Button type="button" variant="outline" onClick={closeCreateModal}>Cancelar</Button>
@@ -292,9 +292,9 @@ export const Trips: React.FC = () => {
               <AccordionItem key={trip.id} value={trip.id} className="border bg-card rounded-lg shadow-sm overflow-hidden">
                  <AccordionTrigger className="flex justify-between items-center p-4 hover:bg-accent/50 cursor-pointer w-full text-left data-[state=open]:border-b">
                     <div className="flex-1 mr-4 space-y-1">
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap"> {/* Allow wrapping */}
                         <CardTitle className="text-lg">{trip.name}</CardTitle>
-                         <Badge variant={trip.status === 'Andamento' ? 'default' : 'secondary'} className={`h-5 px-2 text-xs ${trip.status === 'Andamento' ? 'bg-emerald-500 hover:bg-emerald-500/80 dark:bg-emerald-600 dark:hover:bg-emerald-600/80 text-white' : ''}`}>
+                         <Badge variant={trip.status === 'Andamento' ? 'default' : 'secondary'} className={`h-5 px-2 text-xs whitespace-nowrap ${trip.status === 'Andamento' ? 'bg-emerald-500 hover:bg-emerald-500/80 dark:bg-emerald-600 dark:hover:bg-emerald-600/80 text-white' : ''}`}>
                              {trip.status === 'Andamento' ? <PlayCircle className="h-3 w-3 mr-1" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
                              {trip.status}
                          </Badge>
@@ -309,8 +309,9 @@ export const Trips: React.FC = () => {
                         {trip.status === 'Andamento' && (
                              <AlertDialog>
                                <AlertDialogTrigger asChild>
-                                 <Button variant="outline" size="sm" onClick={(e) => e.stopPropagation()} className="h-8 text-emerald-600 border-emerald-600/50 hover:bg-emerald-50 hover:text-emerald-700">
-                                    <CheckCircle2 className="h-4 w-4 mr-1" /> Finalizar
+                                 {/* Make button smaller and potentially hide text on small screens */}
+                                 <Button variant="outline" size="sm" onClick={(e) => e.stopPropagation()} className="h-8 px-2 sm:px-3 text-emerald-600 border-emerald-600/50 hover:bg-emerald-50 hover:text-emerald-700">
+                                    <CheckCircle2 className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">Finalizar</span>
                                  </Button>
                                </AlertDialogTrigger>
                                <AlertDialogContent>
@@ -413,7 +414,7 @@ export const Trips: React.FC = () => {
                             </AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>
-                        <ChevronDown className="h-5 w-5 transition-transform duration-200 group-data-[state=open]:rotate-180 flex-shrink-0 ml-2" />
+                        <ChevronDown className="h-5 w-5 transition-transform duration-200 group-data-[state=open]:rotate-180 flex-shrink-0 ml-1 sm:ml-2" />
                      </div>
                  </AccordionTrigger>
                  <AccordionContent className="p-4 pt-0 bg-secondary/30">
