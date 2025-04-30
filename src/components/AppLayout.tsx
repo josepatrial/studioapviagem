@@ -8,8 +8,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useAuth } from '@/contexts/AuthContext';
 import { Dashboard } from '@/components/Dashboard';
 import { Trips } from '@/components/Trips';
-// Removed import for Visits, Expenses, Fuelings as they are now nested
-import { LogOut, User as UserIcon, LayoutDashboard, Plane } from 'lucide-react'; // Removed Map, Wallet, Fuel
+import { Vehicle } from '@/components/Vehicle'; // Import Vehicle component
+import { LogOut, User as UserIcon, LayoutDashboard, Plane, Car } from 'lucide-react'; // Added Car icon
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -77,13 +77,16 @@ const AppLayout: React.FC = () => {
       {/* Main Content Area with Tabs */}
        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-1 flex-col overflow-hidden">
           <div className="overflow-x-auto border-b bg-background">
-             {/* Updated grid-cols-2 */}
-             <TabsList className="grid w-full grid-cols-2 rounded-none bg-transparent p-0 sm:w-auto sm:inline-flex">
+             {/* Updated grid-cols-3 */}
+             <TabsList className="grid w-full grid-cols-3 rounded-none bg-transparent p-0 sm:w-auto sm:inline-flex">
                  <TabsTrigger value="dashboard" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
                    <LayoutDashboard className="mr-2 h-4 w-4 sm:hidden md:inline-block" /> Dashboard
                  </TabsTrigger>
                  <TabsTrigger value="trips" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
                     <Plane className="mr-2 h-4 w-4 sm:hidden md:inline-block" /> Viagens
+                 </TabsTrigger>
+                 <TabsTrigger value="vehicle" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
+                    <Car className="mr-2 h-4 w-4 sm:hidden md:inline-block" /> Veículo
                  </TabsTrigger>
                  {/* Removed Visits, Expenses, Fuelings Triggers */}
              </TabsList>
@@ -92,6 +95,7 @@ const AppLayout: React.FC = () => {
           <div className="flex-1 overflow-y-auto p-4 md:p-6">
             <TabsContent value="dashboard"><Dashboard /></TabsContent>
             <TabsContent value="trips"><Trips /></TabsContent>
+            <TabsContent value="vehicle"><Vehicle /></TabsContent> {/* Added Vehicle Content */}
             {/* Removed Visits, Expenses, Fuelings Content */}
           </div>
        </Tabs>
