@@ -19,8 +19,8 @@ export interface VehicleInfo {
   licensePlate: string;
 }
 
-// Mock data - replace with actual data fetching and state management
-const initialVehicles: VehicleInfo[] = [
+// Mock data - Exported for use elsewhere
+export const initialVehicles: VehicleInfo[] = [
   { id: 'v1', model: 'Scania R450', year: 2021, licensePlate: 'BRA2E19' },
   { id: 'v2', model: 'Volvo FH540', year: 2022, licensePlate: 'MER1C01' },
 ];
@@ -55,13 +55,14 @@ export const Vehicle: React.FC = () => {
       year: Number(year),
       licensePlate: licensePlate.toUpperCase(), // Store plate in uppercase
     };
-    setVehicles([newVehicle, ...vehicles]); // Add to the beginning of the list
+    // In a real app, save to backend before updating state
+    initialVehicles.push(newVehicle); // Add to global mock data
+    setVehicles(prevVehicles => [newVehicle, ...prevVehicles]); // Add to the beginning of the local state list
     resetForm();
     setIsCreateModalOpen(false);
     toast({ title: "Veículo cadastrado com sucesso!" });
   };
 
-  // Placeholder for Edit functionality
    const handleEditVehicle = (e: React.FormEvent) => {
      e.preventDefault();
      if (!currentVehicle) return;
@@ -81,16 +82,26 @@ export const Vehicle: React.FC = () => {
        licensePlate: licensePlate.toUpperCase(),
      };
 
-     setVehicles(vehicles.map(v => v.id === currentVehicle.id ? updatedVehicle : v));
+      // In a real app, save to backend before updating state
+      const index = initialVehicles.findIndex(v => v.id === currentVehicle.id);
+       if (index !== -1) {
+         initialVehicles[index] = updatedVehicle; // Update global mock data
+       }
+
+     setVehicles(prevVehicles => prevVehicles.map(v => v.id === currentVehicle.id ? updatedVehicle : v)); // Update local state
      resetForm();
      setIsEditModalOpen(false);
      setCurrentVehicle(null);
      toast({ title: "Veículo atualizado com sucesso!" });
    };
 
-  // Placeholder for Delete functionality
    const handleDeleteVehicle = (vehicleId: string) => {
-     setVehicles(vehicles.filter(v => v.id !== vehicleId));
+      // In a real app, call backend to delete before updating state
+      const index = initialVehicles.findIndex(v => v.id === vehicleId);
+       if (index !== -1) {
+         initialVehicles.splice(index, 1); // Remove from global mock data
+       }
+     setVehicles(prevVehicles => prevVehicles.filter(v => v.id !== vehicleId)); // Update local state
      toast({ title: "Veículo excluído." });
    };
 
@@ -259,23 +270,6 @@ export const Vehicle: React.FC = () => {
         </div>
        )}
 
-      {/* Maintenance Section Placeholder REMOVED */}
-      {/*
-      <Card className="shadow-md mt-6">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-primary">
-            <Wrench className="h-5 w-5" />
-            Manutenção (Geral)
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-muted-foreground">
-            Aqui será exibido o histórico geral de manutenções e lembretes para todos os veículos. Detalhes por veículo estarão acima.
-          </p>
-          {/* Placeholder for general maintenance records * /}
-        </CardContent>
-      </Card>
-      */}
     </div>
   );
 };

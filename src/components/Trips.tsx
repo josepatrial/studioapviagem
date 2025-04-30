@@ -1,10 +1,10 @@
 // src/components/Trips.tsx
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Edit, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
+import { PlusCircle, Edit, Trash2, ChevronDown, ChevronUp, Car } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,63 +21,80 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Visits } from './Visits'; // Import nested components
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"; // Import Select
+import { Visits } from './Visits';
 import { Expenses } from './Expenses';
 import { Fuelings } from './Fuelings';
 import { useToast } from '@/hooks/use-toast';
+import { useAuth } from '@/contexts/AuthContext'; // Import useAuth
+import type { VehicleInfo } from './Vehicle'; // Import VehicleInfo type
+import { initialVehicles } from './Vehicle'; // Import mock vehicles for dropdown
 
+// Updated Trip interface
 interface Trip {
   id: string;
   name: string;
-  startDate: string;
-  endDate: string;
   description?: string;
+  vehicleId: string; // Added vehicleId
+  userId: string;    // Added userId
+  // Removed startDate, endDate
   // Add counts for related items (optional, calculate if needed)
   visitCount?: number;
   expenseCount?: number;
   fuelingCount?: number;
 }
 
-// Mock data - replace with actual data fetching and state management
+// Mock data - Updated to match new interface
 const initialTrips: Trip[] = [
-  { id: '1', name: 'Viagem SP-RJ', startDate: '2024-07-20', endDate: '2024-07-25', description: 'Entrega cliente X e Y' },
-  { id: '2', name: 'Coleta Curitiba', startDate: '2024-08-01', endDate: '2024-08-03' },
+  { id: '1', name: 'Viagem SP-RJ', description: 'Entrega cliente X e Y', vehicleId: 'v1', userId: '1' },
+  { id: '2', name: 'Coleta Curitiba', vehicleId: 'v2', userId: '1' },
 ];
 
 export const Trips: React.FC = () => {
+  const { user } = useAuth(); // Get user from context
   const [trips, setTrips] = useState<Trip[]>(initialTrips);
+  const [vehicles, setVehicles] = useState<VehicleInfo[]>(initialVehicles); // State for vehicles
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [currentTrip, setCurrentTrip] = useState<Trip | null>(null);
-  const [expandedTripId, setExpandedTripId] = useState<string | null>(null); // Track expanded trip
+  const [expandedTripId, setExpandedTripId] = useState<string | null>(null);
   const { toast } = useToast();
 
   // --- Form State for Create/Edit ---
   const [tripName, setTripName] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
   const [description, setDescription] = useState('');
+  const [selectedVehicleId, setSelectedVehicleId] = useState(''); // State for selected vehicle
+
+   useEffect(() => {
+       // Fetch vehicles in a real app
+       setVehicles(initialVehicles);
+
+       // Initial sort (can be done once or on data change)
+       setTrips(currentTrips => [...currentTrips].sort((a, b) => Number(b.id) - Number(a.id))); // Sort by id descending initially
+     }, []);
 
   // --- Handlers ---
   const handleCreateTrip = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!tripName || !startDate || !endDate) {
-      toast({ variant: "destructive", title: "Erro", description: "Nome, data de início e data de fim são obrigatórios." });
+    if (!user) {
+      toast({ variant: "destructive", title: "Erro", description: "Usuário não autenticado." });
       return;
     }
-    if (new Date(startDate) > new Date(endDate)) {
-      toast({ variant: "destructive", title: "Erro", description: "A data de início não pode ser posterior à data de fim." });
-       return;
-     }
+    if (!tripName || !selectedVehicleId) {
+      toast({ variant: "destructive", title: "Erro", description: "Nome da viagem e veículo são obrigatórios." });
+      return;
+    }
 
     const newTrip: Trip = {
-      id: String(Date.now()), // Simple unique ID generation
+      id: String(Date.now()),
       name: tripName,
-      startDate,
-      endDate,
       description,
+      vehicleId: selectedVehicleId,
+      userId: user.id, // Assign logged-in user's ID
     };
-    setTrips([newTrip, ...trips].sort((a,b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime())); // Add and sort
+    // In a real app, save to backend
+    initialTrips.push(newTrip); // Add to mock data
+    setTrips(prevTrips => [newTrip, ...prevTrips].sort((a, b) => Number(b.id) - Number(a.id))); // Add and sort
     resetForm();
     setIsCreateModalOpen(false);
     toast({ title: "Viagem criada com sucesso!" });
@@ -85,26 +102,28 @@ export const Trips: React.FC = () => {
 
   const handleEditTrip = (e: React.FormEvent) => {
      e.preventDefault();
-     if (!currentTrip) return;
-      if (!tripName || !startDate || !endDate) {
-        toast({ variant: "destructive", title: "Erro", description: "Nome, data de início e data de fim são obrigatórios." });
-        return;
-      }
-      if (new Date(startDate) > new Date(endDate)) {
-       toast({ variant: "destructive", title: "Erro", description: "A data de início não pode ser posterior à data de fim." });
+     if (!currentTrip || !user) return;
+      if (!tripName || !selectedVehicleId) {
+        toast({ variant: "destructive", title: "Erro", description: "Nome da viagem e veículo são obrigatórios." });
         return;
       }
 
      const updatedTrip: Trip = {
        ...currentTrip,
        name: tripName,
-       startDate,
-       endDate,
        description,
+       vehicleId: selectedVehicleId,
+       // userId typically doesn't change on edit
      };
 
-     setTrips(trips.map(trip => trip.id === currentTrip.id ? updatedTrip : trip)
-                .sort((a,b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime())); // Update and sort
+     // In a real app, save to backend
+     const index = initialTrips.findIndex(t => t.id === currentTrip.id);
+     if (index !== -1) {
+       initialTrips[index] = updatedTrip;
+     }
+
+     setTrips(prevTrips => prevTrips.map(trip => trip.id === currentTrip.id ? updatedTrip : trip)
+                                    .sort((a,b) => Number(b.id) - Number(a.id))); // Update and sort
      resetForm();
      setIsEditModalOpen(false);
      setCurrentTrip(null);
@@ -113,28 +132,30 @@ export const Trips: React.FC = () => {
 
   const handleDeleteTrip = (tripId: string) => {
     // Add logic here to also delete associated Visits, Expenses, Fuelings in a real app
+    const index = initialTrips.findIndex(t => t.id === tripId);
+     if (index !== -1) {
+       initialTrips.splice(index, 1);
+     }
     setTrips(trips.filter(trip => trip.id !== tripId));
     if (expandedTripId === tripId) {
-      setExpandedTripId(null); // Collapse if deleted trip was expanded
+      setExpandedTripId(null);
     }
     toast({ title: "Viagem excluída.", description: "Visitas, despesas e abastecimentos associados também devem ser tratados." });
   };
 
   const openEditModal = (trip: Trip, event: React.MouseEvent) => {
-    event.stopPropagation(); // Prevent accordion toggle when clicking edit
+    event.stopPropagation();
     setCurrentTrip(trip);
     setTripName(trip.name);
-    setStartDate(trip.startDate);
-    setEndDate(trip.endDate);
     setDescription(trip.description || '');
+    setSelectedVehicleId(trip.vehicleId); // Set selected vehicle
     setIsEditModalOpen(true);
   };
 
   const resetForm = () => {
     setTripName('');
-    setStartDate('');
-    setEndDate('');
     setDescription('');
+    setSelectedVehicleId(''); // Reset vehicle selection
   };
 
   const closeCreateModal = () => {
@@ -148,17 +169,12 @@ export const Trips: React.FC = () => {
      setCurrentTrip(null);
    }
 
-   // Format Date for display
-    const formatDate = (dateString: string) => {
-        if (!dateString) return '-';
-        try {
-            // Use UTC to avoid timezone issues if dates are stored as YYYY-MM-DD
-            const date = new Date(dateString + 'T00:00:00Z');
-            return date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'UTC' });
-        } catch (e) {
-            return 'Data inválida';
-        }
+   // Find vehicle details for display
+    const getVehicleDisplay = (vehicleId: string) => {
+        const vehicle = vehicles.find(v => v.id === vehicleId);
+        return vehicle ? `${vehicle.model} (${vehicle.licensePlate})` : 'Veículo não encontrado';
     }
+
 
   return (
     <div className="space-y-6">
@@ -175,21 +191,38 @@ export const Trips: React.FC = () => {
                <DialogTitle>Criar Nova Viagem</DialogTitle>
              </DialogHeader>
              <form onSubmit={handleCreateTrip} className="grid gap-4 py-4">
-                <div className="grid grid-cols-4 items-center gap-4">
-                  <Label htmlFor="tripName" className="text-right">Nome*</Label>
-                  <Input id="tripName" value={tripName} onChange={(e) => setTripName(e.target.value)} className="col-span-3" required />
+                <div className="space-y-2">
+                  <Label htmlFor="tripName">Nome da Viagem*</Label>
+                  <Input id="tripName" value={tripName} onChange={(e) => setTripName(e.target.value)} required placeholder="Ex: Entrega São Paulo" />
                 </div>
-                <div className="grid grid-cols-4 items-center gap-4">
-                   <Label htmlFor="startDate" className="text-right">Início*</Label>
-                   <Input id="startDate" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="col-span-3" required />
+                 {/* Vehicle Select */}
+                 <div className="space-y-2">
+                   <Label htmlFor="vehicleId">Veículo*</Label>
+                   <Select value={selectedVehicleId} onValueChange={setSelectedVehicleId} required>
+                     <SelectTrigger id="vehicleId">
+                       <SelectValue placeholder="Selecione um veículo" />
+                     </SelectTrigger>
+                     <SelectContent>
+                       {vehicles.length > 0 ? (
+                         vehicles.map((vehicle) => (
+                           <SelectItem key={vehicle.id} value={vehicle.id}>
+                             {vehicle.model} ({vehicle.licensePlate})
+                           </SelectItem>
+                         ))
+                       ) : (
+                         <SelectItem value="no-vehicles" disabled>Nenhum veículo cadastrado</SelectItem>
+                       )}
+                     </SelectContent>
+                   </Select>
                  </div>
-                 <div className="grid grid-cols-4 items-center gap-4">
-                   <Label htmlFor="endDate" className="text-right">Fim*</Label>
-                   <Input id="endDate" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="col-span-3" required />
+                 {/* Removed Date Fields */}
+                 <div className="space-y-2">
+                   <Label htmlFor="description">Descrição</Label>
+                   <Textarea id="description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Detalhes adicionais (opcional)" />
                  </div>
-                 <div className="grid grid-cols-4 items-center gap-4">
-                   <Label htmlFor="description" className="text-right">Descrição</Label>
-                   <Textarea id="description" value={description} onChange={(e) => setDescription(e.target.value)} className="col-span-3" placeholder="Detalhes adicionais (opcional)" />
+                 <div className="space-y-2">
+                    <Label>Motorista</Label>
+                    <p className="text-sm text-muted-foreground">{user?.email || 'Não identificado'}</p>
                  </div>
                  <DialogFooter>
                     <DialogClose asChild>
@@ -218,8 +251,9 @@ export const Trips: React.FC = () => {
                  <AccordionTrigger className="flex justify-between items-center p-4 hover:bg-accent/50 cursor-pointer w-full text-left data-[state=open]:border-b">
                     <div className="flex-1 mr-4">
                       <CardTitle className="text-lg">{trip.name}</CardTitle>
-                       <CardDescription className="text-sm">
-                          {formatDate(trip.startDate)} - {formatDate(trip.endDate)}
+                       {/* Display Vehicle instead of dates */}
+                       <CardDescription className="text-sm flex items-center gap-1 mt-1">
+                          <Car className="h-4 w-4 text-muted-foreground"/> {getVehicleDisplay(trip.vehicleId)}
                        </CardDescription>
                        {trip.description && <p className="text-xs text-muted-foreground mt-1">{trip.description}</p>}
                     </div>
@@ -237,22 +271,35 @@ export const Trips: React.FC = () => {
                              <DialogTitle>Editar Viagem</DialogTitle>
                            </DialogHeader>
                            <form onSubmit={handleEditTrip} className="grid gap-4 py-4">
-                             <div className="grid grid-cols-4 items-center gap-4">
-                               <Label htmlFor="editTripName" className="text-right">Nome*</Label>
-                               <Input id="editTripName" value={tripName} onChange={(e) => setTripName(e.target.value)} className="col-span-3" required />
-                             </div>
-                             <div className="grid grid-cols-4 items-center gap-4">
-                                <Label htmlFor="editStartDate" className="text-right">Início*</Label>
-                                <Input id="editStartDate" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="col-span-3" required />
+                              <div className="space-y-2">
+                                <Label htmlFor="editTripName">Nome da Viagem*</Label>
+                                <Input id="editTripName" value={tripName} onChange={(e) => setTripName(e.target.value)} required />
                               </div>
-                              <div className="grid grid-cols-4 items-center gap-4">
-                                <Label htmlFor="editEndDate" className="text-right">Fim*</Label>
-                                <Input id="editEndDate" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="col-span-3" required />
+                               {/* Vehicle Select */}
+                               <div className="space-y-2">
+                                 <Label htmlFor="editVehicleId">Veículo*</Label>
+                                 <Select value={selectedVehicleId} onValueChange={setSelectedVehicleId} required>
+                                   <SelectTrigger id="editVehicleId">
+                                     <SelectValue />
+                                   </SelectTrigger>
+                                   <SelectContent>
+                                     {vehicles.map((vehicle) => (
+                                       <SelectItem key={vehicle.id} value={vehicle.id}>
+                                         {vehicle.model} ({vehicle.licensePlate})
+                                       </SelectItem>
+                                     ))}
+                                   </SelectContent>
+                                 </Select>
+                               </div>
+                              {/* Removed Date Fields */}
+                              <div className="space-y-2">
+                                <Label htmlFor="editDescription">Descrição</Label>
+                                <Textarea id="editDescription" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Detalhes adicionais (opcional)" />
                               </div>
-                              <div className="grid grid-cols-4 items-center gap-4">
-                                <Label htmlFor="editDescription" className="text-right">Descrição</Label>
-                                <Textarea id="editDescription" value={description} onChange={(e) => setDescription(e.target.value)} className="col-span-3" placeholder="Detalhes adicionais (opcional)" />
-                              </div>
+                               <div className="space-y-2">
+                                  <Label>Motorista</Label>
+                                  <p className="text-sm text-muted-foreground">{user?.email || 'Não identificado'}</p>
+                               </div>
                              <DialogFooter>
                                 <DialogClose asChild>
                                   <Button type="button" variant="outline" onClick={closeEditModal}>Cancelar</Button>
@@ -289,12 +336,10 @@ export const Trips: React.FC = () => {
                             </AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>
-                        {/* Chevron moved inside trigger */}
                         <ChevronDown className="h-5 w-5 transition-transform duration-200 group-data-[state=open]:rotate-180 flex-shrink-0 ml-2" />
                      </div>
                  </AccordionTrigger>
                  <AccordionContent className="p-4 pt-0 bg-secondary/30">
-                    {/* Nested Tabs or Sections for Visits, Expenses, Fuelings */}
                     <div className="space-y-6">
                          <section>
                              <Visits tripId={trip.id} tripName={trip.name} />
