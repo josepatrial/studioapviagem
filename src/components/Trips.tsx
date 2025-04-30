@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Edit, Trash2, ChevronDown, ChevronUp, Car, CheckCircle2, PlayCircle } from 'lucide-react'; // Added CheckCircle2, PlayCircle
+import { PlusCircle, Edit, Trash2, ChevronDown, ChevronUp, Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel } from 'lucide-react'; // Added CheckCircle2, PlayCircle, MapPin, Wallet, Fuel
 import {
   AlertDialog,
   AlertDialogAction,
@@ -31,24 +31,31 @@ import type { VehicleInfo } from './Vehicle';
 import { initialVehicles } from './Vehicle';
 import { Badge } from "@/components/ui/badge"; // Import Badge
 
+// Import interfaces from respective components for type safety
+import type { Visit } from './Visits';
+import type { Expense } from './Expenses';
+import type { Fueling } from './Fuelings';
+
+
 // Updated Trip interface with status
 interface Trip {
   id: string;
   name: string;
-  description?: string; // Keep description for editing, but remove from create
   vehicleId: string;
   userId: string;
   status: 'Andamento' | 'Finalizado'; // Added status field
+  createdAt: string; // Timestamp of creation
+  updatedAt: string; // Timestamp of last update
   // Add counts for related items (optional, calculate if needed)
   visitCount?: number;
   expenseCount?: number;
   fuelingCount?: number;
 }
 
-// Mock data - Updated to include status
+// Mock data - Updated to include status and timestamps
 const initialTrips: Trip[] = [
-  { id: '1', name: 'Viagem Scania R450 (BRA2E19) - 23/07/2024', description: 'Entrega cliente X e Y', vehicleId: 'v1', userId: '1', status: 'Andamento' }, // Example with generated name
-  { id: '2', name: 'Viagem Volvo FH540 (MER1C01) - 22/07/2024', vehicleId: 'v2', userId: '1', status: 'Finalizado' }, // Example with generated name
+  { id: '1', name: 'Viagem Scania R450 (BRA2E19) - 23/07/2024', vehicleId: 'v1', userId: '1', status: 'Andamento', createdAt: new Date(2024, 6, 20).toISOString(), updatedAt: new Date(2024, 6, 21).toISOString() }, // Example with generated name
+  { id: '2', name: 'Viagem Volvo FH540 (MER1C01) - 22/07/2024', vehicleId: 'v2', userId: '1', status: 'Finalizado', createdAt: new Date(2024, 6, 15).toISOString(), updatedAt: new Date(2024, 6, 22).toISOString() }, // Example with generated name
 ];
 
 export const Trips: React.FC = () => {
@@ -63,7 +70,6 @@ export const Trips: React.FC = () => {
 
   // --- Form State for Create/Edit ---
   const [tripName, setTripName] = useState(''); // Still needed for Edit Modal title consistency & edit form
-  const [description, setDescription] = useState(''); // Only used for Edit Modal
   const [selectedVehicleId, setSelectedVehicleId] = useState('');
 
    useEffect(() => {
@@ -86,6 +92,17 @@ export const Trips: React.FC = () => {
         return vehicle ? `${vehicle.model} (${vehicle.licensePlate})` : 'Veículo Desconhecido';
     }
 
+     const getTripDescription = (trip: Trip): string => {
+        const vehicle = vehicles.find(v => v.id === trip.vehicleId);
+        return vehicle ? `${vehicle.model} (${vehicle.licensePlate})` : 'Veículo Desconhecido';
+    }
+
+
+    const getVisitCount = (tripId: string): number => initialVisits.filter(v => v.tripId === tripId).length;
+    const getExpenseCount = (tripId: string): number => initialExpenses.filter(e => e.tripId === tripId).length;
+    const getFuelingCount = (tripId: string): number => initialFuelings.filter(f => f.tripId === tripId).length;
+
+
   // --- Handlers ---
   const handleCreateTrip = (e: React.FormEvent) => {
     e.preventDefault();
@@ -106,10 +123,11 @@ export const Trips: React.FC = () => {
     const newTrip: Trip = {
       id: String(Date.now()),
       name: generatedTripName, // Use generated name
-      // Description is not collected in create modal anymore
       vehicleId: selectedVehicleId,
       userId: user.id,
       status: 'Andamento', // Default status
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     };
     initialTrips.push(newTrip);
      setTrips(prevTrips => [newTrip, ...prevTrips].sort((a, b) => {
@@ -134,9 +152,11 @@ export const Trips: React.FC = () => {
      const updatedTrip: Trip = {
        ...currentTrip,
        name: tripName,
-       description, // Description is editable
        vehicleId: selectedVehicleId,
-       // Status is not edited here, but via a separate action
+       userId: user.id,
+       status: currentTrip.status, // Keep the original status
+       createdAt: currentTrip.createdAt, // Keep the original created at
+       updatedAt: new Date().toISOString(),
      };
 
      const index = initialTrips.findIndex(t => t.id === currentTrip.id);
@@ -162,7 +182,7 @@ export const Trips: React.FC = () => {
         const index = initialTrips.findIndex(t => t.id === tripId);
         if (index === -1) return;
 
-        const updatedTrip = { ...initialTrips[index], status: 'Finalizado' as const };
+        const updatedTrip = { ...initialTrips[index], status: 'Finalizado' as const, updatedAt: new Date().toISOString() };
         initialTrips[index] = updatedTrip;
 
 
@@ -198,14 +218,12 @@ export const Trips: React.FC = () => {
     event.stopPropagation();
     setCurrentTrip(trip);
     setTripName(trip.name); // Populate name for editing
-    setDescription(trip.description || ''); // Populate description for editing
     setSelectedVehicleId(trip.vehicleId);
     setIsEditModalOpen(true);
   };
 
   const resetForm = () => {
     setTripName(''); // Reset name state used in edit modal
-    setDescription(''); // Reset description state used in edit modal
     setSelectedVehicleId('');
   };
 
@@ -288,7 +306,11 @@ export const Trips: React.FC = () => {
         </Card>
       ) : (
          <Accordion type="single" collapsible className="w-full space-y-4" value={expandedTripId ?? undefined} onValueChange={setExpandedTripId}>
-            {trips.map((trip) => (
+            {trips.map((trip) => {
+              const visitCount = getVisitCount(trip.id);
+              const expenseCount = getExpenseCount(trip.id);
+              const fuelingCount = getFuelingCount(trip.id);
+              return (
               <AccordionItem key={trip.id} value={trip.id} className="border bg-card rounded-lg shadow-sm overflow-hidden">
                  <AccordionTrigger className="flex justify-between items-center p-4 hover:bg-accent/50 cursor-pointer w-full text-left data-[state=open]:border-b">
                     <div className="flex-1 mr-4 space-y-1">
@@ -300,9 +322,23 @@ export const Trips: React.FC = () => {
                          </Badge>
                       </div>
                        <CardDescription className="text-sm flex items-center gap-1">
-                          <Car className="h-4 w-4 text-muted-foreground"/> {getVehicleDisplay(trip.vehicleId)}
+                          <Car className="h-4 w-4 text-muted-foreground"/> {getTripDescription(trip)}
                        </CardDescription>
-                       {trip.description && <p className="text-xs text-muted-foreground">{trip.description}</p>}
+                       <div className="flex items-center space-x-2 text-xs text-muted-foreground">
+                            <span>
+                                <MapPin className="h-3 w-3 inline-block mr-1" /> {visitCount} Visitas
+                            </span>
+                            <span>
+                                <Wallet className="h-3 w-3 inline-block mr-1" /> {expenseCount} Despesas
+                            </span>
+                            <span>
+                                <Fuel className="h-3 w-3 inline-block mr-1" /> {fuelingCount} Abastecimentos
+                            </span>
+                        </div>
+                       <div className="flex items-center space-x-2 text-xs text-muted-foreground">
+                           <span>Início: {new Date(trip.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                           <span>Atualizado: {new Date(trip.updatedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                        </div>
                     </div>
                      <div className="flex items-center gap-1 flex-shrink-0">
                         {/* Finish Trip Button */}
@@ -365,10 +401,6 @@ export const Trips: React.FC = () => {
                                    </SelectContent>
                                  </Select>
                                </div>
-                              <div className="space-y-2">
-                                <Label htmlFor="editDescription">Descrição</Label>
-                                <Textarea id="editDescription" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Detalhes adicionais (opcional)" />
-                              </div>
                                <div className="space-y-2">
                                   <Label>Motorista</Label>
                                   <p className="text-sm text-muted-foreground">{user?.email || 'Não identificado'}</p>
@@ -433,7 +465,7 @@ export const Trips: React.FC = () => {
                     </div>
                  </AccordionContent>
               </AccordionItem>
-            ))}
+            )})}
          </Accordion>
       )}
     </div>
