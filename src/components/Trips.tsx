@@ -36,6 +36,11 @@ import type { Visit } from './Visits';
 import type { Expense } from './Expenses';
 import type { Fueling } from './Fuelings';
 
+// Mock data - Imported to fix the reference error, but could be moved back if unused here
+import {initialVisits} from './Visits';
+import {initialExpenses} from './Expenses';
+import {initialFuelings} from './Fuelings';
+
 
 // Updated Trip interface with status
 interface Trip {
