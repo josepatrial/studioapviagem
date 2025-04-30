@@ -38,7 +38,7 @@ const AppLayout: React.FC = () => {
     <div className="flex h-screen w-screen flex-col bg-secondary">
       {/* Header */}
       <header className="flex items-center justify-between border-b bg-background p-4 shadow-sm">
-        <h1 className="text-xl font-bold text-primary">Rota Certa</h1>
+        <h1 className="text-xl font-bold text-primary">Grupo 2 Irmãos</h1> {/* Updated title */}
         {user && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

@@ -44,7 +44,7 @@ export default function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-secondary p-4">
       <Card className="w-full max-w-md shadow-lg">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold text-primary">Rota Certa</CardTitle>
+          <CardTitle className="text-2xl font-bold text-primary">Grupo 2 Irmãos</CardTitle> {/* Updated title */}
           <CardDescription>Bem-vindo de volta! Faça login para continuar.</CardDescription>
         </CardHeader>
         <CardContent>

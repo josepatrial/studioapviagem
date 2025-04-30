@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Rota Certa',
+  title: 'Grupo 2 Irmãos', // Updated title
   description: 'Aplicativo de viagens para motoristas',
 };
 
