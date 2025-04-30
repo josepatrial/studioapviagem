@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Edit, Trash2, ChevronDown, ChevronUp, Car } from 'lucide-react';
+import { PlusCircle, Edit, Trash2, ChevronDown, ChevronUp, Car, CheckCircle2, PlayCircle } from 'lucide-react'; // Added CheckCircle2, PlayCircle
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,39 +21,40 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"; // Import Select
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Visits } from './Visits';
 import { Expenses } from './Expenses';
 import { Fuelings } from './Fuelings';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/contexts/AuthContext'; // Import useAuth
-import type { VehicleInfo } from './Vehicle'; // Import VehicleInfo type
-import { initialVehicles } from './Vehicle'; // Import mock vehicles for dropdown
+import { useAuth } from '@/contexts/AuthContext';
+import type { VehicleInfo } from './Vehicle';
+import { initialVehicles } from './Vehicle';
+import { Badge } from "@/components/ui/badge"; // Import Badge
 
-// Updated Trip interface
+// Updated Trip interface with status
 interface Trip {
   id: string;
   name: string;
   description?: string;
-  vehicleId: string; // Added vehicleId
-  userId: string;    // Added userId
-  // Removed startDate, endDate
+  vehicleId: string;
+  userId: string;
+  status: 'Andamento' | 'Finalizado'; // Added status field
   // Add counts for related items (optional, calculate if needed)
   visitCount?: number;
   expenseCount?: number;
   fuelingCount?: number;
 }
 
-// Mock data - Updated to match new interface
+// Mock data - Updated to include status
 const initialTrips: Trip[] = [
-  { id: '1', name: 'Viagem SP-RJ', description: 'Entrega cliente X e Y', vehicleId: 'v1', userId: '1' },
-  { id: '2', name: 'Coleta Curitiba', vehicleId: 'v2', userId: '1' },
+  { id: '1', name: 'Viagem SP-RJ', description: 'Entrega cliente X e Y', vehicleId: 'v1', userId: '1', status: 'Andamento' },
+  { id: '2', name: 'Coleta Curitiba', vehicleId: 'v2', userId: '1', status: 'Finalizado' },
 ];
 
 export const Trips: React.FC = () => {
-  const { user } = useAuth(); // Get user from context
+  const { user } = useAuth();
   const [trips, setTrips] = useState<Trip[]>(initialTrips);
-  const [vehicles, setVehicles] = useState<VehicleInfo[]>(initialVehicles); // State for vehicles
+  const [vehicles, setVehicles] = useState<VehicleInfo[]>(initialVehicles);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [currentTrip, setCurrentTrip] = useState<Trip | null>(null);
@@ -63,14 +64,16 @@ export const Trips: React.FC = () => {
   // --- Form State for Create/Edit ---
   const [tripName, setTripName] = useState('');
   const [description, setDescription] = useState('');
-  const [selectedVehicleId, setSelectedVehicleId] = useState(''); // State for selected vehicle
+  const [selectedVehicleId, setSelectedVehicleId] = useState('');
 
    useEffect(() => {
-       // Fetch vehicles in a real app
        setVehicles(initialVehicles);
-
-       // Initial sort (can be done once or on data change)
-       setTrips(currentTrips => [...currentTrips].sort((a, b) => Number(b.id) - Number(a.id))); // Sort by id descending initially
+       setTrips(currentTrips => [...currentTrips].sort((a, b) => {
+            // Sort primarily by status ('Andamento' first), then by ID descending
+             if (a.status === 'Andamento' && b.status === 'Finalizado') return -1;
+             if (a.status === 'Finalizado' && b.status === 'Andamento') return 1;
+             return Number(b.id) - Number(a.id);
+        }));
      }, []);
 
   // --- Handlers ---
@@ -90,11 +93,15 @@ export const Trips: React.FC = () => {
       name: tripName,
       description,
       vehicleId: selectedVehicleId,
-      userId: user.id, // Assign logged-in user's ID
+      userId: user.id,
+      status: 'Andamento', // Default status
     };
-    // In a real app, save to backend
-    initialTrips.push(newTrip); // Add to mock data
-    setTrips(prevTrips => [newTrip, ...prevTrips].sort((a, b) => Number(b.id) - Number(a.id))); // Add and sort
+    initialTrips.push(newTrip);
+     setTrips(prevTrips => [newTrip, ...prevTrips].sort((a, b) => {
+        if (a.status === 'Andamento' && b.status === 'Finalizado') return -1;
+        if (a.status === 'Finalizado' && b.status === 'Andamento') return 1;
+        return Number(b.id) - Number(a.id);
+     }));
     resetForm();
     setIsCreateModalOpen(false);
     toast({ title: "Viagem criada com sucesso!" });
@@ -113,25 +120,51 @@ export const Trips: React.FC = () => {
        name: tripName,
        description,
        vehicleId: selectedVehicleId,
-       // userId typically doesn't change on edit
+       // Status is not edited here, but via a separate action
      };
 
-     // In a real app, save to backend
      const index = initialTrips.findIndex(t => t.id === currentTrip.id);
      if (index !== -1) {
        initialTrips[index] = updatedTrip;
      }
 
      setTrips(prevTrips => prevTrips.map(trip => trip.id === currentTrip.id ? updatedTrip : trip)
-                                    .sort((a,b) => Number(b.id) - Number(a.id))); // Update and sort
+                                    .sort((a,b) => {
+                                        if (a.status === 'Andamento' && b.status === 'Finalizado') return -1;
+                                        if (a.status === 'Finalizado' && b.status === 'Andamento') return 1;
+                                        return Number(b.id) - Number(a.id);
+                                     }));
      resetForm();
      setIsEditModalOpen(false);
      setCurrentTrip(null);
      toast({ title: "Viagem atualizada com sucesso!" });
    };
 
+   const handleFinishTrip = (tripId: string, event: React.MouseEvent) => {
+       event.stopPropagation(); // Prevent accordion from toggling
+
+        const updatedTrip: Trip | undefined = initialTrips.find(t => t.id === tripId);
+        if (!updatedTrip) return;
+
+        updatedTrip.status = 'Finalizado';
+
+        // Update local state and re-sort
+        setTrips(prevTrips => [...prevTrips].map(trip => trip.id === tripId ? updatedTrip : trip)
+                                            .sort((a, b) => {
+                                              if (a.status === 'Andamento' && b.status === 'Finalizado') return -1;
+                                              if (a.status === 'Finalizado' && b.status === 'Andamento') return 1;
+                                              return Number(b.id) - Number(a.id);
+                                            }));
+
+         toast({ title: `Viagem "${updatedTrip.name}" marcada como finalizada.` });
+
+         // Optionally close accordion if it was open
+         // if (expandedTripId === tripId) {
+         //   setExpandedTripId(null);
+         // }
+      };
+
   const handleDeleteTrip = (tripId: string) => {
-    // Add logic here to also delete associated Visits, Expenses, Fuelings in a real app
     const index = initialTrips.findIndex(t => t.id === tripId);
      if (index !== -1) {
        initialTrips.splice(index, 1);
@@ -148,14 +181,14 @@ export const Trips: React.FC = () => {
     setCurrentTrip(trip);
     setTripName(trip.name);
     setDescription(trip.description || '');
-    setSelectedVehicleId(trip.vehicleId); // Set selected vehicle
+    setSelectedVehicleId(trip.vehicleId);
     setIsEditModalOpen(true);
   };
 
   const resetForm = () => {
     setTripName('');
     setDescription('');
-    setSelectedVehicleId(''); // Reset vehicle selection
+    setSelectedVehicleId('');
   };
 
   const closeCreateModal = () => {
@@ -169,7 +202,6 @@ export const Trips: React.FC = () => {
      setCurrentTrip(null);
    }
 
-   // Find vehicle details for display
     const getVehicleDisplay = (vehicleId: string) => {
         const vehicle = vehicles.find(v => v.id === vehicleId);
         return vehicle ? `${vehicle.model} (${vehicle.licensePlate})` : 'Veículo não encontrado';
@@ -195,7 +227,6 @@ export const Trips: React.FC = () => {
                   <Label htmlFor="tripName">Nome da Viagem*</Label>
                   <Input id="tripName" value={tripName} onChange={(e) => setTripName(e.target.value)} required placeholder="Ex: Entrega São Paulo" />
                 </div>
-                 {/* Vehicle Select */}
                  <div className="space-y-2">
                    <Label htmlFor="vehicleId">Veículo*</Label>
                    <Select value={selectedVehicleId} onValueChange={setSelectedVehicleId} required>
@@ -215,7 +246,6 @@ export const Trips: React.FC = () => {
                      </SelectContent>
                    </Select>
                  </div>
-                 {/* Removed Date Fields */}
                  <div className="space-y-2">
                    <Label htmlFor="description">Descrição</Label>
                    <Textarea id="description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Detalhes adicionais (opcional)" />
@@ -249,16 +279,49 @@ export const Trips: React.FC = () => {
             {trips.map((trip) => (
               <AccordionItem key={trip.id} value={trip.id} className="border bg-card rounded-lg shadow-sm overflow-hidden">
                  <AccordionTrigger className="flex justify-between items-center p-4 hover:bg-accent/50 cursor-pointer w-full text-left data-[state=open]:border-b">
-                    <div className="flex-1 mr-4">
-                      <CardTitle className="text-lg">{trip.name}</CardTitle>
-                       {/* Display Vehicle instead of dates */}
-                       <CardDescription className="text-sm flex items-center gap-1 mt-1">
+                    <div className="flex-1 mr-4 space-y-1">
+                      <div className="flex items-center gap-2">
+                        <CardTitle className="text-lg">{trip.name}</CardTitle>
+                         <Badge variant={trip.status === 'Andamento' ? 'default' : 'secondary'} className="h-5 px-2 text-xs">
+                             {trip.status === 'Andamento' ? <PlayCircle className="h-3 w-3 mr-1" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
+                             {trip.status}
+                         </Badge>
+                      </div>
+                       <CardDescription className="text-sm flex items-center gap-1">
                           <Car className="h-4 w-4 text-muted-foreground"/> {getVehicleDisplay(trip.vehicleId)}
                        </CardDescription>
-                       {trip.description && <p className="text-xs text-muted-foreground mt-1">{trip.description}</p>}
+                       {trip.description && <p className="text-xs text-muted-foreground">{trip.description}</p>}
                     </div>
                      <div className="flex items-center gap-1 flex-shrink-0">
-                       {/* Edit Button */}
+                        {/* Finish Trip Button */}
+                        {trip.status === 'Andamento' && (
+                             <AlertDialog>
+                               <AlertDialogTrigger asChild>
+                                 <Button variant="outline" size="sm" onClick={(e) => e.stopPropagation()} className="h-8 text-emerald-600 border-emerald-600/50 hover:bg-emerald-50 hover:text-emerald-700">
+                                    <CheckCircle2 className="h-4 w-4 mr-1" /> Finalizar
+                                 </Button>
+                               </AlertDialogTrigger>
+                               <AlertDialogContent>
+                                 <AlertDialogHeader>
+                                   <AlertDialogTitle>Confirmar Finalização</AlertDialogTitle>
+                                   <AlertDialogDescription>
+                                     Tem certeza que deseja marcar a viagem "{trip.name}" como finalizada?
+                                   </AlertDialogDescription>
+                                 </AlertDialogHeader>
+                                 <AlertDialogFooter>
+                                   <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                   <AlertDialogAction
+                                     onClick={(e) => handleFinishTrip(trip.id, e)}
+                                     className="bg-emerald-600 hover:bg-emerald-700" // Use a success color
+                                   >
+                                     Confirmar
+                                   </AlertDialogAction>
+                                 </AlertDialogFooter>
+                               </AlertDialogContent>
+                             </AlertDialog>
+                        )}
+                       {/* Edit Button (only if not finished) */}
+                       {trip.status === 'Andamento' && (
                        <Dialog open={isEditModalOpen && currentTrip?.id === trip.id} onOpenChange={(isOpen) => !isOpen && closeEditModal()}>
                          <DialogTrigger asChild>
                            <Button variant="ghost" size="icon" onClick={(e) => openEditModal(trip, e)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8">
@@ -275,7 +338,6 @@ export const Trips: React.FC = () => {
                                 <Label htmlFor="editTripName">Nome da Viagem*</Label>
                                 <Input id="editTripName" value={tripName} onChange={(e) => setTripName(e.target.value)} required />
                               </div>
-                               {/* Vehicle Select */}
                                <div className="space-y-2">
                                  <Label htmlFor="editVehicleId">Veículo*</Label>
                                  <Select value={selectedVehicleId} onValueChange={setSelectedVehicleId} required>
@@ -291,7 +353,6 @@ export const Trips: React.FC = () => {
                                    </SelectContent>
                                  </Select>
                                </div>
-                              {/* Removed Date Fields */}
                               <div className="space-y-2">
                                 <Label htmlFor="editDescription">Descrição</Label>
                                 <Textarea id="editDescription" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Detalhes adicionais (opcional)" />
@@ -309,6 +370,7 @@ export const Trips: React.FC = () => {
                            </form>
                          </DialogContent>
                        </Dialog>
+                       )}
 
                        {/* Delete Button */}
                         <AlertDialog>

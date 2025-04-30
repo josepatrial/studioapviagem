@@ -15,6 +15,9 @@ const badgeVariants = cva(
         destructive:
           "border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/80",
         outline: "text-foreground",
+        // Add emerald variant for 'Andamento' status
+        emerald: // Changed from success to emerald
+          "border-transparent bg-emerald-500 text-emerald-foreground hover:bg-emerald-500/80 dark:bg-emerald-600 dark:text-white dark:hover:bg-emerald-600/80", // Use emerald color
       },
     },
     defaultVariants: {
