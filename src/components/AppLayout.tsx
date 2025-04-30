@@ -8,10 +8,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useAuth } from '@/contexts/AuthContext';
 import { Dashboard } from '@/components/Dashboard';
 import { Trips } from '@/components/Trips';
-import { Visits } from '@/components/Visits';
-import { Expenses } from '@/components/Expenses';
-import { Fuelings } from '@/components/Fuelings';
-import { LogOut, User as UserIcon, LayoutDashboard, Map, Plane, Fuel, Wallet } from 'lucide-react';
+// Removed import for Visits, Expenses, Fuelings as they are now nested
+import { LogOut, User as UserIcon, LayoutDashboard, Plane } from 'lucide-react'; // Removed Map, Wallet, Fuel
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -79,31 +77,22 @@ const AppLayout: React.FC = () => {
       {/* Main Content Area with Tabs */}
        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-1 flex-col overflow-hidden">
           <div className="overflow-x-auto border-b bg-background">
-             <TabsList className="grid w-full grid-cols-5 rounded-none bg-transparent p-0 sm:w-auto sm:inline-flex">
+             {/* Updated grid-cols-2 */}
+             <TabsList className="grid w-full grid-cols-2 rounded-none bg-transparent p-0 sm:w-auto sm:inline-flex">
                  <TabsTrigger value="dashboard" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
                    <LayoutDashboard className="mr-2 h-4 w-4 sm:hidden md:inline-block" /> Dashboard
                  </TabsTrigger>
                  <TabsTrigger value="trips" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
                     <Plane className="mr-2 h-4 w-4 sm:hidden md:inline-block" /> Viagens
                  </TabsTrigger>
-                 <TabsTrigger value="visits" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
-                    <Map className="mr-2 h-4 w-4 sm:hidden md:inline-block" /> Visitas
-                 </TabsTrigger>
-                 <TabsTrigger value="expenses" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
-                    <Wallet className="mr-2 h-4 w-4 sm:hidden md:inline-block" /> Despesas
-                 </TabsTrigger>
-                 <TabsTrigger value="fuelings" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
-                    <Fuel className="mr-2 h-4 w-4 sm:hidden md:inline-block" /> Abastecimentos
-                 </TabsTrigger>
+                 {/* Removed Visits, Expenses, Fuelings Triggers */}
              </TabsList>
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 md:p-6">
             <TabsContent value="dashboard"><Dashboard /></TabsContent>
             <TabsContent value="trips"><Trips /></TabsContent>
-            <TabsContent value="visits"><Visits /></TabsContent>
-            <TabsContent value="expenses"><Expenses /></TabsContent>
-            <TabsContent value="fuelings"><Fuelings /></TabsContent>
+            {/* Removed Visits, Expenses, Fuelings Content */}
           </div>
        </Tabs>
     </div>

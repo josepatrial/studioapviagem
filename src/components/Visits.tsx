@@ -14,8 +14,9 @@ import { getCurrentLocation, Coordinate } from '@/services/geolocation'; // Assu
 import { useToast } from "@/hooks/use-toast";
 import { LoadingSpinner } from '@/components/LoadingSpinner'; // Assuming LoadingSpinner exists
 
-interface Visit {
+export interface Visit { // Export interface
   id: string;
+  tripId?: string; // Added tripId
   clientName: string;
   location: string; // Could be address string or lat/lon string
   latitude?: number;
@@ -25,14 +26,20 @@ interface Visit {
   timestamp: string; // Add timestamp for sorting/display
 }
 
-// Mock data
+// Mock data - Now includes tripId
 const initialVisits: Visit[] = [
-  { id: 'v1', clientName: 'Cliente Alpha', location: 'Rua Exemplo, 123', latitude: -23.5505, longitude: -46.6333, initialKm: 15000, reason: 'Entrega de material', timestamp: new Date(2024, 6, 21, 10, 30).toISOString() },
-  { id: 'v2', clientName: 'Empresa Beta', location: 'Avenida Principal, 456', latitude: -23.5610, longitude: -46.6400, initialKm: 15150, reason: 'Reunião de Vendas', timestamp: new Date(2024, 6, 21, 14, 0).toISOString() },
+  { id: 'v1', tripId: '1', clientName: 'Cliente Alpha', location: 'Rua Exemplo, 123', latitude: -23.5505, longitude: -46.6333, initialKm: 15000, reason: 'Entrega de material', timestamp: new Date(2024, 6, 21, 10, 30).toISOString() },
+  { id: 'v2', tripId: '1', clientName: 'Empresa Beta', location: 'Avenida Principal, 456', latitude: -23.5610, longitude: -46.6400, initialKm: 15150, reason: 'Reunião de Vendas', timestamp: new Date(2024, 6, 21, 14, 0).toISOString() },
+  { id: 'v3', tripId: '2', clientName: 'Fornecedor Gama', location: 'Rodovia dos Bandeirantes, km 30', latitude: -23.35, longitude: -46.85, initialKm: 16000, reason: 'Coleta de insumos', timestamp: new Date(2024, 8, 2, 9, 0).toISOString() },
 ];
 
-export const Visits: React.FC = () => {
-  const [visits, setVisits] = useState<Visit[]>(initialVisits);
+interface VisitsProps {
+  tripId?: string; // Accept tripId as a prop
+  tripName?: string; // Optional trip name for context
+}
+
+export const Visits: React.FC<VisitsProps> = ({ tripId, tripName }) => {
+  const [visits, setVisits] = useState<Visit[]>([]);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [currentVisit, setCurrentVisit] = useState<Visit | null>(null);
@@ -48,9 +55,11 @@ export const Visits: React.FC = () => {
   const [reason, setReason] = useState('');
 
    useEffect(() => {
-      // Sort visits by timestamp descending when component mounts or visits change
-      setVisits(currentVisits => [...currentVisits].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
-    }, []); // Runs once on mount
+      // Filter visits by tripId if provided, otherwise show all (or handle as needed)
+      const filtered = tripId ? initialVisits.filter(v => v.tripId === tripId) : initialVisits;
+      // Sort visits by timestamp descending
+      setVisits(filtered.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+    }, [tripId]); // Rerun when tripId changes
 
   // --- Handlers ---
   const handleGetLocation = async () => {
@@ -63,7 +72,7 @@ export const Visits: React.FC = () => {
       toast({ title: "Localização capturada!" });
     } catch (error) {
       console.error("Error getting location:", error);
-      toast({ variant: "destructive", title: "Erro ao buscar localização", description: "Tente novamente ou digite manualmente." });
+      toast({ variant: "destructive", title: "Erro ao buscar localização", description: (error as Error).message || "Tente novamente ou digite manualmente." });
       setLocation(''); // Clear location on error
       setLatitude(undefined);
       setLongitude(undefined);
@@ -74,8 +83,13 @@ export const Visits: React.FC = () => {
 
   const handleCreateVisit = (e: React.FormEvent) => {
     e.preventDefault();
+    if (!tripId) {
+        toast({ variant: "destructive", title: "Erro", description: "ID da viagem não encontrado para associar a visita." });
+        return;
+    }
     const newVisit: Visit = {
       id: String(Date.now()),
+      tripId: tripId, // Associate with the current trip
       clientName,
       location,
       latitude,
@@ -84,6 +98,9 @@ export const Visits: React.FC = () => {
       reason,
       timestamp: new Date().toISOString(),
     };
+    // Add to global mock data (in real app, this would be an API call)
+    initialVisits.push(newVisit);
+    // Update local state
     setVisits(prevVisits => [newVisit, ...prevVisits].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
     resetForm();
     setIsCreateModalOpen(false);
@@ -103,8 +120,15 @@ export const Visits: React.FC = () => {
         initialKm: Number(initialKm),
         reason,
         // Keep original timestamp or update if needed? Let's keep original for now.
+        // tripId remains the same
       };
 
+      // Update global mock data
+      const index = initialVisits.findIndex(v => v.id === currentVisit.id);
+      if (index !== -1) {
+          initialVisits[index] = updatedVisit;
+      }
+      // Update local state
       setVisits(prevVisits => prevVisits.map(v => v.id === currentVisit.id ? updatedVisit : v)
                                     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
       resetForm();
@@ -114,6 +138,12 @@ export const Visits: React.FC = () => {
     };
 
   const handleDeleteVisit = (visitId: string) => {
+    // Remove from global mock data
+    const index = initialVisits.findIndex(v => v.id === visitId);
+     if (index !== -1) {
+         initialVisits.splice(index, 1);
+     }
+    // Remove from local state
     setVisits(visits.filter(v => v.id !== visitId));
     toast({ title: "Visita excluída." });
   };
@@ -154,69 +184,75 @@ export const Visits: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-semibold">Registro de Visitas</h2>
-        <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
-           <DialogTrigger asChild>
-             <Button onClick={() => setIsCreateModalOpen(true)} className="bg-accent hover:bg-accent/90">
-               <PlusCircle className="mr-2 h-4 w-4" /> Registrar Nova Visita
-             </Button>
-           </DialogTrigger>
-           <DialogContent className="sm:max-w-lg">
-             <DialogHeader>
-               <DialogTitle>Registrar Nova Visita</DialogTitle>
-             </DialogHeader>
-             <form onSubmit={handleCreateVisit} className="grid gap-4 py-4">
-                 <div className="space-y-2">
-                    <Label htmlFor="clientName">Nome do Cliente</Label>
-                    <Input id="clientName" value={clientName} onChange={(e) => setClientName(e.target.value)} required placeholder="Nome ou Empresa" />
-                 </div>
+      <div className="flex justify-between items-center mb-4">
+        <h3 className="text-xl font-semibold">
+          {tripName ? `Visitas da Viagem: ${tripName}` : 'Visitas'}
+        </h3>
+        {tripId && ( // Only show button if a trip context is provided
+          <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
+             <DialogTrigger asChild>
+               <Button onClick={() => setIsCreateModalOpen(true)} className="bg-accent hover:bg-accent/90 text-accent-foreground">
+                 <PlusCircle className="mr-2 h-4 w-4" /> Registrar Visita
+               </Button>
+             </DialogTrigger>
+             <DialogContent className="sm:max-w-lg">
+               <DialogHeader>
+                 <DialogTitle>Registrar Nova Visita{tripName ? ` para ${tripName}` : ''}</DialogTitle>
+               </DialogHeader>
+               <form onSubmit={handleCreateVisit} className="grid gap-4 py-4">
+                   <div className="space-y-2">
+                      <Label htmlFor="clientName">Nome do Cliente</Label>
+                      <Input id="clientName" value={clientName} onChange={(e) => setClientName(e.target.value)} required placeholder="Nome ou Empresa" />
+                   </div>
 
-                 <div className="space-y-2">
-                    <Label htmlFor="location">Localização</Label>
-                    <div className="flex items-center gap-2">
-                        <Input id="location" value={location} onChange={(e) => setLocation(e.target.value)} required placeholder="Endereço ou Coordenadas" className="flex-grow"/>
-                        <Button type="button" variant="outline" size="icon" onClick={handleGetLocation} disabled={isFetchingLocation} title="Usar GPS">
-                           {isFetchingLocation ? <LoadingSpinner className="h-4 w-4" /> : <LocateFixed className="h-4 w-4" />}
-                         </Button>
-                    </div>
-                    {latitude && longitude && (
-                       <p className="text-xs text-muted-foreground">Lat: {latitude.toFixed(4)}, Lon: {longitude.toFixed(4)}</p>
-                    )}
-                 </div>
+                   <div className="space-y-2">
+                      <Label htmlFor="location">Localização</Label>
+                      <div className="flex items-center gap-2">
+                          <Input id="location" value={location} onChange={(e) => setLocation(e.target.value)} required placeholder="Endereço ou Coordenadas" className="flex-grow"/>
+                          <Button type="button" variant="outline" size="icon" onClick={handleGetLocation} disabled={isFetchingLocation} title="Usar GPS">
+                             {isFetchingLocation ? <LoadingSpinner className="h-4 w-4" /> : <LocateFixed className="h-4 w-4" />}
+                           </Button>
+                      </div>
+                      {latitude && longitude && (
+                         <p className="text-xs text-muted-foreground">Lat: {latitude.toFixed(4)}, Lon: {longitude.toFixed(4)}</p>
+                      )}
+                   </div>
 
-                 <div className="space-y-2">
-                    <Label htmlFor="initialKm">Quilometragem Inicial (Km)</Label>
-                    <Input id="initialKm" type="number" value={initialKm} onChange={(e) => setInitialKm(Number(e.target.value) >= 0 ? Number(e.target.value) : '')} required placeholder="Km no início da visita" min="0" />
-                 </div>
+                   <div className="space-y-2">
+                      <Label htmlFor="initialKm">Quilometragem Inicial (Km)</Label>
+                      <Input id="initialKm" type="number" value={initialKm} onChange={(e) => setInitialKm(Number(e.target.value) >= 0 ? Number(e.target.value) : '')} required placeholder="Km no início da visita" min="0" />
+                   </div>
 
-                 <div className="space-y-2">
-                    <Label htmlFor="reason">Motivo da Visita</Label>
-                    <Textarea id="reason" value={reason} onChange={(e) => setReason(e.target.value)} required placeholder="Ex: Entrega, Coleta, Reunião..." />
-                 </div>
+                   <div className="space-y-2">
+                      <Label htmlFor="reason">Motivo da Visita</Label>
+                      <Textarea id="reason" value={reason} onChange={(e) => setReason(e.target.value)} required placeholder="Ex: Entrega, Coleta, Reunião..." />
+                   </div>
 
-                 <DialogFooter>
-                   <DialogClose asChild><Button type="button" variant="outline" onClick={closeCreateModal}>Cancelar</Button></DialogClose>
-                   <Button type="submit" disabled={isFetchingLocation} className="bg-primary hover:bg-primary/90">Salvar Visita</Button>
-                 </DialogFooter>
-             </form>
-           </DialogContent>
-         </Dialog>
+                   <DialogFooter>
+                     <DialogClose asChild><Button type="button" variant="outline" onClick={closeCreateModal}>Cancelar</Button></DialogClose>
+                     <Button type="submit" disabled={isFetchingLocation} className="bg-primary hover:bg-primary/90">Salvar Visita</Button>
+                   </DialogFooter>
+               </form>
+             </DialogContent>
+           </Dialog>
+        )}
       </div>
 
       {visits.length === 0 ? (
-         <Card className="text-center py-10">
+         <Card className="text-center py-10 bg-card border border-border shadow-sm rounded-lg">
            <CardContent>
-             <p className="text-muted-foreground">Nenhuma visita registrada ainda.</p>
-              <Button variant="link" onClick={() => setIsCreateModalOpen(true)} className="mt-2 text-primary">
-                Registrar sua primeira visita
-             </Button>
+             <p className="text-muted-foreground">Nenhuma visita registrada {tripId ? 'para esta viagem' : ''}.</p>
+              {tripId && (
+                 <Button variant="link" onClick={() => setIsCreateModalOpen(true)} className="mt-2 text-primary">
+                   Registrar a primeira visita
+                </Button>
+              )}
            </CardContent>
          </Card>
        ) : (
         <div className="grid gap-4">
           {visits.map((visit) => (
-            <Card key={visit.id} className="shadow-sm transition-shadow hover:shadow-md">
+            <Card key={visit.id} className="shadow-sm transition-shadow hover:shadow-md bg-card border border-border">
               <CardHeader>
                 <div className="flex justify-between items-start">
                     <div>
@@ -234,7 +270,7 @@ export const Visits: React.FC = () => {
                        {/* Edit Button */}
                        <Dialog open={isEditModalOpen && currentVisit?.id === visit.id} onOpenChange={(isOpen) => !isOpen && closeEditModal()}>
                          <DialogTrigger asChild>
-                           <Button variant="ghost" size="icon" onClick={() => openEditModal(visit)} className="text-muted-foreground hover:text-accent h-8 w-8">
+                           <Button variant="ghost" size="icon" onClick={() => openEditModal(visit)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8">
                              <Edit className="h-4 w-4" />
                              <span className="sr-only">Editar</span>
                            </Button>
