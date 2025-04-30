@@ -26,7 +26,7 @@ export interface Expense { // Export interface
 }
 
 // Mock data - Now includes tripId
-const initialExpenses: Expense[] = [
+export const initialExpenses: Expense[] = [
   { id: 'e1', tripId: '1', type: 'alimentacao', value: 55.50, description: 'Almoço posto X', timestamp: new Date(2024, 6, 21, 12, 30).toISOString() },
   { id: 'e2', tripId: '1', type: 'pedagio', value: 12.80, description: 'Pedágio BR-116 km 50', timestamp: new Date(2024, 6, 21, 15, 0).toISOString(), attachment: 'https://via.placeholder.com/100x50.png?text=ReciboPedagio' , attachmentPreview: 'https://via.placeholder.com/100x50.png?text=ReciboPedagio'},
   { id: 'e3', tripId: '2', type: 'hotel', value: 180.00, description: 'Pernoite Hotel Central', timestamp: new Date(2024, 6, 22, 8, 0).toISOString() },
@@ -226,11 +226,11 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId, tripName }) => {
 
   return (
     <div className="space-y-6">
-       <div className="flex justify-between items-center mb-4">
+       
         <h3 className="text-xl font-semibold">
           {tripName ? `Despesas da Viagem: ${tripName}` : 'Despesas'}
         </h3>
-         {tripId && ( // Only show button if a trip context is provided
+         {tripId && (
             <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
                <DialogTrigger asChild>
                  <Button onClick={() => setIsCreateModalOpen(true)} className="bg-accent hover:bg-accent/90 text-accent-foreground">
@@ -281,10 +281,10 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId, tripName }) => {
                          <input type="file" ref={cameraInputRef} onChange={handleFileChange} accept="image/*" capture="environment" className="hidden" />
 
                         {attachmentPreview && (
-                             <div className="mt-2">
+                             
                                  <p className="text-sm text-muted-foreground mb-1">Pré-visualização:</p>
                                  <Image src={attachmentPreview} alt="Preview" width={100} height={100} className="rounded border" />
-                             </div>
+                             
                          )}
                          {attachment && !attachmentPreview && (
                               <p className="mt-2 text-sm text-muted-foreground">Arquivo selecionado: {attachment.name}</p>
@@ -300,7 +300,8 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId, tripName }) => {
                </DialogContent>
              </Dialog>
          )}
-      </div>
+      
+      
 
       {expenses.length === 0 ? (
          <Card className="text-center py-10 bg-card border border-border shadow-sm rounded-lg">
@@ -314,19 +315,19 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId, tripName }) => {
            </CardContent>
          </Card>
        ) : (
-        <div className="grid gap-4">
+        
           {expenses.map((expense) => (
             <Card key={expense.id} className="shadow-sm transition-shadow hover:shadow-md bg-card border border-border">
               <CardHeader>
                 <div className="flex justify-between items-start">
                     <div className="flex items-center gap-3">
                        {getTypeIcon(expense.type)}
-                       <div>
+                       
                          <CardTitle>{getTypeName(expense.type)}</CardTitle>
                          <CardDescription>
                            {new Date(expense.timestamp).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
                          </CardDescription>
-                       </div>
+                       
                     </div>
                     <div className="flex items-center gap-1">
                         {/* Attachment Indicator/Link */}
@@ -419,13 +420,23 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId, tripName }) => {
                     </div>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-1 text-sm">
-                 <p className="font-semibold text-lg text-primary">{formatCurrency(expense.value)}</p>
-                 <p className="text-muted-foreground">{expense.description}</p>
+              <CardContent>
+                 <CardDescription>
+                    Descrição: {expense.description}
+                 </CardDescription>
+                 <CardDescription>
+                    Valor: {formatCurrency(expense.value)}
+                  </CardDescription>
+                  <CardDescription>
+                    Tipo: {expense.type}
+                  </CardDescription>
+                  <CardDescription>
+                    TripID: {expense.tripId}
+                  </CardDescription>
               </CardContent>
             </Card>
           ))}
-        </div>
+        
        )}
     </div>
   );

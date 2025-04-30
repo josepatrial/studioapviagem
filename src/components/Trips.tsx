@@ -23,8 +23,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Visits } from './Visits';
-import { Expenses } from './Expenses';
-import { Fuelings } from './Fuelings';
+import { Expenses, initialExpenses } from './Expenses';
+import { Fuelings, initialFuelings } from './Fuelings';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import type { VehicleInfo } from './Vehicle';
@@ -38,8 +38,6 @@ import type { Fueling } from './Fuelings';
 
 // Mock data - Imported to fix the reference error, but could be moved back if unused here
 import {initialVisits} from './Visits';
-import {initialExpenses} from './Expenses';
-import {initialFuelings} from './Fuelings';
 
 
 // Updated Trip interface with status
@@ -74,7 +72,7 @@ export const Trips: React.FC = () => {
   const { toast } = useToast();
 
   // --- Form State for Create/Edit ---
-  const [tripName, setTripName] = useState(''); // Still needed for Edit Modal title consistency & edit form
+  const [tripName, setTripName] useState(''); // Still needed for Edit Modal title consistency & edit form
   const [selectedVehicleId, setSelectedVehicleId] = useState('');
 
    useEffect(() => {

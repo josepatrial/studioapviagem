@@ -26,7 +26,7 @@ export interface Fueling { // Export interface
 }
 
 // Mock data - Now includes tripId
-const initialFuelings: Fueling[] = [
+export const initialFuelings: Fueling[] = [
   { id: 'f1', tripId: '1', fuelType: 'gasolina', unitPrice: 5.89, quantity: 40.5, totalValue: 238.545, timestamp: new Date(2024, 6, 20, 18, 0).toISOString(), attachment: 'https://via.placeholder.com/100x50.png?text=NotaGasolina' , attachmentPreview: 'https://via.placeholder.com/100x50.png?text=NotaGasolina'},
   { id: 'f2', tripId: '2', fuelType: 'diesel', unitPrice: 4.95, quantity: 60.0, totalValue: 297.00, timestamp: new Date(2024, 6, 22, 9, 15).toISOString() },
   { id: 'f3', tripId: '1', fuelType: 'etanol', unitPrice: 3.99, quantity: 35.2, totalValue: 140.448, timestamp: new Date(2024, 7, 23, 11, 45).toISOString() },
@@ -45,7 +45,7 @@ interface FuelingsProps {
 
 export const Fuelings: React.FC<FuelingsProps> = ({ tripId, tripName }) => {
   const [fuelings, setFuelings] = useState<Fueling[]>([]);
-  const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isCreateModalOpen, setIsCreateModalOpen] := useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [currentFueling, setCurrentFueling] = useState<Fueling | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
