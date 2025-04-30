@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Eye, Edit, Trash2, MapPin, Milestone, Info, LocateFixed } from 'lucide-react';
+import { PlusCircle, Eye, Edit, Trash2, MapPin, Milestone, Info, LocateFixed, AlertTriangle } from 'lucide-react'; // Added AlertTriangle
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,7 +42,9 @@ export const Visits: React.FC<VisitsProps> = ({ tripId, tripName }) => {
   const [visits, setVisits] = useState<Visit[]>([]);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false); // State for confirmation dialog
   const [currentVisit, setCurrentVisit] = useState<Visit | null>(null);
+  const [visitToConfirm, setVisitToConfirm] = useState<Visit | null>(null); // State for visit awaiting confirmation
   const [isFetchingLocation, setIsFetchingLocation] = useState(false);
   const { toast } = useToast();
 
@@ -60,6 +62,18 @@ export const Visits: React.FC<VisitsProps> = ({ tripId, tripName }) => {
       // Sort visits by timestamp descending
       setVisits(filtered.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
     }, [tripId]); // Rerun when tripId changes
+
+  // --- Helpers ---
+  const formatKm = (km: number) => km.toLocaleString('pt-BR');
+
+  const getLastVisitKm = (currentTripId?: string): number | null => {
+      if (!currentTripId) return null;
+      const tripVisits = initialVisits
+          .filter(v => v.tripId === currentTripId)
+          .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()); // Sort by date desc
+      return tripVisits.length > 0 ? tripVisits[0].initialKm : null; // Get KM from the latest visit
+  };
+
 
   // --- Handlers ---
   const handleGetLocation = async () => {
@@ -81,35 +95,84 @@ export const Visits: React.FC<VisitsProps> = ({ tripId, tripName }) => {
     }
   };
 
-  const handleCreateVisit = (e: React.FormEvent) => {
-    e.preventDefault();
+  // Renamed: Handles validation and opening confirmation
+  const handlePrepareVisitForConfirmation = (e: React.FormEvent) => {
+    e.preventDefault(); // Prevent default form submission
+
     if (!tripId) {
         toast({ variant: "destructive", title: "Erro", description: "ID da viagem não encontrado para associar a visita." });
         return;
     }
+    if (!clientName || !location || initialKm === '' || !reason) {
+        toast({ variant: "destructive", title: "Erro", description: "Todos os campos são obrigatórios." });
+        return;
+    }
+    const kmValue = Number(initialKm);
+    if (kmValue <= 0) {
+         toast({ variant: "destructive", title: "Erro", description: "Quilometragem inicial deve ser maior que zero." });
+         return;
+    }
+
+    // Sequential KM Validation
+    const lastKm = getLastVisitKm(tripId);
+    if (lastKm !== null && kmValue < lastKm) {
+        toast({
+            variant: "destructive",
+            title: "Erro de Quilometragem",
+            description: `A quilometragem inicial (${formatKm(kmValue)} Km) não pode ser menor que a da última visita registrada (${formatKm(lastKm)} Km).`,
+            duration: 7000, // Show longer
+        });
+        return;
+    }
+
+
     const newVisit: Visit = {
       id: String(Date.now()),
-      tripId: tripId, // Associate with the current trip
+      tripId: tripId,
       clientName,
       location,
       latitude,
       longitude,
-      initialKm: Number(initialKm),
+      initialKm: kmValue,
       reason,
       timestamp: new Date().toISOString(),
     };
-    // Add to global mock data (in real app, this would be an API call)
-    initialVisits.push(newVisit);
-    // Update local state
-    setVisits(prevVisits => [newVisit, ...prevVisits].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
-    resetForm();
-    setIsCreateModalOpen(false);
-    toast({ title: "Visita criada com sucesso!" });
+
+    setVisitToConfirm(newVisit); // Store the visit details for confirmation
+    setIsCreateModalOpen(false); // Close the creation modal
+    setIsConfirmModalOpen(true); // Open the confirmation modal
   };
+
+  // Actual saving logic after confirmation
+  const confirmAndSaveVisit = () => {
+      if (!visitToConfirm) return;
+
+      // Add to global mock data (in real app, this would be an API call)
+      initialVisits.push(visitToConfirm);
+      // Update local state
+      setVisits(prevVisits => [visitToConfirm, ...prevVisits].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+      resetForm();
+      setIsConfirmModalOpen(false); // Close confirmation modal
+      setVisitToConfirm(null); // Clear confirmation state
+      toast({ title: "Visita criada com sucesso!" });
+    };
+
 
    const handleEditVisit = (e: React.FormEvent) => {
       e.preventDefault();
       if (!currentVisit) return;
+       const kmValue = Number(initialKm);
+
+       if (!clientName || !location || initialKm === '' || !reason) {
+           toast({ variant: "destructive", title: "Erro", description: "Todos os campos são obrigatórios." });
+           return;
+       }
+       if (kmValue <= 0) {
+            toast({ variant: "destructive", title: "Erro", description: "Quilometragem inicial deve ser maior que zero." });
+            return;
+       }
+       // Note: We might want similar sequential KM validation on edit, but it's more complex
+       // as it depends on the visit's position in the sequence. Skipping for now.
 
       const updatedVisit: Visit = {
         ...currentVisit,
@@ -117,10 +180,8 @@ export const Visits: React.FC<VisitsProps> = ({ tripId, tripName }) => {
         location,
         latitude,
         longitude,
-        initialKm: Number(initialKm),
+        initialKm: kmValue,
         reason,
-        // Keep original timestamp or update if needed? Let's keep original for now.
-        // tripId remains the same
       };
 
       // Update global mock data
@@ -178,12 +239,17 @@ export const Visits: React.FC<VisitsProps> = ({ tripId, tripName }) => {
       setIsEditModalOpen(false);
       setCurrentVisit(null);
     }
+   const closeConfirmModal = () => {
+        setIsConfirmModalOpen(false);
+        setVisitToConfirm(null);
+        // Optionally re-open create modal if needed, or reset form here too
+        // resetForm();
+    }
 
-   // Helper to format KM
-   const formatKm = (km: number) => km.toLocaleString('pt-BR');
 
   return (
     <div className="space-y-6">
+      {/* Create Visit Dialog Trigger */}
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-xl font-semibold">
           {tripName ? `Visitas da Viagem: ${tripName}` : 'Visitas'}
@@ -199,14 +265,15 @@ export const Visits: React.FC<VisitsProps> = ({ tripId, tripName }) => {
                <DialogHeader>
                  <DialogTitle>Registrar Nova Visita{tripName ? ` para ${tripName}` : ''}</DialogTitle>
                </DialogHeader>
-               <form onSubmit={handleCreateVisit} className="grid gap-4 py-4">
+               {/* Form now triggers confirmation */}
+               <form onSubmit={handlePrepareVisitForConfirmation} className="grid gap-4 py-4">
                    <div className="space-y-2">
-                      <Label htmlFor="clientName">Nome do Cliente</Label>
+                      <Label htmlFor="clientName">Nome do Cliente*</Label>
                       <Input id="clientName" value={clientName} onChange={(e) => setClientName(e.target.value)} required placeholder="Nome ou Empresa" />
                    </div>
 
                    <div className="space-y-2">
-                      <Label htmlFor="location">Localização</Label>
+                      <Label htmlFor="location">Localização*</Label>
                       <div className="flex items-center gap-2">
                           <Input id="location" value={location} onChange={(e) => setLocation(e.target.value)} required placeholder="Endereço ou Coordenadas" className="flex-grow"/>
                           <Button type="button" variant="outline" size="icon" onClick={handleGetLocation} disabled={isFetchingLocation} title="Usar GPS">
@@ -219,18 +286,20 @@ export const Visits: React.FC<VisitsProps> = ({ tripId, tripName }) => {
                    </div>
 
                    <div className="space-y-2">
-                      <Label htmlFor="initialKm">Quilometragem Inicial (Km)</Label>
+                      <Label htmlFor="initialKm">Quilometragem Inicial (Km)*</Label>
                       <Input id="initialKm" type="number" value={initialKm} onChange={(e) => setInitialKm(Number(e.target.value) >= 0 ? Number(e.target.value) : '')} required placeholder="Km no início da visita" min="0" />
+                      <p className="text-xs text-muted-foreground">Confira este valor com atenção antes de salvar.</p>
                    </div>
 
                    <div className="space-y-2">
-                      <Label htmlFor="reason">Motivo da Visita</Label>
+                      <Label htmlFor="reason">Motivo da Visita*</Label>
                       <Textarea id="reason" value={reason} onChange={(e) => setReason(e.target.value)} required placeholder="Ex: Entrega, Coleta, Reunião..." />
                    </div>
 
                    <DialogFooter>
                      <DialogClose asChild><Button type="button" variant="outline" onClick={closeCreateModal}>Cancelar</Button></DialogClose>
-                     <Button type="submit" disabled={isFetchingLocation} className="bg-primary hover:bg-primary/90">Salvar Visita</Button>
+                     {/* Changed button type to submit */}
+                     <Button type="submit" disabled={isFetchingLocation} className="bg-primary hover:bg-primary/90">Confirmar Dados</Button>
                    </DialogFooter>
                </form>
              </DialogContent>
@@ -238,6 +307,39 @@ export const Visits: React.FC<VisitsProps> = ({ tripId, tripName }) => {
         )}
       </div>
 
+        {/* Confirmation Dialog */}
+        <AlertDialog open={isConfirmModalOpen} onOpenChange={setIsConfirmModalOpen}>
+          {/* No trigger needed here as it's opened programmatically */}
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="flex items-center gap-2">
+                 <AlertTriangle className="h-5 w-5 text-yellow-500" /> Confirmar Dados da Visita
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                Por favor, revise os dados abaixo, especialmente a <strong>Quilometragem Inicial</strong>. Esta ação não pode ser facilmente desfeita.
+                <ul className="mt-3 list-disc list-inside space-y-1 text-sm text-foreground">
+                    <li><strong>Cliente:</strong> {visitToConfirm?.clientName}</li>
+                    <li><strong>Localização:</strong> {visitToConfirm?.location}</li>
+                    <li><strong>KM Inicial:</strong> {visitToConfirm ? formatKm(visitToConfirm.initialKm) : 'N/A'}</li>
+                    <li><strong>Motivo:</strong> {visitToConfirm?.reason}</li>
+                </ul>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              {/* Go back, allows editing */}
+              <AlertDialogCancel onClick={() => {
+                  setIsConfirmModalOpen(false);
+                  setIsCreateModalOpen(true); // Re-open create modal
+                  // visitToConfirm state is kept so form fields are pre-filled
+              }}>Voltar e Editar</AlertDialogCancel>
+              {/* Confirm and save */}
+              <AlertDialogAction onClick={confirmAndSaveVisit} className="bg-primary hover:bg-primary/90">Salvar Visita</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+
+      {/* Visits List */}
       {visits.length === 0 ? (
          <Card className="text-center py-10 bg-card border border-border shadow-sm rounded-lg">
            <CardContent>
@@ -279,11 +381,11 @@ export const Visits: React.FC<VisitsProps> = ({ tripId, tripName }) => {
                             <DialogHeader><DialogTitle>Editar Visita</DialogTitle></DialogHeader>
                             <form onSubmit={handleEditVisit} className="grid gap-4 py-4">
                                 <div className="space-y-2">
-                                    <Label htmlFor="editClientName">Nome do Cliente</Label>
+                                    <Label htmlFor="editClientName">Nome do Cliente*</Label>
                                     <Input id="editClientName" value={clientName} onChange={(e) => setClientName(e.target.value)} required />
                                 </div>
                                 <div className="space-y-2">
-                                    <Label htmlFor="editLocation">Localização</Label>
+                                    <Label htmlFor="editLocation">Localização*</Label>
                                      <div className="flex items-center gap-2">
                                          <Input id="editLocation" value={location} onChange={(e) => setLocation(e.target.value)} required className="flex-grow"/>
                                          <Button type="button" variant="outline" size="icon" onClick={handleGetLocation} disabled={isFetchingLocation} title="Usar GPS">
@@ -295,15 +397,17 @@ export const Visits: React.FC<VisitsProps> = ({ tripId, tripName }) => {
                                       )}
                                 </div>
                                 <div className="space-y-2">
-                                    <Label htmlFor="editInitialKm">Km Inicial</Label>
+                                    <Label htmlFor="editInitialKm">Km Inicial*</Label>
                                     <Input id="editInitialKm" type="number" value={initialKm} onChange={(e) => setInitialKm(Number(e.target.value) >= 0 ? Number(e.target.value) : '')} required min="0" />
+                                     <p className="text-xs text-muted-foreground">Confira este valor com atenção.</p>
                                 </div>
                                 <div className="space-y-2">
-                                    <Label htmlFor="editReason">Motivo</Label>
+                                    <Label htmlFor="editReason">Motivo*</Label>
                                     <Textarea id="editReason" value={reason} onChange={(e) => setReason(e.target.value)} required />
                                 </div>
                                 <DialogFooter>
                                     <DialogClose asChild><Button type="button" variant="outline" onClick={closeEditModal}>Cancelar</Button></DialogClose>
+                                    {/* Submit button for edit form */}
                                     <Button type="submit" className="bg-primary hover:bg-primary/90">Salvar Alterações</Button>
                                 </DialogFooter>
                             </form>
@@ -348,9 +452,6 @@ export const Visits: React.FC<VisitsProps> = ({ tripId, tripName }) => {
                     <span>{visit.reason}</span>
                  </div>
               </CardContent>
-              {/* <CardFooter>
-                  Optional: Add actions related to the visit, e.g., "Mark as Completed"
-              </CardFooter> */}
             </Card>
           ))}
         </div>
