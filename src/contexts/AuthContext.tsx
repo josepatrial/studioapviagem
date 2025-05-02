@@ -15,10 +15,10 @@ import {
   updateProfile,
   createUserWithEmailAndPassword // Import createUserWithEmailAndPassword
 } from 'firebase/auth';
-import { auth } from '@/lib/firebase'; // Import Firebase auth
+import { auth, db } from '@/lib/firebase'; // Import Firebase auth and db
 import { useToast } from '@/hooks/use-toast';
 import { getUserData, setUserData } from '@/services/firestoreService'; // Import Firestore service
-
+import { doc, setDoc } from 'firebase/firestore'; // Import doc and setDoc
 
 // Define user roles
 export type UserRole = 'driver' | 'admin';
@@ -54,6 +54,29 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// --- Helper Function to Create Firestore User Document ---
+// Moved this logic into a separate function for clarity within signup
+const createUserDocument = async (userId: string, email: string, name: string, username?: string) => {
+  const userDocRef = doc(db, 'users', userId);
+  const userData: Partial<Omit<User, 'id'>> = {
+    name,
+    email,
+    username: username || '', // Store username if provided
+    role: 'driver', // Default role for new signups
+    // Base might be set later or through an admin panel
+  };
+  try {
+    await setDoc(userDocRef, userData); // Use setDoc to create the document with the specific ID
+    console.log('Firestore document created for user:', userId);
+  } catch (firestoreError) {
+    console.error('Error creating Firestore document:', firestoreError);
+    // Optionally, you might want to delete the Auth user if Firestore creation fails
+    // This requires careful consideration of your app's logic
+    throw firestoreError; // Re-throw the error to be caught by the signup catch block
+  }
+};
+
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null); // App's user state (combined Auth + Firestore)
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null); // Raw Firebase Auth user
@@ -80,25 +103,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               });
             } else {
                 console.warn("Firestore user data not found for UID:", fbUser.uid);
-                // If Firestore doc is missing, create a basic one assuming 'driver' role
+                // If Firestore doc is missing, try to read from Auth (user might be newly created)
                 const basicUserData = {
                     id: fbUser.uid,
                     email: fbUser.email || 'unknown@example.com',
                     name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Novo Usuário',
                     role: 'driver' as UserRole, // Assign default role
-                    // Base and username might be missing here
                 };
                 setUser(basicUserData);
-                // Attempt to create the Firestore document
-                await setUserData(fbUser.uid, {
-                    email: basicUserData.email,
-                    name: basicUserData.name,
-                    role: basicUserData.role
-                });
-                 console.log("Created basic Firestore document for new/missing user:", fbUser.uid);
+                // Attempt to create the Firestore document if it's truly missing (e.g., after signup issues)
+                // Be cautious with automatically creating documents here if getUserData failed for other reasons
+                try {
+                  await createUserDocument(fbUser.uid, basicUserData.email, basicUserData.name);
+                  console.log("Created basic Firestore document for new/missing user:", fbUser.uid);
+                } catch (creationError) {
+                   console.error("Failed to auto-create Firestore document on auth change:", creationError);
+                }
             }
         } catch (error) {
-             console.error("Error fetching or creating Firestore user data:", error);
+             console.error("Error fetching or processing Firestore user data:", error);
              // Fallback to basic user info from Auth if Firestore interaction fails
               setUser({
                   id: fbUser.uid,
@@ -125,6 +148,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const userCredential = await signInWithEmailAndPassword(auth, email, pass);
       // User state will be updated by onAuthStateChanged listener
       console.log('Login successful for:', userCredential.user.email);
+      // setLoading(false); // Loading is set to false by the listener
       return true;
     } catch (error: any) {
       console.error('Login failed:', error);
@@ -133,56 +157,81 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         errorMessage = 'E-mail ou senha inválidos.';
       } else if (error.code === 'auth/invalid-email') {
         errorMessage = 'Formato de e-mail inválido.';
+      } else if (error.code === 'auth/too-many-requests') {
+         errorMessage = 'Muitas tentativas de login falhadas. Tente novamente mais tarde.';
       }
       toast({
         variant: "destructive",
         title: "Falha no Login",
         description: errorMessage,
       });
-      setLoading(false);
+      setLoading(false); // Ensure loading is false on error
       return false;
     }
+    // No need for finally here, listener handles success case loading
   };
 
    // Firebase Signup
    const signup = async (email: string, pass: string, name: string, username?: string): Promise<boolean> => {
      setLoading(true);
+     let userId: string | null = null; // Keep track of userId for potential cleanup
+
      try {
        // 1. Create user in Firebase Authentication
        const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
-       const userId = userCredential.user.uid;
+       userId = userCredential.user.uid;
+       console.log('Firebase Auth user created:', userId);
+
 
        // 2. Update Firebase Auth profile (display name)
        await updateProfile(userCredential.user, { displayName: name });
+       console.log('Firebase Auth profile updated for:', userId);
 
-       // 3. Create user document in Firestore with 'driver' role (default for self-signup)
-       const userData: Partial<Omit<User, 'id'>> = {
-         name,
-         email,
-         username: username || '', // Store username if provided
-         role: 'driver', // Default role for new signups
-         // Base might be set later or through an admin panel
-       };
-       await setUserData(userId, userData);
+       // 3. Create user document in Firestore using the helper function
+       await createUserDocument(userId, email, name, username);
 
        console.log('Signup successful and Firestore document created for:', email);
+
        // Sign the user out immediately after signup, requiring them to log in
        await signOut(auth);
        setUser(null);
        setFirebaseUser(null);
+       console.log('User signed out after successful signup.');
+
 
        setLoading(false);
        return true;
      } catch (error: any) {
-       console.error('Signup failed:', error);
-       let description = "Ocorreu um erro ao cadastrar.";
+       console.error('Signup failed:', error); // Log the detailed error
+       let description = "Ocorreu um erro ao cadastrar."; // Default message
+
+       // Check for specific Firebase Auth errors
        if (error.code === 'auth/email-already-in-use') {
          description = "Este e-mail já está em uso por outra conta.";
        } else if (error.code === 'auth/invalid-email') {
          description = "O formato do e-mail é inválido.";
        } else if (error.code === 'auth/weak-password') {
          description = "A senha é muito fraca (mínimo 6 caracteres).";
+       } else {
+         // Handle potential Firestore errors during createUserDocument
+         // If you have specific Firestore error codes you want to handle, add them here
+         console.error('An unexpected error occurred during signup:', error.message);
+         description = `Erro inesperado: ${error.message || 'Verifique os dados e tente novamente.'}`;
+
+         // Optional: Attempt to delete the Auth user if Firestore creation failed
+         // if (userId) {
+         //   try {
+         //     const userToDelete = auth.currentUser; // Re-check current user just in case
+         //     if (userToDelete && userToDelete.uid === userId) {
+         //        await userToDelete.delete();
+         //        console.log('Auth user deleted after Firestore failure.');
+         //     }
+         //   } catch (deleteError) {
+         //     console.error('Failed to delete Auth user after Firestore error:', deleteError);
+         //   }
+         // }
        }
+
        toast({ variant: "destructive", title: "Falha no Cadastro", description });
        setLoading(false);
        return false;
@@ -216,9 +265,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       try {
           await reauthenticateWithCredential(firebaseUser, credential);
           return true;
-      } catch (error) {
+      } catch (error: any) { // Catch specific error
           console.error("Re-authentication failed:", error);
-          toast({ variant: "destructive", title: "Autenticação Falhou", description: "Senha atual incorreta." });
+          let desc = "Senha atual incorreta.";
+          if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+              // Keep the specific message
+          } else if (error.code === 'auth/too-many-requests') {
+               desc = 'Muitas tentativas falhadas. Tente novamente mais tarde.';
+          } else {
+               desc = 'Erro ao reautenticar. Tente novamente.'
+          }
+          toast({ variant: "destructive", title: "Autenticação Falhou", description: desc });
           return false;
       }
   };
@@ -256,6 +313,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               desc = "Este e-mail já está em uso por outra conta.";
           } else if (error.code === 'auth/invalid-email') {
               desc = "O formato do novo e-mail é inválido.";
+          } else if (error.code === 'auth/requires-recent-login') {
+             desc = 'Esta operação requer login recente. Faça logout e login novamente.';
           }
           toast({ variant: "destructive", title: "Falha", description: desc });
           setLoading(false);
@@ -288,6 +347,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
            let desc = "Não foi possível atualizar a senha.";
            if (error.code === 'auth/weak-password') {
                desc = "A nova senha é muito fraca. Use pelo menos 6 caracteres.";
+           } else if (error.code === 'auth/requires-recent-login') {
+              desc = 'Esta operação requer login recente. Faça logout e login novamente.';
            }
           toast({ variant: "destructive", title: "Falha", description: desc });
           setLoading(false);
@@ -320,9 +381,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           toast({ title: "Sucesso", description: "Nome atualizado." });
           setLoading(false);
           return true;
-      } catch (error) {
+      } catch (error: any) { // Catch specific error
           console.error("Error updating profile name:", error);
-          toast({ variant: "destructive", title: "Falha", description: "Não foi possível atualizar o nome." });
+          let desc = "Não foi possível atualizar o nome.";
+           if (error.code === 'auth/requires-recent-login') {
+              desc = 'Esta operação requer login recente. Faça logout e login novamente.';
+           }
+          toast({ variant: "destructive", title: "Falha", description: desc });
           setLoading(false);
           return false;
       }
@@ -342,3 +407,4 @@ export const useAuth = (): AuthContextType => {
   }
   return context;
 };
+    
