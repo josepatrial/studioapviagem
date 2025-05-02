@@ -22,18 +22,15 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Visits, initialVisits } from './Visits';
+import { Visits, initialVisits, Visit } from './Visits';
 // Import initialExpenses and initialFuelings directly
-import { Expenses, initialExpenses } from './Expenses';
-import { Fuelings, initialFuelings } from './Fuelings';
+import { Expenses, initialExpenses, Expense } from './Expenses';
+import { Fuelings, initialFuelings, Fueling } from './Fuelings';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth, initialDrivers } from '@/contexts/AuthContext'; // Import initialDrivers as well
 import { initialVehicles, type VehicleInfo } from '../Vehicle';
 import { Badge } from '@/components/ui/badge';
 import { FinishTripDialog } from './FinishTripDialog';
-import type { Visit } from './Visits';
-import type { Expense } from './Expenses';
-import type { Fueling } from './Fuelings';
 
 // Define Trip interface
 export interface Trip {
@@ -426,136 +423,143 @@ export const Trips: React.FC = () => {
             const fuelingCount = getFuelingCount(trip.id);
             return (
               <AccordionItem key={trip.id} value={trip.id} className="border bg-card rounded-lg shadow-sm overflow-hidden">
-                <AccordionTrigger className="flex justify-between items-center p-4 hover:bg-accent/50 cursor-pointer w-full text-left data-[state=open]:border-b">
-                  <div className="flex-1 mr-4 space-y-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <CardTitle className="text-lg">{trip.name}</CardTitle>
-                      <Badge variant={trip.status === 'Andamento' ? 'default' : 'secondary'} className={`h-5 px-2 text-xs whitespace-nowrap ${trip.status === 'Andamento' ? 'bg-emerald-500 hover:bg-emerald-500/80 dark:bg-emerald-600 dark:hover:bg-emerald-600/80 text-white' : ''}`}>
-                        {trip.status === 'Andamento' ? <PlayCircle className="h-3 w-3 mr-1" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
-                        {trip.status}
-                      </Badge>
-                    </div>
-                    <CardDescription className="text-sm flex items-center gap-1">
-                      <Car className="h-4 w-4 text-muted-foreground" /> {getTripDescription(trip)}
-                    </CardDescription>
-                    <div className="flex items-center flex-wrap space-x-2 text-xs text-muted-foreground">
-                      <span>
-                        <MapPin className="h-3 w-3 inline-block mr-1" /> {visitCount} {visitCount === 1 ? 'Visita' : 'Visitas'}
-                      </span>
-                      <span>
-                        <Wallet className="h-3 w-3 inline-block mr-1" /> {expenseCount} {expenseCount === 1 ? 'Despesa' : 'Despesas'}
-                      </span>
-                      <span>
-                        <Fuel className="h-3 w-3 inline-block mr-1" /> {fuelingCount} {fuelingCount === 1 ? 'Abastec.' : 'Abastec.'}
-                      </span>
-                     {trip.status === 'Finalizado' && trip.totalDistance !== undefined && (
-                        <span className="text-emerald-600 font-medium">
-                          <Milestone className="h-3 w-3 inline-block mr-1" /> {formatKm(trip.totalDistance)} Percorridos
-                        </span>
-                     )}
-                    </div>
-                    <div className="flex items-center space-x-2 text-xs text-muted-foreground">
-                      <span>Início: {new Date(trip.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
-                      <span>Atualizado: {new Date(trip.updatedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1 flex-shrink-0">
-                     {trip.status === 'Andamento' && (isAdmin || trip.userId === user?.id) && ( // Allow finish only for owner or admin
-                         <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={(e) => openFinishModal(trip, e)}
-                            className="h-8 px-2 sm:px-3 text-emerald-600 border-emerald-600/50 hover:bg-emerald-50 hover:text-emerald-700"
-                         >
-                           <CheckCircle2 className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">Finalizar</span>
-                         </Button>
-                     )}
-                     {/* Edit and Delete only allowed for owner or admin */}
-                    {(isAdmin || trip.userId === user?.id) && (
-                       <>
-                            <Dialog open={isEditModalOpen && currentTrip?.id === trip.id} onOpenChange={(isOpen) => !isOpen && closeEditModal()}>
-                              <DialogTrigger asChild>
-                                <Button variant="ghost" size="icon" onClick={(e) => openEditModal(trip, e)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8">
-                                  <Edit className="h-4 w-4" />
-                                  <span className="sr-only">Editar Viagem</span>
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent className="sm:max-w-[425px]">
-                                <DialogHeader>
-                                  <DialogTitle>Editar Viagem</DialogTitle>
-                                </DialogHeader>
-                                <form onSubmit={handleEditTrip} className="grid gap-4 py-4">
-                                  <div className="space-y-2">
-                                    <Label htmlFor="editTripName">Nome da Viagem*</Label>
-                                    <Input id="editTripName" value={tripName} onChange={(e) => setTripName(e.target.value)} required />
-                                  </div>
-                                  <div className="space-y-2">
-                                    <Label htmlFor="editVehicleId">Veículo*</Label>
-                                    <Select value={selectedVehicleId} onValueChange={setSelectedVehicleId} required>
-                                      <SelectTrigger id="editVehicleId">
-                                        <SelectValue />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {vehicles.map((vehicle) => (
-                                          <SelectItem key={vehicle.id} value={vehicle.id}>
-                                            {vehicle.model} ({vehicle.licensePlate})
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
-                                  <div className="space-y-2">
-                                    <Label>Motorista</Label>
-                                    <p className="text-sm text-muted-foreground">{getDriverName(trip.userId)}</p>
-                                  </div>
-                                  <div className="space-y-2">
-                                    <Label>Base</Label>
-                                    <p className="text-sm text-muted-foreground">{trip.base}</p>
-                                  </div>
-                                  <div className="space-y-2">
-                                    <Label>Status</Label>
-                                    <p className="text-sm font-medium">{currentTrip?.status}</p>
-                                  </div>
-                                  <DialogFooter>
-                                    <DialogClose asChild>
-                                      <Button type="button" variant="outline" onClick={closeEditModal}>Cancelar</Button>
-                                    </DialogClose>
-                                    <Button type="submit" className="bg-primary hover:bg-primary/90">Salvar Alterações</Button>
-                                  </DialogFooter>
-                                </form>
-                              </DialogContent>
-                            </Dialog>
+                 {/* Use a div for the header area to allow flex layout */}
+                 <div className="flex justify-between items-center p-4 hover:bg-accent/50 w-full text-left data-[state=open]:border-b">
+                     <AccordionTrigger className="flex-1 p-0 hover:no-underline">
+                          <div className="flex-1 mr-4 space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <CardTitle className="text-lg">{trip.name}</CardTitle>
+                              <Badge variant={trip.status === 'Andamento' ? 'default' : 'secondary'} className={`h-5 px-2 text-xs whitespace-nowrap ${trip.status === 'Andamento' ? 'bg-emerald-500 hover:bg-emerald-500/80 dark:bg-emerald-600 dark:hover:bg-emerald-600/80 text-white' : ''}`}>
+                                {trip.status === 'Andamento' ? <PlayCircle className="h-3 w-3 mr-1" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
+                                {trip.status}
+                              </Badge>
+                            </div>
+                            <CardDescription className="text-sm flex items-center gap-1">
+                              <Car className="h-4 w-4 text-muted-foreground" /> {getTripDescription(trip)}
+                            </CardDescription>
+                            <div className="flex items-center flex-wrap space-x-2 text-xs text-muted-foreground">
+                              <span>
+                                <MapPin className="h-3 w-3 inline-block mr-1" /> {visitCount} {visitCount === 1 ? 'Visita' : 'Visitas'}
+                              </span>
+                              <span>
+                                <Wallet className="h-3 w-3 inline-block mr-1" /> {expenseCount} {expenseCount === 1 ? 'Despesa' : 'Despesas'}
+                              </span>
+                              <span>
+                                <Fuel className="h-3 w-3 inline-block mr-1" /> {fuelingCount} {fuelingCount === 1 ? 'Abastec.' : 'Abastec.'}
+                              </span>
+                             {trip.status === 'Finalizado' && trip.totalDistance !== undefined && (
+                                <span className="text-emerald-600 font-medium">
+                                  <Milestone className="h-3 w-3 inline-block mr-1" /> {formatKm(trip.totalDistance)} Percorridos
+                                </span>
+                             )}
+                            </div>
+                            <div className="flex items-center space-x-2 text-xs text-muted-foreground">
+                              <span>Início: {new Date(trip.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                              <span>Atualizado: {new Date(trip.updatedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                            </div>
+                          </div>
+                     </AccordionTrigger>
+                     {/* Action buttons moved outside the trigger but within the header flex container */}
+                     <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+                        {trip.status === 'Andamento' && (isAdmin || trip.userId === user?.id) && (
+                            <Button
+                               variant="outline"
+                               size="sm"
+                               onClick={(e) => openFinishModal(trip, e)}
+                               className="h-8 px-2 sm:px-3 text-emerald-600 border-emerald-600/50 hover:bg-emerald-50 hover:text-emerald-700"
+                            >
+                              <CheckCircle2 className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">Finalizar</span>
+                            </Button>
+                        )}
+                        {(isAdmin || trip.userId === user?.id) && (
+                           <>
+                                <Dialog open={isEditModalOpen && currentTrip?.id === trip.id} onOpenChange={(isOpen) => !isOpen && closeEditModal()}>
+                                  <DialogTrigger asChild>
+                                    {/* Use a simple button for the trigger */}
+                                    <Button variant="ghost" size="icon" onClick={(e) => openEditModal(trip, e)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8">
+                                      <Edit className="h-4 w-4" />
+                                      <span className="sr-only">Editar Viagem</span>
+                                    </Button>
+                                  </DialogTrigger>
+                                  <DialogContent className="sm:max-w-[425px]">
+                                    <DialogHeader>
+                                      <DialogTitle>Editar Viagem</DialogTitle>
+                                    </DialogHeader>
+                                    <form onSubmit={handleEditTrip} className="grid gap-4 py-4">
+                                      <div className="space-y-2">
+                                        <Label htmlFor="editTripName">Nome da Viagem*</Label>
+                                        <Input id="editTripName" value={tripName} onChange={(e) => setTripName(e.target.value)} required />
+                                      </div>
+                                      <div className="space-y-2">
+                                        <Label htmlFor="editVehicleId">Veículo*</Label>
+                                        <Select value={selectedVehicleId} onValueChange={setSelectedVehicleId} required>
+                                          <SelectTrigger id="editVehicleId">
+                                            <SelectValue />
+                                          </SelectTrigger>
+                                          <SelectContent>
+                                            {vehicles.map((vehicle) => (
+                                              <SelectItem key={vehicle.id} value={vehicle.id}>
+                                                {vehicle.model} ({vehicle.licensePlate})
+                                              </SelectItem>
+                                            ))}
+                                          </SelectContent>
+                                        </Select>
+                                      </div>
+                                      <div className="space-y-2">
+                                        <Label>Motorista</Label>
+                                        <p className="text-sm text-muted-foreground">{getDriverName(trip.userId)}</p>
+                                      </div>
+                                      <div className="space-y-2">
+                                        <Label>Base</Label>
+                                        <p className="text-sm text-muted-foreground">{trip.base}</p>
+                                      </div>
+                                      <div className="space-y-2">
+                                        <Label>Status</Label>
+                                        <p className="text-sm font-medium">{currentTrip?.status}</p>
+                                      </div>
+                                      <DialogFooter>
+                                        <DialogClose asChild>
+                                          <Button type="button" variant="outline" onClick={closeEditModal}>Cancelar</Button>
+                                        </DialogClose>
+                                        <Button type="submit" className="bg-primary hover:bg-primary/90">Salvar Alterações</Button>
+                                      </DialogFooter>
+                                    </form>
+                                  </DialogContent>
+                                </Dialog>
 
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button variant="ghost" size="icon" onClick={(e) => e.stopPropagation()} className="text-muted-foreground hover:text-destructive h-8 w-8">
-                                  <Trash2 className="h-4 w-4" />
-                                  <span className="sr-only">Excluir Viagem</span>
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                   Tem certeza que deseja excluir a viagem "{trip.name}"? Esta ação não pode ser desfeita. Certifique-se de que não há visitas, despesas ou abastecimentos associados antes de excluir.
-                                  </AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                  <AlertDialogAction
-                                    onClick={() => handleDeleteTrip(trip.id)}
-                                    className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
-                                  >
-                                    Excluir
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                        </>
-                     )}
-                    <ChevronDown className="h-5 w-5 transition-transform duration-200 group-data-[state=open]:rotate-180 flex-shrink-0 ml-1 sm:ml-2" />
-                  </div>
-                </AccordionTrigger>
+                                <AlertDialog>
+                                  <AlertDialogTrigger asChild>
+                                    {/* Use a simple button for the trigger */}
+                                    <Button variant="ghost" size="icon" onClick={(e) => e.stopPropagation()} className="text-muted-foreground hover:text-destructive h-8 w-8">
+                                      <Trash2 className="h-4 w-4" />
+                                      <span className="sr-only">Excluir Viagem</span>
+                                    </Button>
+                                  </AlertDialogTrigger>
+                                  <AlertDialogContent>
+                                    <AlertDialogHeader>
+                                      <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
+                                      <AlertDialogDescription>
+                                       Tem certeza que deseja excluir a viagem "{trip.name}"? Esta ação não pode ser desfeita. Certifique-se de que não há visitas, despesas ou abastecimentos associados antes de excluir.
+                                      </AlertDialogDescription>
+                                    </AlertDialogHeader>
+                                    <AlertDialogFooter>
+                                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                      <AlertDialogAction
+                                        onClick={() => handleDeleteTrip(trip.id)}
+                                        className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                                      >
+                                        Excluir
+                                      </AlertDialogAction>
+                                    </AlertDialogFooter>
+                                  </AlertDialogContent>
+                                </AlertDialog>
+                            </>
+                         )}
+                          {/* Chevron is kept outside the trigger, aligned with buttons */}
+                         {/* <ChevronDown className="h-5 w-5 transition-transform duration-200 group-data-[state=open]:rotate-180 flex-shrink-0 ml-1 sm:ml-2" /> */}
+                     </div>
+                 </div>
+
                 <AccordionContent className="p-4 pt-0 bg-secondary/30">
                   <div className="space-y-6">
                     {/* Pass isAdmin prop to child components if they need role-based logic */}
