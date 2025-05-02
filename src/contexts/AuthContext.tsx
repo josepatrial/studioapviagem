@@ -209,8 +209,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
              console.error(`[AuthProvider ${startTime}] Error fetching or processing user data for ${fbUser.uid}:`, error.message, error.code);
 
               // Check specifically for Firestore offline error
-             if (error instanceof FirestoreError && error.code === 'unavailable') {
-                   console.warn(`[AuthProvider ${startTime}] Firestore unavailable (likely offline). Using basic Auth data.`);
+             if (error instanceof FirestoreError && error.code === 'auth/network-request-failed') { // Use correct code
+                   console.warn(`[AuthProvider ${startTime}] Firestore network unavailable (likely offline). Using basic Auth data.`);
                    setUser({
                        id: fbUser.uid,
                        email: fbUser.email || 'offline@example.com',
@@ -266,7 +266,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   // Firebase Login
   const login = async (email: string, pass: string): Promise<boolean> => {
     const loginStartTime = performance.now();
-    console.log(`[AuthProvider Login ${loginStartTime}] Attempting login for ${email}`);
+    console.log(`[AuthProvider Login ${loginStartTime}] Attempting login for email: ${email}`); // Log email being used
     if (!auth) {
        console.error(`[AuthProvider Login ${loginStartTime}] Login failed: Firebase Auth instance is not available.`);
        toast({ variant: "destructive", title: "Erro de Configuração", description: "Autenticação não inicializada.", duration: 9000 });
@@ -282,8 +282,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return true;
     } catch (error: any) {
        const loginEndTime = performance.now();
-       console.error(`[AuthProvider Login ${loginStartTime}] Login failed for ${email}. Time: ${loginEndTime - loginStartTime} ms. Error:`, error);
+       console.error(`[AuthProvider Login ${loginStartTime}] Login failed for ${email}. Time: ${loginEndTime - loginStartTime} ms. Error Code: ${error.code}, Message: ${error.message}`); // Log specific error code
        let errorMessage = 'Falha no Login. Verifique seu e-mail e senha.';
+        // Explicitly handle auth/invalid-credential
         if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
             errorMessage = 'E-mail ou senha inválidos.';
         } else if (error.code === 'auth/invalid-email') {
@@ -351,7 +352,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
        return true;
      } catch (error: any) {
        const signupEndTime = performance.now();
-       console.error(`[AuthProvider Signup ${signupStartTime}] Signup failed after ${signupEndTime - signupStartTime} ms. Error:`, error);
+       console.error(`[AuthProvider Signup ${signupStartTime}] Signup failed after ${signupEndTime - signupStartTime} ms. Error Code: ${error.code}, Message: ${error.message}`); // Log specific error code
        let description = "Ocorreu um erro ao cadastrar.";
        if (error.code === 'auth/email-already-in-use') {
          description = "Este e-mail já está em uso por outra conta.";
@@ -427,12 +428,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           return true;
       } catch (error: any) {
           const reauthEndTime = performance.now();
-          console.error(`[AuthProvider Reauthenticate ${reauthStartTime}] Reauthentication failed after ${reauthEndTime - reauthStartTime} ms. Error:`, error);
+          console.error(`[AuthProvider Reauthenticate ${reauthStartTime}] Reauthentication failed after ${reauthEndTime - reauthStartTime} ms. Error: ${error.code}, Message: ${error.message}`);
           let desc = "Senha atual incorreta.";
           if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
               // Keep msg
           } else if (error.code === 'auth/too-many-requests') {
                desc = 'Muitas tentativas falhadas. Tente novamente mais tarde.';
+          } else if (error.code === 'auth/network-request-failed') {
+               desc = 'Erro de rede. Verifique sua conexão.';
           } else {
                desc = 'Erro ao reautenticar. Tente novamente.'
           }
@@ -477,7 +480,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           return true;
       } catch (error: any) {
           const updateEmailEndTime = performance.now();
-          console.error(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Email update failed after ${updateEmailEndTime - updateEmailStartTime} ms. Error:`, error);
+          console.error(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Email update failed after ${updateEmailEndTime - updateEmailStartTime} ms. Error: ${error.code}, Message: ${error.message}`);
           let desc = "Não foi possível atualizar o e-mail.";
           if (error.code === 'auth/email-already-in-use') {
               desc = "Este e-mail já está em uso por outra conta.";
@@ -521,7 +524,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           return true;
       } catch (error: any) {
           const updatePassEndTime = performance.now();
-           console.error(`[AuthProvider UpdatePassword ${updatePassStartTime}] Password update failed after ${updatePassEndTime - updatePassStartTime} ms. Error:`, error);
+           console.error(`[AuthProvider UpdatePassword ${updatePassStartTime}] Password update failed after ${updatePassEndTime - updatePassStartTime} ms. Error: ${error.code}, Message: ${error.message}`);
            let desc = "Não foi possível atualizar a senha.";
            if (error.code === 'auth/weak-password') {
                desc = "A nova senha é muito fraca. Use pelo menos 6 caracteres.";
@@ -568,7 +571,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           return true;
       } catch (error: any) {
            const updateNameEndTime = performance.now();
-           console.error(`[AuthProvider UpdateName ${updateNameStartTime}] Name update failed after ${updateNameEndTime - updateNameStartTime} ms. Error:`, error);
+           console.error(`[AuthProvider UpdateName ${updateNameStartTime}] Name update failed after ${updateNameEndTime - updateNameStartTime} ms. Error: ${error.code}, Message: ${error.message}`);
            let desc = "Não foi possível atualizar o nome.";
            if (error.code === 'auth/requires-recent-login') {
               desc = 'Esta operação requer login recente. Faça logout e login novamente.';
