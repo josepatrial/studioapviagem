@@ -40,8 +40,8 @@ export interface Fueling {
   receiptFilename?: string;
 }
 
-// Export getFuelings as initialFuelings for legacy compatibility
-export { getFuelings as initialFuelings } from '@/services/firestoreService';
+// Removed legacy export
+// export { getFuelings as initialFuelings } from '@/services/firestoreService';
 
 interface FuelingsProps {
   tripId: string; // TripId is required

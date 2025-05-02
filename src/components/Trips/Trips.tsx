@@ -24,11 +24,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 // Fetch data functions and types
 import { Visits, getVisits as fetchVisits, type Visit } from './Visits';
 import { Expenses, getExpenses as fetchExpenses, type Expense } from './Expenses';
-import { Fuelings, type Fueling } from './Fuelings'; // Removed fetchFuelings import from here
+import { Fuelings, type Fueling } from './Fuelings'; // Keep component import
+import { getFuelings as fetchFuelings } from '@/services/firestoreService'; // Import fetch function from service
 import { useToast } from '@/hooks/use-toast';
 import { useAuth, User } from '@/contexts/AuthContext';
 import { type VehicleInfo } from '../Vehicle'; // Import type VehicleInfo
-import { getVehicles as fetchVehicles, getFuelings as fetchFuelings } from '@/services/firestoreService'; // Import fetch function from service
+import { getVehicles as fetchVehicles } from '@/services/firestoreService'; // Import fetch function from service
 import { Badge } from '@/components/ui/badge';
 import { FinishTripDialog } from './FinishTripDialog';
 import { cn } from '@/lib/utils';
@@ -604,6 +605,7 @@ export const Trips: React.FC = () => {
                               onClick={(e) => openFinishModal(trip, e)}
                               className="h-8 px-2 sm:px-3 text-emerald-600 border-emerald-600/50 hover:bg-emerald-50 hover:text-emerald-700"
                               disabled={isSaving || isDeleting}
+                              asChild={false} // Ensure it's not treated as a child for trigger
                            >
                                {isSaving && tripToFinish?.id === trip.id ? <Loader2 className="h-4 w-4 animate-spin sm:mr-1" /> : <CheckCircle2 className="h-4 w-4 sm:mr-1" /> }
                               <span className="hidden sm:inline">{isSaving && tripToFinish?.id === trip.id ? 'Finalizando...': 'Finalizar'}</span>
@@ -613,9 +615,9 @@ export const Trips: React.FC = () => {
                            <>
                                 <Dialog open={isEditModalOpen && currentTrip?.id === trip.id} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); }}>
                                   <DialogTrigger asChild>
-                                     <Button variant="ghost" size="icon" onClick={(e) => openEditModal(trip, e)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving || isDeleting}>
+                                     <Button asChild={false} variant="ghost" size="icon" onClick={(e) => openEditModal(trip, e)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving || isDeleting}>
                                        <Edit className="h-4 w-4" />
-                                       <span className="sr-only">Editar Viagem</span>
+                                       {/* <span className="sr-only">Editar Viagem</span> */}
                                      </Button>
                                   </DialogTrigger>
                                   <DialogContent className="sm:max-w-[425px]">
@@ -676,9 +678,9 @@ export const Trips: React.FC = () => {
 
                                 <AlertDialog open={!!tripToDelete && tripToDelete.id === trip.id} onOpenChange={(isOpen) => !isOpen && closeDeleteConfirmation()}>
                                     <AlertDialogTrigger asChild>
-                                        <Button variant="ghost" size="icon" onClick={(e) => openDeleteConfirmation(trip, e)} className="text-muted-foreground hover:text-destructive h-8 w-8" disabled={isSaving || isDeleting}>
+                                        <Button asChild={false} variant="ghost" size="icon" onClick={(e) => openDeleteConfirmation(trip, e)} className="text-muted-foreground hover:text-destructive h-8 w-8" disabled={isSaving || isDeleting}>
                                             <Trash2 className="h-4 w-4" />
-                                            <span className="sr-only">Excluir Viagem</span>
+                                            {/* <span className="sr-only">Excluir Viagem</span> */}
                                         </Button>
                                     </AlertDialogTrigger>
                                     <AlertDialogContent>
@@ -744,6 +746,3 @@ export const Trips: React.FC = () => {
     </div>
   );
 };
-
-
-```
