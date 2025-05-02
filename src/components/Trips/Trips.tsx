@@ -23,10 +23,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 // Mock data - Imported to fix the reference error, but could be moved back if unused here
-import {initialVisits, type Visit} from './Visits';
+import { initialVisits, type Visit } from './Visits';
 // Import initialExpenses and initialFuelings directly
 import { Expenses, initialExpenses, Expense } from './Expenses';
 import { Fuelings, initialFuelings, Fueling } from './Fuelings';
+import { Visits } from './Visits'; // Import the Visits component
 import { useToast } from '@/hooks/use-toast';
 import { useAuth, initialDrivers } from '@/contexts/AuthContext'; // Import initialDrivers as well
 import { initialVehicles, type VehicleInfo } from '../Vehicle';
@@ -464,15 +465,12 @@ export const Trips: React.FC = () => {
                      <div className="flex items-center gap-1 flex-shrink-0 ml-2">
                         {trip.status === 'Andamento' && (isAdmin || trip.userId === user?.id) && (
                             <Button
-                               asChild // Use asChild to prevent button nesting
                                variant="outline"
                                size="sm"
                                onClick={(e) => openFinishModal(trip, e)}
                                className="h-8 px-2 sm:px-3 text-emerald-600 border-emerald-600/50 hover:bg-emerald-50 hover:text-emerald-700"
                             >
-                              <a> {/* Use an anchor or span tag */}
                                <CheckCircle2 className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">Finalizar</span>
-                              </a>
                             </Button>
                         )}
                         {(isAdmin || trip.userId === user?.id) && (
