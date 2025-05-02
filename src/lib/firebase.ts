@@ -6,6 +6,7 @@ import { getStorage } from 'firebase/storage';
 
 // Ensure environment variables are correctly prefixed with NEXT_PUBLIC_
 // The values MUST be set in your .env or .env.local file
+// IMPORTANT: Replace the placeholder values in your .env file with your actual Firebase project credentials.
 const firebaseConfig = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
@@ -16,14 +17,22 @@ const firebaseConfig = {
   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
 
-// Basic validation (optional, but helpful for debugging)
-if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "YOUR_API_KEY") {
-    console.error("Firebase API Key is missing or is still the placeholder value. Please check your .env file and ensure NEXT_PUBLIC_FIREBASE_API_KEY is set correctly.");
-}
-// Add similar checks for other critical keys like projectId if desired.
+// Basic validation removed as Firebase SDK handles invalid config errors effectively.
+// The console error was just confirming the SDK's error.
+// if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "YOUR_API_KEY") {
+//     console.error("Firebase API Key is missing or is still the placeholder value. Please check your .env file and ensure NEXT_PUBLIC_FIREBASE_API_KEY is set correctly.");
+// }
 
 // Initialize Firebase
-const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+let app;
+try {
+    app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
+} catch (error) {
+    console.error("Firebase initialization failed:", error);
+    // Optionally, you could re-throw the error or handle it differently
+    throw new Error("Could not initialize Firebase. Please check your configuration in .env.");
+}
+
 const auth = getAuth(app);
 const db = getFirestore(app);
 const storage = getStorage(app);
