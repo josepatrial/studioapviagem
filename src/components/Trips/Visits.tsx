@@ -1,4 +1,3 @@
-
 'use client';
 
 
@@ -27,7 +26,7 @@ export interface Visit { // Export interface
   timestamp: string; // Add timestamp for sorting/display
 }
 
-// Mock data - Now includes tripId
+// Mock data - Now includes tripId and is EXPORTED
 export const initialVisits: Visit[] = [
   { id: 'v1', tripId: '1', clientName: 'Cliente Alpha', location: 'Rua Exemplo, 123', latitude: -23.5505, longitude: -46.6333, initialKm: 15000, reason: 'Entrega de material', timestamp: new Date(2024, 6, 21, 10, 30).toISOString() },
   { id: 'v2', tripId: '1', clientName: 'Empresa Beta', location: 'Avenida Principal, 456', latitude: -23.5610, longitude: -46.6400, initialKm: 15150, reason: 'Reunião de Vendas', timestamp: new Date(2024, 6, 21, 14, 0).toISOString() },
@@ -256,7 +255,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId, tripName }) => {
           {tripName ? `Visitas da Viagem: ${tripName}` : 'Visitas'}
         </h3>
         {tripId && ( // Only show button if a trip context is provided
-          <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
+          <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
              <DialogTrigger asChild>
                <Button onClick={() => setIsCreateModalOpen(true)} className="bg-accent hover:bg-accent/90 text-accent-foreground">
                  <PlusCircle className="mr-2 h-4 w-4" /> Registrar Visita
@@ -309,7 +308,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId, tripName }) => {
       </div>
 
         {/* Confirmation Dialog */}
-        <AlertDialog open={isConfirmModalOpen} onOpenChange={setIsConfirmModalOpen}>
+        <AlertDialog open={isConfirmModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeConfirmModal(); }}>
           {/* No trigger needed here as it's opened programmatically */}
           <AlertDialogContent>
             <AlertDialogHeader>
@@ -366,12 +365,34 @@ export const Visits: React.FC<VisitsProps> = ({ tripId, tripName }) => {
                     </div>
                     <div className="flex gap-1">
                        {/* View Button (can open a detailed modal later) */}
-                       <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary h-8 w-8">
-                         <Eye className="h-4 w-4" />
-                         <span className="sr-only">Visualizar Detalhes</span>
-                       </Button>
+                        <Dialog>
+                           <DialogTrigger asChild>
+                                <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary h-8 w-8">
+                                  <Eye className="h-4 w-4" />
+                                  <span className="sr-only">Visualizar Detalhes</span>
+                                </Button>
+                            </DialogTrigger>
+                            <DialogContent>
+                               <DialogHeader>
+                                   <DialogTitle>Detalhes da Visita</DialogTitle>
+                               </DialogHeader>
+                               <div className="py-4 space-y-3">
+                                   <p><strong>Cliente:</strong> {visit.clientName}</p>
+                                   <p><strong>Localização:</strong> {visit.location}</p>
+                                   {visit.latitude && visit.longitude && <p className="text-xs">({visit.latitude.toFixed(4)}, {visit.longitude.toFixed(4)})</p>}
+                                   <p><strong>KM Inicial:</strong> {formatKm(visit.initialKm)}</p>
+                                   <p><strong>Motivo:</strong> {visit.reason}</p>
+                                   <p className="text-xs text-muted-foreground">Registrado em: {new Date(visit.timestamp).toLocaleString('pt-BR')}</p>
+                               </div>
+                               <DialogFooter>
+                                   <DialogClose asChild>
+                                       <Button variant="outline">Fechar</Button>
+                                   </DialogClose>
+                               </DialogFooter>
+                            </DialogContent>
+                        </Dialog>
                        {/* Edit Button */}
-                       <Dialog open={isEditModalOpen && currentVisit?.id === visit.id} onOpenChange={(isOpen) => !isOpen && closeEditModal()}>
+                       <Dialog open={isEditModalOpen && currentVisit?.id === visit.id} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); else openEditModal(visit); }}>
                          <DialogTrigger asChild>
                            <Button variant="ghost" size="icon" onClick={() => openEditModal(visit)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8">
                              <Edit className="h-4 w-4" />

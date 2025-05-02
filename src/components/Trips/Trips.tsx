@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Edit, Trash2, ChevronDown, ChevronUp, Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel } from 'lucide-react';
+import { PlusCircle, Edit, Trash2, ChevronDown, ChevronUp, Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone } from 'lucide-react'; // Added Milestone
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,24 +18,23 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
+import { Textarea } from '@/components/ui/textarea'; // Keep Textarea import if needed elsewhere, though not used in this specific change
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Visits } from './Visits';
-import { Expenses } from './Expenses';
+import { Visits, initialVisits } from './Visits'; // Import initialVisits
+import { Expenses, initialExpenses } from './Expenses'; // Import initialExpenses
+import { Fuelings, initialFuelings } from './Fuelings'; // Import initialFuelings
 import { useToast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
 import { initialVehicles, type VehicleInfo } from '../Vehicle';
 import { Badge } from '@/components/ui/badge';
-import { initialVisits } from './Visits';
+import { FinishTripDialog } from './FinishTripDialog'; // Import the new dialog
+import type { Visit } from './Visits'; // Keep Visit type import
+import type { Expense } from './Expenses'; // Keep Expense type import
+import type { Fueling } from './Fuelings'; // Keep Fueling type import
 
-import type { Visit } from './Visits';
-import { Fuelings } from './Fuelings';
-import type { Fueling } from './Fuelings';
-
-
-
-interface Trip {
+// Updated Trip interface
+export interface Trip {
   id: string;
   name: string;
   vehicleId: string;
@@ -46,12 +45,16 @@ interface Trip {
   visitCount?: number;
   expenseCount?: number;
   fuelingCount?: number;
+  finalKm?: number; // Added optional final KM
+  totalDistance?: number; // Added optional total distance
 }
 
+// Updated initialTrips with optional finalKm and totalDistance for finished trips
 const initialTrips: Trip[] = [
   { id: '1', name: 'Viagem Scania R450 (BRA2E19) - 23/07/2024', vehicleId: 'v1', userId: '1', status: 'Andamento', createdAt: new Date(2024, 6, 20).toISOString(), updatedAt: new Date(2024, 6, 21).toISOString() },
-  { id: '2', name: 'Viagem Volvo FH540 (MER1C01) - 22/07/2024', vehicleId: 'v2', userId: '1', status: 'Finalizado', createdAt: new Date(2024, 6, 15).toISOString(), updatedAt: new Date(2024, 6, 22).toISOString() },
+  { id: '2', name: 'Viagem Volvo FH540 (MER1C01) - 22/07/2024', vehicleId: 'v2', userId: '1', status: 'Finalizado', createdAt: new Date(2024, 6, 15).toISOString(), updatedAt: new Date(2024, 6, 22).toISOString(), finalKm: 16500, totalDistance: 500 }, // Example finished trip data
 ];
+
 
 export const Trips: React.FC = () => {
   const { user } = useAuth();
@@ -59,7 +62,9 @@ export const Trips: React.FC = () => {
   const [vehicles, setVehicles] = useState<VehicleInfo[]>([]);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isFinishModalOpen, setIsFinishModalOpen] = useState(false); // State for finish dialog
   const [currentTrip, setCurrentTrip] = useState<Trip | null>(null);
+  const [tripToFinish, setTripToFinish] = useState<Trip | null>(null); // State for trip being finished
   const [expandedTripId, setExpandedTripId] = useState<string | null>(null);
   const { toast } = useToast();
 
@@ -71,7 +76,8 @@ export const Trips: React.FC = () => {
     const sortedTrips = [...initialTrips].sort((a, b) => {
       if (a.status === 'Andamento' && b.status === 'Finalizado') return -1;
       if (a.status === 'Finalizado' && b.status === 'Andamento') return 1;
-      return b.name.localeCompare(a.name);
+      // Sort primarily by status, then by creation date descending for trips with the same status
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
     setTrips(sortedTrips);
   }, []);
@@ -86,12 +92,11 @@ export const Trips: React.FC = () => {
     return vehicle ? `${vehicle.model} (${vehicle.licensePlate})` : 'Veículo Desconhecido';
   };
 
+  const formatKm = (km?: number): string => km ? km.toLocaleString('pt-BR') + ' Km' : 'N/A';
+
+  // Fetch counts directly from imported mock data arrays
   const getVisitCount = (tripId: string): number => initialVisits.filter(v => v.tripId === tripId).length;
-  const ExpensesModule = require("./Expenses");
-  const initialExpenses = ExpensesModule.initialExpenses;
   const getExpenseCount = (tripId: string): number => initialExpenses.filter(e => e.tripId === tripId).length;
-  const FuelingsModule = require("./Fuelings");
-  const initialFuelings = FuelingsModule.initialFuelings;
   const getFuelingCount = (tripId: string): number => initialFuelings.filter(f => f.tripId === tripId).length;
 
   const handleCreateTrip = (e: React.FormEvent) => {
@@ -122,7 +127,7 @@ export const Trips: React.FC = () => {
     setTrips(prevTrips => [newTrip, ...prevTrips].sort((a, b) => {
       if (a.status === 'Andamento' && b.status === 'Finalizado') return -1;
       if (a.status === 'Finalizado' && b.status === 'Andamento') return 1;
-      return b.name.localeCompare(a.name);
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     }));
     resetForm();
     setIsCreateModalOpen(false);
@@ -141,9 +146,8 @@ export const Trips: React.FC = () => {
       ...currentTrip,
       name: tripName,
       vehicleId: selectedVehicleId,
-      userId: user.id,
-      status: currentTrip.status,
-      createdAt: currentTrip.createdAt,
+      // userId should remain the same
+      // status should remain the same unless specifically changed
       updatedAt: new Date().toISOString(),
     };
 
@@ -156,7 +160,7 @@ export const Trips: React.FC = () => {
       .sort((a, b) => {
         if (a.status === 'Andamento' && b.status === 'Finalizado') return -1;
         if (a.status === 'Finalizado' && b.status === 'Andamento') return 1;
-        return b.name.localeCompare(a.name);
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       }));
     resetForm();
     setIsEditModalOpen(false);
@@ -164,27 +168,59 @@ export const Trips: React.FC = () => {
     toast({ title: 'Viagem atualizada com sucesso!' });
   };
 
-  const handleFinishTrip = (tripId: string, event: React.MouseEvent) => {
+  // --- Finish Trip Logic ---
+  const openFinishModal = (trip: Trip, event: React.MouseEvent) => {
     event.stopPropagation();
+    setTripToFinish(trip);
+    setIsFinishModalOpen(true);
+  };
 
+  const confirmFinishTrip = (tripId: string, finalKm: number, totalDistance: number) => {
     const index = initialTrips.findIndex(t => t.id === tripId);
     if (index === -1) return;
 
-    const updatedTrip = { ...initialTrips[index], status: 'Finalizado' as const, updatedAt: new Date().toISOString() };
+    const updatedTrip: Trip = {
+      ...initialTrips[index],
+      status: 'Finalizado',
+      updatedAt: new Date().toISOString(),
+      finalKm: finalKm,
+      totalDistance: totalDistance,
+    };
     initialTrips[index] = updatedTrip;
 
     setTrips(prevTrips => [...prevTrips].map(trip => trip.id === tripId ? updatedTrip : trip)
       .sort((a, b) => {
         if (a.status === 'Andamento' && b.status === 'Finalizado') return -1;
         if (a.status === 'Finalizado' && b.status === 'Andamento') return 1;
-        return b.name.localeCompare(a.name);
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       }));
 
-    toast({ title: `Viagem "${updatedTrip.name}" marcada como finalizada.` });
-
+    setIsFinishModalOpen(false);
+    setTripToFinish(null);
+    toast({
+      title: `Viagem "${updatedTrip.name}" finalizada.`,
+      description: `Distância percorrida: ${formatKm(totalDistance)}`,
+    });
   };
+  // --- End Finish Trip Logic ---
 
   const handleDeleteTrip = (tripId: string) => {
+    // Add checks: Cannot delete if related items exist (Visits, Expenses, Fuelings) - For real app
+    const hasRelatedItems =
+      initialVisits.some(v => v.tripId === tripId) ||
+      initialExpenses.some(e => e.tripId === tripId) ||
+      initialFuelings.some(f => f.tripId === tripId);
+
+    if (hasRelatedItems) {
+        toast({
+            variant: "destructive",
+            title: "Exclusão não permitida",
+            description: "Não é possível excluir a viagem pois existem visitas, despesas ou abastecimentos associados.",
+            duration: 7000,
+        });
+        return; // Stop deletion
+    }
+
     const index = initialTrips.findIndex(t => t.id === tripId);
     if (index !== -1) {
       initialTrips.splice(index, 1);
@@ -193,7 +229,7 @@ export const Trips: React.FC = () => {
     if (expandedTripId === tripId) {
       setExpandedTripId(null);
     }
-    toast({ title: 'Viagem excluída.', description: 'Visitas, despesas e abastecimentos associados também devem ser tratados.' });
+    toast({ title: 'Viagem excluída.' }); // Removed complex description for simplicity
   };
 
   const openEditModal = (trip: Trip, event: React.MouseEvent) => {
@@ -227,7 +263,7 @@ export const Trips: React.FC = () => {
         <h2 className="text-2xl font-semibold">Minhas Viagens</h2>
         <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
           <DialogTrigger asChild>
-            <Button onClick={() => setIsCreateModalOpen(true)} className="bg-primary hover:bg-primary/90 text-primary-foreground">
+            <Button onClick={() => { resetForm(); setIsCreateModalOpen(true); }} className="bg-primary hover:bg-primary/90 text-primary-foreground">
               <PlusCircle className="mr-2 h-4 w-4" /> Criar Nova Viagem
             </Button>
           </DialogTrigger>
@@ -262,7 +298,7 @@ export const Trips: React.FC = () => {
               <div className="space-y-2">
                 <Label>Status</Label>
                 <p className="text-sm font-medium text-emerald-600 flex items-center gap-1">
-                  <PlayCircle className="h-4 w-4" /> Andamento
+                  <PlayCircle className="h-4 w-4" /> Andamento (Automático)
                 </p>
               </div>
               <DialogFooter>
@@ -305,16 +341,21 @@ export const Trips: React.FC = () => {
                     <CardDescription className="text-sm flex items-center gap-1">
                       <Car className="h-4 w-4 text-muted-foreground" /> {getTripDescription(trip)}
                     </CardDescription>
-                    <div className="flex items-center space-x-2 text-xs text-muted-foreground">
+                    <div className="flex items-center flex-wrap space-x-2 text-xs text-muted-foreground">
                       <span>
-                        <MapPin className="h-3 w-3 inline-block mr-1" /> {visitCount} Visitas
+                        <MapPin className="h-3 w-3 inline-block mr-1" /> {visitCount} {visitCount === 1 ? 'Visita' : 'Visitas'}
                       </span>
                       <span>
-                        <Wallet className="h-3 w-3 inline-block mr-1" /> {expenseCount} Despesas
+                        <Wallet className="h-3 w-3 inline-block mr-1" /> {expenseCount} {expenseCount === 1 ? 'Despesa' : 'Despesas'}
                       </span>
                       <span>
-                        <Fuel className="h-3 w-3 inline-block mr-1" /> {fuelingCount} Abastecimentos
+                        <Fuel className="h-3 w-3 inline-block mr-1" /> {fuelingCount} {fuelingCount === 1 ? 'Abastec.' : 'Abastec.'} {/* Abbreviated */}
                       </span>
+                     {trip.status === 'Finalizado' && trip.totalDistance !== undefined && (
+                        <span className="text-emerald-600 font-medium">
+                          <Milestone className="h-3 w-3 inline-block mr-1" /> {formatKm(trip.totalDistance)} Percorridos
+                        </span>
+                     )}
                     </div>
                     <div className="flex items-center space-x-2 text-xs text-muted-foreground">
                       <span>Início: {new Date(trip.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
@@ -322,32 +363,16 @@ export const Trips: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
-                    {trip.status === 'Andamento' && (
-                      <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="outline" size="sm" onClick={(e) => e.stopPropagation()} className="h-8 px-2 sm:px-3 text-emerald-600 border-emerald-600/50 hover:bg-emerald-50 hover:text-emerald-700">
-                            <CheckCircle2 className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">Finalizar</span>
-                          </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Confirmar Finalização</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Tem certeza que deseja marcar a viagem "{trip.name}" como finalizada?
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                            <AlertDialogAction
-                              onClick={(e) => handleFinishTrip(trip.id, e)}
-                              className="bg-emerald-600 hover:bg-emerald-700"
-                            >
-                              Confirmar
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
-                    )}
+                     {trip.status === 'Andamento' && (
+                         <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={(e) => openFinishModal(trip, e)} // Use specific handler
+                            className="h-8 px-2 sm:px-3 text-emerald-600 border-emerald-600/50 hover:bg-emerald-50 hover:text-emerald-700"
+                         >
+                           <CheckCircle2 className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">Finalizar</span>
+                         </Button>
+                     )}
                     <Dialog open={isEditModalOpen && currentTrip?.id === trip.id} onOpenChange={(isOpen) => !isOpen && closeEditModal()}>
                       <DialogTrigger asChild>
                         <Button variant="ghost" size="icon" onClick={(e) => openEditModal(trip, e)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8">
@@ -408,7 +433,7 @@ export const Trips: React.FC = () => {
                         <AlertDialogHeader>
                           <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
                           <AlertDialogDescription>
-                            Tem certeza que deseja excluir a viagem "{trip.name}"? Esta ação não pode ser desfeita e removerá todas as visitas, despesas e abastecimentos associados (funcionalidade a implementar).
+                           Tem certeza que deseja excluir a viagem "{trip.name}"? Esta ação não pode ser desfeita. Certifique-se de que não há visitas, despesas ou abastecimentos associados antes de excluir.
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
@@ -445,6 +470,17 @@ export const Trips: React.FC = () => {
           })}
         </Accordion>
       )}
+
+       {/* Finish Trip Dialog */}
+       {tripToFinish && (
+         <FinishTripDialog
+           trip={tripToFinish}
+           isOpen={isFinishModalOpen}
+           onClose={() => { setIsFinishModalOpen(false); setTripToFinish(null); }}
+           onConfirm={confirmFinishTrip}
+           initialVisitsData={initialVisits} // Pass mock visits data
+         />
+       )}
     </div>
   );
 };
