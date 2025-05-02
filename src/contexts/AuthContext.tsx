@@ -366,6 +366,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
        } else if (error.code === 'auth/configuration-not-found') {
             description = 'Erro de configuração do Firebase (auth/configuration-not-found). Verifique as chaves de API e configurações no console do Firebase e no seu .env file.';
        }
+       else if (error.code === 'auth/invalid-credential') {
+           description = 'Credenciais inválidas fornecidas durante o cadastro.';
+       }
        else if (error.code?.includes('auth/')) {
            description = `Erro de autenticação (${error.code}). Tente novamente.`;
        } else if (error.message?.includes('Failed to create Firestore user document')) {
