@@ -115,26 +115,30 @@ export const Trips: React.FC = () => {
   useEffect(() => {
     const fetchTripsAndCounts = async () => {
       const startTime = performance.now();
-      console.log(`[Trips Effect] Starting fetchTripsAndCounts. Loading: ${loading}, isAdmin: ${isAdmin}, User available: ${!!user}`);
-      if (loading && !isAdmin && !user) {
-        console.log('[Trips Effect] Skipping fetch: Still loading initial deps or driver user not available.');
-        return; // Don't fetch if loading initial deps or no user context yet for driver
+      console.log(`[Trips Effect] Starting fetchTripsAndCounts. isAdmin: ${isAdmin}, User available: ${!!user}`);
+
+      // Check if essential data for filtering is loaded (vehicles for admin, user for driver)
+      const canFetch = isAdmin ? (vehicles.length > 0 && drivers.length > 0) : !!user;
+
+      if (!canFetch) {
+        console.log('[Trips Effect] Skipping fetch: Dependencies not met (Admin: vehicles/drivers, Driver: user).');
+        // If not loading previously and still can't fetch, ensure loading is false.
+        if (!loading) setLoading(false);
+        return;
       }
 
-      setLoading(true); // Start loading for trips fetch
+
       console.log('[Trips Effect] Set loading to true for trips fetch.');
+      setLoading(true); // Start loading for trips fetch
+
       try {
         const filters: TripFilter = {};
         if (isAdmin) {
           if (filterDriver) filters.userId = filterDriver;
         } else if (user) {
           filters.userId = user.id; // Driver always sees their own trips
-        } else {
-            console.log('[Trips Effect] No user context, setting empty trips and stopping load.');
-            setAllTrips([]); // No user, no trips
-            setLoading(false);
-            return;
         }
+        // No 'else' needed here anymore, covered by canFetch check above
 
         if (filterDateRange?.from) {
             filters.startDate = startOfDay(filterDateRange.from).toISOString();
@@ -151,6 +155,7 @@ export const Trips: React.FC = () => {
          console.log(`[Trips Effect] Fetching counts for ${tripsData.length} trips...`);
          const countsStartTime = performance.now();
          const countsPromises = tripsData.map(async (trip) => {
+             // Use batch fetching if performance becomes an issue
              const [visits, expenses, fuelings] = await Promise.all([
                  fetchVisits(trip.id),
                  fetchExpenses(trip.id),
@@ -177,8 +182,7 @@ export const Trips: React.FC = () => {
          countsResults.forEach(result => {
              newVisitCounts[result.tripId] = result.visitCount;
              newExpenseCounts[result.tripId] = result.expenseCount;
-             newFuelingCounts[result.tripId] = result.expenseCount;
-             newFuelingCounts[result.tripId] = result.fuelingCount;
+             newFuelingCounts[result.tripId] = result.fuelingCount; // Corrected typo here
              allVisits = allVisits.concat(result.visits);
          });
 
@@ -201,28 +205,9 @@ export const Trips: React.FC = () => {
       }
     };
 
-    // Only run fetchTripsAndCounts if vehicles/drivers are loaded (or not admin)
-    // and the user context is available (for non-admins)
-     // Added more robust check: ensure vehicles/drivers have loaded for admin, or user is present for driver
-     if ((isAdmin && vehicles.length > 0 && drivers.length > 0) || (!isAdmin && user)) {
-        console.log("[Trips Effect] Dependencies met, running fetchTripsAndCounts...");
-        fetchTripsAndCounts();
-     } else {
-        console.log("[Trips Effect] Dependencies not yet met, skipping fetchTripsAndCounts.");
-        // If dependencies are not met but we weren't explicitly loading before, ensure loading is off.
-        if (!loading && vehicles.length === 0 && isAdmin) {
-             // Special case: Admin, initial deps fetch might have finished but yielded no results. Stop loading.
-             console.log("[Trips Effect] Dependencies finished loading but are empty (Admin). Setting loading false.");
-             setLoading(false);
-        } else if (!loading && !user && !isAdmin) {
-             console.log("[Trips Effect] Dependencies finished loading but user is null (Driver). Setting loading false.");
-             setLoading(false);
-        }
+    fetchTripsAndCounts();
 
-     }
-    // Removed 'loading' from dependency array as it caused potential loops.
-    // Logic now relies on vehicles/drivers/user state.
-  }, [user, isAdmin, filterDriver, filterDateRange, toast, vehicles, drivers]); // Re-fetch when filters change
+  }, [user, isAdmin, filterDriver, filterDateRange, toast, vehicles, drivers]); // Re-fetch when filters or deps change
 
   const getVehicleDisplay = (vehicleId: string) => {
     const vehicle = vehicles.find(v => v.id === vehicleId);
@@ -237,7 +222,7 @@ export const Trips: React.FC = () => {
   const getTripDescription = (trip: Trip): string => {
       const vehicle = vehicles.find(v => v.id === trip.vehicleId);
       const driverName = isAdmin ? ` - ${getDriverName(trip.userId)}` : '';
-      const baseInfo = trip.base ? ` (Base: ${trip.base})` : '';
+      const baseInfo = trip.base ? ` (Base: ${trip.base})` : ''; // Base info remains if available
       const vehicleInfo = vehicle ? `${vehicle.model} (${vehicle.licensePlate})` : 'Veículo Desconhecido';
       return `${vehicleInfo}${driverName}${baseInfo}`;
   };
@@ -255,22 +240,20 @@ export const Trips: React.FC = () => {
       toast({ variant: 'destructive', title: 'Erro', description: 'Veículo é obrigatório.' });
       return;
     }
-     if (!user.base) {
-        toast({ variant: 'destructive', title: 'Erro', description: 'Base do motorista não definida. Não é possível criar a viagem.' });
-        return;
-     }
+    // Removed base check:
+    // if (!user.base) { ... }
 
     const vehicleDisplay = getVehicleDisplay(selectedVehicleId);
     const dateStr = new Date().toLocaleDateString('pt-BR');
     const generatedTripName = `Viagem ${vehicleDisplay} - ${dateStr}`;
-    const base = user.base;
+    const base = user.base; // Keep base if user has it, otherwise it will be undefined
 
     const newTripData: Omit<Trip, 'id' | 'updatedAt' | 'createdAt'> = {
       name: generatedTripName,
       vehicleId: selectedVehicleId,
       userId: user.id,
       status: 'Andamento',
-      base: base,
+      base: base, // Assign base if available
     };
 
     setIsSaving(true);
@@ -504,11 +487,12 @@ export const Trips: React.FC = () => {
                   <Label>Motorista</Label>
                   <p className="text-sm text-muted-foreground">{user?.name || user?.email || 'Não identificado'}</p>
                 </div>
-                <div className="space-y-2">
-                  <Label>Base</Label>
-                  <p className="text-sm text-muted-foreground">{user?.base || 'Não definida'}</p>
+                 {/* Base display removed */}
+                 {/* <div className="space-y-2">
+                   <Label>Base</Label>
+                   <p className="text-sm text-muted-foreground">{user?.base || 'Não definida'}</p>
                    {!user?.base && <p className="text-xs text-destructive">Você precisa ter uma base definida para criar viagens.</p>}
-                </div>
+                 </div> */}
                 <div className="space-y-2">
                   <Label>Status</Label>
                   <p className="text-sm font-medium text-emerald-600 flex items-center gap-1">
@@ -519,7 +503,7 @@ export const Trips: React.FC = () => {
                   <DialogClose asChild>
                     <Button type="button" variant="outline" onClick={closeCreateModal} disabled={isSaving}>Cancelar</Button>
                   </DialogClose>
-                  <Button type="submit" disabled={!user?.base || loading || isSaving} className="bg-primary hover:bg-primary/90">
+                  <Button type="submit" disabled={loading || isSaving} className="bg-primary hover:bg-primary/90">
                      {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                      {isSaving ? 'Salvando...' : 'Salvar Viagem'}
                   </Button>
@@ -643,7 +627,6 @@ export const Trips: React.FC = () => {
                               onClick={(e) => openFinishModal(trip, e)}
                               className="h-8 px-2 sm:px-3 text-emerald-600 border-emerald-600/50 hover:bg-emerald-50 hover:text-emerald-700"
                               disabled={isSaving || isDeleting}
-                              // Removed asChild - it was causing the hydration error
                            >
                                {isSaving && tripToFinish?.id === trip.id ? <Loader2 className="h-4 w-4 animate-spin sm:mr-1" /> : <CheckCircle2 className="h-4 w-4 sm:mr-1" /> }
                               <span className="hidden sm:inline">{isSaving && tripToFinish?.id === trip.id ? 'Finalizando...': 'Finalizar'}</span>
