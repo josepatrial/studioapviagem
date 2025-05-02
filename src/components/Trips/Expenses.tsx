@@ -16,7 +16,7 @@ import {
     Info,
     PlusCircle,
     Trash2,
-    Wallet,
+    // Wallet, // Ensure Wallet is imported if used, or remove if not
   } from 'lucide-react';
 import {
     AlertDialog,
@@ -469,5 +469,3 @@ export const Expenses: React.FC<{ tripId?: string; tripName?: string; }> = ({ tr
         </div>
     ); // End of return statement
 }; // End of component function definition
-
-// Ensure there are no extraneous curly braces outside the component definition
