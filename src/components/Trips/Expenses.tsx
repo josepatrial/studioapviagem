@@ -1,3 +1,4 @@
+// src/components/Trips/Expenses.tsx
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
@@ -59,38 +60,34 @@ import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
-import { getExpenses, addExpense, updateExpense, deleteExpense } from '@/services/firestoreService'; // Import Firestore functions
-import { uploadReceipt, deleteReceipt } from '@/services/storageService'; // Import Storage functions
+import {
+   addLocalExpense,
+   updateLocalExpense,
+   deleteLocalExpense,
+   getLocalExpenses,
+   LocalExpense
+} from '@/services/localDbService'; // Import local DB functions
+import { uploadReceipt, deleteReceipt } from '@/services/storageService'; // Storage functions needed for sync
 
-export interface Expense {
-    id: string;
-    tripId: string; // Made non-optional
-    description: string;
-    value: number;
-    expenseDate: string; // ISO String
-    timestamp: string; // ISO String
-    expenseType: string;
-    receiptUrl?: string;
-    receiptPath?: string; // Store the storage path for deletion
-    receiptFilename?: string;
-};
-
-// Remove initialExpenses - data will be fetched
-// export const initialExpenses: Expense[] = [...];
-export { getExpenses } from '@/services/firestoreService'; // Export function for legacy imports if needed
+// Interface for UI state, maps from LocalExpense
+export interface Expense extends Omit<LocalExpense, 'localId' | 'tripLocalId'> {
+    id: string; // Represents localId or firebaseId
+    tripId: string; // Represents tripLocalId or firebase tripId
+    // Keep receiptUrl for displaying synced image
+}
 
 const expenseTypes = ['Pedágio', 'Alimentação', 'Hospedagem', 'Combustível', 'Manutenção', 'Outros'];
 
-export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tripId, tripName }) => {
-    const [expenses, setExpenses] = useState<Expense[]>([]);
+export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tripId: tripLocalId, tripName }) => {
+    const [expenses, setExpenses] = useState<Expense[]>([]); // UI state uses Expense interface
     const [loading, setLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false); // Saving/Deleting state
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false); // State for delete confirmation
-    const [currentExpense, setCurrentExpense] = useState<Expense | null>(null);
-    const [expenseToConfirm, setExpenseToConfirm] = useState<Expense | null>(null);
+    const [currentExpense, setCurrentExpense] = useState<Expense | null>(null); // Use Expense for UI state
+    const [expenseToConfirm, setExpenseToConfirm] = useState<Omit<LocalExpense, 'localId' | 'syncStatus'> & { attachment?: File | string | null } | null>(null); // Use LocalExpense base for confirmation, add temporary attachment
     const [expenseToDelete, setExpenseToDelete] = useState<Expense | null>(null); // State for expense to delete
     const { toast } = useToast();
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -103,34 +100,41 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
     const [expenseDate, setExpenseDate] = useState<Date | undefined>(undefined);
 
     // --- Attachment State ---
-    const [attachment, setAttachment] = useState<File | string | null>(null);
+    const [attachment, setAttachment] = useState<File | string | null>(null); // Can be File (new), string (dataURL from camera), or string (existing URL from synced data)
     const [attachmentFilename, setAttachmentFilename] = useState<string | null>(null);
-    const [isUploading, setIsUploading] = useState(false); // Uploading state
+    const [isUploading, setIsUploading] = useState(false); // Used only during SYNC process
     const [isCameraOpen, setIsCameraOpen] = useState(false);
     const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
 
 
-    // Fetch expenses for the specific tripId
+    // Fetch expenses for the specific tripLocalId
     useEffect(() => {
         const fetchExpensesData = async () => {
-            if (!tripId) return;
+            if (!tripLocalId) return;
             setLoading(true);
             try {
-                const fetchedExpenses = await getExpenses(tripId);
-                setExpenses(fetchedExpenses); // Already sorted by service
+                const localExpenses = await getLocalExpenses(tripLocalId);
+                // Map LocalExpense to Expense for UI
+                const uiExpenses = localExpenses.map(le => ({
+                    ...le,
+                    id: le.firebaseId || le.localId,
+                    tripId: le.tripLocalId
+                }));
+                setExpenses(uiExpenses);
             } catch (error) {
-                console.error(`Error fetching expenses for trip ${tripId}:`, error);
-                toast({ variant: "destructive", title: "Erro", description: "Não foi possível carregar as despesas." });
+                console.error(`Error fetching local expenses for trip ${tripLocalId}:`, error);
+                toast({ variant: "destructive", title: "Erro Local", description: "Não foi possível carregar as despesas locais." });
             } finally {
                 setLoading(false);
             }
         };
         fetchExpensesData();
-    }, [tripId, toast]);
+    }, [tripLocalId, toast]);
 
-     // Camera Permission Effect
+     // Camera Permission Effect (Remains the same)
     useEffect(() => {
-        if (!isCameraOpen) {
+        // ... (camera permission logic - no changes needed here)
+         if (!isCameraOpen) {
             if (videoRef.current && videoRef.current.srcObject) {
                 const stream = videoRef.current.srcObject as MediaStream;
                 stream.getTracks().forEach(track => track.stop());
@@ -183,9 +187,8 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
      const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (file) {
-            // Allow PDF and common image types
             if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
-                setAttachment(file);
+                setAttachment(file); // Store the File object directly
                 setAttachmentFilename(file.name);
                 setIsCameraOpen(false);
             } else {
@@ -206,7 +209,7 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
                 canvas.height = video.videoHeight;
                 context.drawImage(video, 0, 0, canvas.width, canvas.height);
                 const imageDataUrl = canvas.toDataURL('image/png');
-                setAttachment(imageDataUrl);
+                setAttachment(imageDataUrl); // Store the data URL string
                 setAttachmentFilename(`scan_${Date.now()}.png`);
                 setIsCameraOpen(false);
             }
@@ -222,21 +225,8 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
         if (editFileInput) editFileInput.value = '';
     };
 
-    const handleUpload = async (): Promise<{ url?: string; path?: string; filename?: string }> => {
-        if (!attachment) return {};
-
-        setIsUploading(true);
-        try {
-            const { url, path } = await uploadReceipt(attachment, 'expenses');
-            return { url, path, filename: attachmentFilename || (attachment instanceof File ? attachment.name : `upload_${Date.now()}`) };
-        } catch (error) {
-            console.error("Upload failed:", error);
-            toast({ variant: "destructive", title: "Falha no Upload", description: "Não foi possível anexar o comprovante." });
-            return {}; // Return empty object on failure
-        } finally {
-            setIsUploading(false);
-        }
-    };
+    // Upload is now handled during the sync process, not directly here
+    // const handleUpload = async (): Promise<{ url?: string; path?: string; filename?: string }> => { ... };
 
 
     // --- Handlers ---
@@ -253,19 +243,22 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
             return;
         }
 
-        // Prepare data for confirmation (upload happens only after confirmation)
-        const newExpenseData: Omit<Expense, 'id' | 'receiptUrl' | 'receiptPath'> = {
-            tripId: tripId,
+        // Prepare data for confirmation (LocalExpense base structure)
+        const newExpenseData: Omit<LocalExpense, 'localId' | 'syncStatus' | 'receiptUrl' | 'receiptPath'> = {
+            tripLocalId: tripLocalId, // Use tripLocalId
             description,
             value: valueNumber,
             expenseDate: expenseDate.toISOString(),
             timestamp: new Date().toISOString(),
             expenseType,
-            receiptFilename: attachmentFilename || undefined, // Store filename for confirmation display
+            receiptFilename: attachmentFilename || undefined,
+            // Store the actual attachment data (File or dataURL) temporarily for confirmation display and saving
+            receiptUrl: typeof attachment === 'string' ? attachment : undefined, // Store dataURL or existing URL if editing
+            // Note: We don't store File objects directly in the confirmation state usually,
+            // but we keep track of the *selected* attachment in the component's `attachment` state.
         };
 
-        // Use temporary ID for confirmation object
-        setExpenseToConfirm({ ...newExpenseData, id: 'temp-' + Date.now() });
+        setExpenseToConfirm({ ...newExpenseData, attachment: attachment }); // Pass attachment for saving step
         setIsCreateModalOpen(false);
         setIsConfirmModalOpen(true);
     };
@@ -274,47 +267,44 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
         if (!expenseToConfirm) return;
 
         setIsSaving(true);
-        let receiptDetails: { url?: string; path?: string; filename?: string } = {};
+        const { attachment: tempAttachment, ...dataToSaveBase } = expenseToConfirm;
 
-        // Upload attachment if it exists
-        if (attachment) {
-            receiptDetails = await handleUpload();
-             if (!receiptDetails.url) { // Handle upload failure
-                 setIsSaving(false);
-                 // Optionally reopen confirmation or create modal
-                 // setIsConfirmModalOpen(true); // Reopen confirm?
-                 // setIsCreateModalOpen(true); // Reopen create?
-                 return; // Stop saving process
-             }
-        }
-
-        // Prepare final data for Firestore
-        const { id, ...dataToSaveBase } = expenseToConfirm;
-        const dataToSave: Omit<Expense, 'id'> = {
+        // Prepare final data for Local DB
+        const dataToSave: Omit<LocalExpense, 'localId' | 'syncStatus'> = {
             ...dataToSaveBase,
-            receiptUrl: receiptDetails.url,
-            receiptPath: receiptDetails.path,
-            receiptFilename: receiptDetails.filename,
+             // Store dataURL directly if it's a string (from camera), or handle File object if needed
+             // Sync process will handle the upload
+             receiptUrl: typeof tempAttachment === 'string' ? tempAttachment : undefined,
+             // We might need a way to store the File temporarily if not using dataURLs,
+             // maybe associate it with the localId outside the DB record?
+             // For now, let's assume dataURLs or sync handles File objects.
+             receiptPath: undefined, // Path is set during sync
+             receiptFilename: attachmentFilename || undefined,
         };
 
-        try {
-            const newExpenseId = await addExpense(dataToSave);
-            const savedExpense: Expense = { ...dataToSave, id: newExpenseId };
 
-            // Update local state
-            setExpenses(prevExpenses => [savedExpense, ...prevExpenses].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+        try {
+            const localId = await addLocalExpense(dataToSave);
+             console.log(`[Expenses] Expense added locally with localId: ${localId}`);
+
+            // Update UI state optimistically
+             const newUIExpense: Expense = {
+                ...dataToSave,
+                localId: localId, // Add localId to the UI object
+                id: localId, // Use localId as the primary ID until synced
+                tripId: tripLocalId,
+                syncStatus: 'pending'
+             };
+
+            setExpenses(prevExpenses => [newUIExpense, ...prevExpenses].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
 
             resetForm();
             setIsConfirmModalOpen(false);
             setExpenseToConfirm(null);
-            toast({ title: "Despesa criada com sucesso!" });
+            toast({ title: "Despesa criada localmente!" });
         } catch (error) {
-            console.error("Error adding expense:", error);
-            toast({ variant: "destructive", title: "Erro", description: "Não foi possível salvar a despesa." });
-            // Consider deleting uploaded file if Firestore save fails
-             if (receiptDetails.path) {
-                 await deleteReceipt(receiptDetails.path).catch(delErr => console.error("Failed to delete uploaded receipt after save error:", delErr));
-             }
+            console.error("Error adding local expense:", error);
+            toast({ variant: "destructive", title: "Erro Local", description: "Não foi possível salvar a despesa localmente." });
         } finally {
             setIsSaving(false);
         }
@@ -335,71 +325,51 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
             return;
         }
 
-        setIsSaving(true);
-        let receiptDetails: { url?: string; path?: string; filename?: string } = {
-             url: currentExpense.receiptUrl,
-             path: currentExpense.receiptPath,
-             filename: currentExpense.receiptFilename,
-         };
-        let oldReceiptPathToDelete: string | undefined = undefined;
+        // Find original local record
+        const originalLocalExpense = await getLocalExpenses(tripLocalId).then(expenses => expenses.find(ex => ex.localId === currentExpense.id || ex.firebaseId === currentExpense.id));
 
-        // Check if attachment changed or was added/removed
-        const attachmentChanged = attachment && (attachment instanceof File || typeof attachment === 'string' && attachment !== currentExpense.receiptUrl);
-        const attachmentRemoved = !attachment && currentExpense.receiptPath;
-
-        if (attachmentChanged) {
-            // Upload new attachment
-            const uploadResult = await handleUpload();
-            if (!uploadResult.url) { // Handle upload failure during edit
-                 setIsSaving(false);
-                 return; // Stop edit process
-            }
-            receiptDetails = uploadResult;
-            // Mark old receipt for deletion if it existed
-            if (currentExpense.receiptPath) {
-                oldReceiptPathToDelete = currentExpense.receiptPath;
-            }
-        } else if (attachmentRemoved) {
-            // Mark old receipt for deletion
-            oldReceiptPathToDelete = currentExpense.receiptPath;
-            receiptDetails = { url: undefined, path: undefined, filename: undefined };
+        if (!originalLocalExpense) {
+            toast({ variant: "destructive", title: "Erro", description: "Despesa original não encontrada localmente." });
+            return;
         }
 
-        // Prepare data for Firestore update
-        const dataToUpdate: Partial<Expense> = {
+        setIsSaving(true);
+
+        // Prepare data for Local DB update
+        const updatedLocalExpenseData: LocalExpense = {
+            ...originalLocalExpense, // Start with original local data
             description,
             value: valueNumber,
             expenseDate: expenseDate.toISOString(),
             expenseType,
-            receiptUrl: receiptDetails.url,
-            receiptPath: receiptDetails.path,
-            receiptFilename: receiptDetails.filename,
+            // Update attachment info based on current 'attachment' state
+            receiptUrl: typeof attachment === 'string' ? attachment : undefined, // Store dataURL or existing URL
+            receiptFilename: attachmentFilename,
+            // receiptPath will be updated during sync if needed
+            syncStatus: originalLocalExpense.syncStatus === 'synced' ? 'pending' : originalLocalExpense.syncStatus,
             // timestamp is usually not updated
         };
 
         try {
-            await updateExpense(currentExpense.id, dataToUpdate);
-            const updatedExpense = { ...currentExpense, ...dataToUpdate };
+            await updateLocalExpense(updatedLocalExpenseData); // Update local DB
+            console.log(`[Expenses] Expense updated locally: ${originalLocalExpense.localId}`);
 
-            // Update local state
-            setExpenses(prevExpenses => prevExpenses.map(e => e.id === currentExpense.id ? updatedExpense : e).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+            // Update UI state
+            const updatedUIExpense: Expense = {
+                ...updatedLocalExpenseData,
+                id: updatedLocalExpenseData.firebaseId || updatedLocalExpenseData.localId,
+                tripId: tripLocalId,
+            };
 
-            // Delete old receipt file from storage AFTER successful update
-            if (oldReceiptPathToDelete) {
-                await deleteReceipt(oldReceiptPathToDelete).catch(delErr => console.error("Failed to delete old receipt:", delErr));
-            }
+            setExpenses(prevExpenses => prevExpenses.map(e => e.id === currentExpense.id ? updatedUIExpense : e).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
 
             resetForm();
             setIsEditModalOpen(false);
             setCurrentExpense(null);
-            toast({ title: "Despesa atualizada com sucesso!" });
+            toast({ title: "Despesa atualizada localmente!" });
         } catch (error) {
-            console.error("Error updating expense:", error);
-            toast({ variant: "destructive", title: "Erro", description: "Não foi possível atualizar a despesa." });
-             // If update failed but we uploaded a new file, try to delete the newly uploaded file
-             if (attachmentChanged && receiptDetails.path && receiptDetails.path !== oldReceiptPathToDelete) {
-                 await deleteReceipt(receiptDetails.path).catch(delErr => console.error("Failed to delete newly uploaded receipt after update error:", delErr));
-             }
+            console.error("Error updating local expense:", error);
+            toast({ variant: "destructive", title: "Erro Local", description: "Não foi possível atualizar a despesa localmente." });
         } finally {
             setIsSaving(false);
         }
@@ -418,24 +388,28 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
     const confirmDeleteExpense = async () => {
         if (!expenseToDelete) return;
 
-        setIsSaving(true);
-        const receiptPathToDelete = expenseToDelete.receiptPath; // Get path before deleting from state
+        const localIdToDelete = expenseToDelete.id; // UI id should map to localId or firebaseId
 
+        setIsSaving(true);
         try {
-            await deleteExpense(expenseToDelete.id);
-            // Update local state
+            const expensesInDb = await getLocalExpenses(tripLocalId);
+            const expenseRecordToDelete = expensesInDb.find(ex => ex.localId === localIdToDelete || ex.firebaseId === localIdToDelete);
+
+             if (!expenseRecordToDelete) {
+                 throw new Error("Registro local da despesa não encontrado para exclusão.");
+             }
+
+            await deleteLocalExpense(expenseRecordToDelete.localId); // Mark for deletion locally
+            console.log(`[Expenses] Expense marked for deletion locally: ${expenseRecordToDelete.localId}`);
+
+            // Update UI state
             setExpenses(expenses.filter(e => e.id !== expenseToDelete.id));
 
-            // Delete receipt file from storage AFTER successful Firestore deletion
-            if (receiptPathToDelete) {
-                await deleteReceipt(receiptPathToDelete).catch(delErr => console.error("Failed to delete receipt file:", delErr));
-            }
-
-            toast({ title: "Despesa excluída." });
+            toast({ title: "Despesa marcada para exclusão na próxima sincronização." });
             closeDeleteConfirmation();
         } catch (error) {
-            console.error("Error deleting expense:", error);
-            toast({ variant: "destructive", title: "Erro", description: "Não foi possível excluir a despesa." });
+            console.error("Error marking local expense for deletion:", error);
+            toast({ variant: "destructive", title: "Erro Local", description: "Não foi possível marcar a despesa para exclusão." });
         } finally {
             setIsSaving(false);
         }
@@ -447,8 +421,10 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
         setValue(expense.value);
         setExpenseType(expense.expenseType);
         setExpenseDate(new Date(expense.expenseDate));
+        // Set attachment state based on existing data
         if (expense.receiptUrl) {
-             setAttachment(expense.receiptUrl); // Store URL/identifier to indicate existing
+             // If it's a data URL (likely from local save), use it. If it's a Firebase URL, use it.
+             setAttachment(expense.receiptUrl);
              setAttachmentFilename(expense.receiptFilename || 'Arquivo Anexado');
         } else {
              setAttachment(null);
@@ -463,7 +439,7 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
         setValue('');
         setExpenseType('');
         setExpenseDate(undefined);
-        clearAttachment(); // Use helper to clear attachment state and inputs
+        clearAttachment();
     };
 
     const closeCreateModal = () => {
@@ -480,20 +456,27 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
     const closeConfirmModal = () => {
         setIsConfirmModalOpen(false);
         setExpenseToConfirm(null);
-        // If coming back, reopen create modal with current form state
-        // setIsCreateModalOpen(true);
+        // Reopen create modal with current form state
+        setIsCreateModalOpen(true);
     }
 
-    const renderAttachmentInput = (idPrefix: string) => (
+    // renderAttachmentInput remains largely the same, just ensures disabled states use 'isSaving'
+     const renderAttachmentInput = (idPrefix: string) => (
         <div className="space-y-2">
             <Label htmlFor={`${idPrefix}Receipt`}>Anexar Comprovante (PDF ou Imagem)</Label>
              {attachmentFilename && (
                  <div className="flex items-center justify-between gap-2 p-2 border rounded-md bg-muted/50">
                      <div className="flex items-center gap-2 overflow-hidden">
-                         <Paperclip className="h-4 w-4 flex-shrink-0" />
+                         {/* Display image preview if attachment is a data URL */}
+                          {typeof attachment === 'string' && attachment.startsWith('data:image') && (
+                             <img src={attachment} alt="Preview" className="h-8 w-8 object-cover rounded" />
+                          )}
+                          {!(typeof attachment === 'string' && attachment.startsWith('data:image')) && (
+                             <Paperclip className="h-4 w-4 flex-shrink-0" />
+                          )}
                          <span className="text-sm truncate" title={attachmentFilename}>{attachmentFilename}</span>
                      </div>
-                     <Button type="button" variant="ghost" size="icon" onClick={clearAttachment} className="h-6 w-6 text-muted-foreground hover:text-destructive" disabled={isSaving || isUploading}>
+                     <Button type="button" variant="ghost" size="icon" onClick={clearAttachment} className="h-6 w-6 text-muted-foreground hover:text-destructive" disabled={isSaving}>
                          <X className="h-4 w-4" />
                          <span className="sr-only">Remover Anexo</span>
                      </Button>
@@ -501,7 +484,7 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
              )}
             {!attachmentFilename && (
                 <div className="flex flex-col sm:flex-row gap-2">
-                    <Button type="button" variant="outline" onClick={() => document.getElementById(`${idPrefix}ReceiptPdf`)?.click()} className="flex-1" disabled={isSaving || isUploading}>
+                    <Button type="button" variant="outline" onClick={() => document.getElementById(`${idPrefix}ReceiptPdf`)?.click()} className="flex-1" disabled={isSaving}>
                         <Upload className="mr-2 h-4 w-4" /> Anexar PDF/Imagem
                     </Button>
                     <Input
@@ -510,19 +493,14 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
                         accept="application/pdf,image/*" // Accept PDF and images
                         onChange={handleFileChange}
                         className="hidden"
-                        disabled={isSaving || isUploading}
+                        disabled={isSaving}
                     />
-                    <Button type="button" variant="outline" onClick={() => setIsCameraOpen(true)} className="flex-1" disabled={isSaving || isUploading}>
+                    <Button type="button" variant="outline" onClick={() => setIsCameraOpen(true)} className="flex-1" disabled={isSaving}>
                         <Camera className="mr-2 h-4 w-4" /> Usar Câmera
                     </Button>
                 </div>
             )}
-             {isUploading && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <span>Enviando anexo...</span>
-                </div>
-            )}
+             {/* Uploading state is only relevant during sync, removed from here */}
         </div>
     );
 
@@ -596,8 +574,8 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
                                 </div>
                                 {renderAttachmentInput('create')}
                                 <DialogFooter>
-                                    <DialogClose asChild><Button type="button" variant="outline" onClick={closeCreateModal} disabled={isSaving || isUploading}>Cancelar</Button></DialogClose>
-                                    <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isSaving || isUploading}>
+                                    <DialogClose asChild><Button type="button" variant="outline" onClick={closeCreateModal} disabled={isSaving}>Cancelar</Button></DialogClose>
+                                    <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isSaving}>
                                         {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                                         Confirmar Dados
                                     </Button>
@@ -615,7 +593,7 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
                             <AlertTriangle className="h-5 w-5 text-yellow-500" /> Confirmar Dados da Despesa
                         </AlertDialogTitle>
                         <AlertDialogDescription>
-                            Por favor, revise os dados abaixo antes de salvar. O comprovante será enviado após a confirmação.
+                            Por favor, revise os dados abaixo antes de salvar localmente.
                             <ul className="mt-3 list-disc list-inside space-y-1 text-sm text-foreground">
                                 <li><strong>Descrição:</strong> {expenseToConfirm?.description}</li>
                                 <li><strong>Valor:</strong> {expenseToConfirm ? formatCurrency(expenseToConfirm.value) : 'N/A'}</li>
@@ -629,10 +607,10 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
                         <AlertDialogCancel onClick={() => {
                             setIsConfirmModalOpen(false);
                             setIsCreateModalOpen(true);
-                        }} disabled={isSaving || isUploading}>Voltar e Editar</AlertDialogCancel>
-                        <AlertDialogAction onClick={confirmAndSaveExpense} className="bg-primary hover:bg-primary/90" disabled={isSaving || isUploading}>
+                        }} disabled={isSaving}>Voltar e Editar</AlertDialogCancel>
+                        <AlertDialogAction onClick={confirmAndSaveExpense} className="bg-primary hover:bg-primary/90" disabled={isSaving}>
                             {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                            {isSaving ? 'Salvando...' : 'Salvar Despesa'}
+                            {isSaving ? 'Salvando...' : 'Salvar Despesa Local'}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
@@ -681,14 +659,14 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
                      <AlertDialogHeader>
                          <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
                          <AlertDialogDescription>
-                             Tem certeza que deseja excluir esta despesa ({expenseToDelete?.description})? O comprovante anexado (se houver) também será excluído. Esta ação não pode ser desfeita.
+                             Tem certeza que deseja marcar esta despesa ({expenseToDelete?.description}) para exclusão? A exclusão definitiva ocorrerá na próxima sincronização.
                          </AlertDialogDescription>
                      </AlertDialogHeader>
                      <AlertDialogFooter>
                          <AlertDialogCancel onClick={closeDeleteConfirmation} disabled={isSaving}>Cancelar</AlertDialogCancel>
                          <AlertDialogAction onClick={confirmDeleteExpense} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground" disabled={isSaving}>
                              {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                             {isSaving ? 'Excluindo...' : 'Excluir'}
+                             {isSaving ? 'Marcando...' : 'Marcar para Excluir'}
                          </AlertDialogAction>
                      </AlertDialogFooter>
                  </AlertDialogContent>
@@ -703,7 +681,7 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
             ) : expenses.length === 0 ? (
                 <Card className="text-center py-10 bg-card border border-border shadow-sm rounded-lg">
                     <CardContent>
-                        <p className="text-muted-foreground">Nenhuma despesa registrada para esta viagem.</p>
+                        <p className="text-muted-foreground">Nenhuma despesa registrada localmente para esta viagem.</p>
                         <Button variant="link" onClick={() => { resetForm(); setExpenseDate(new Date()); setIsCreateModalOpen(true); }} className="mt-2 text-primary">
                             Registrar a primeira despesa
                         </Button>
@@ -712,13 +690,15 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
             ) : (
                 <div className="grid gap-4">
                     {expenses.map((expense) => (
-                        <Card key={expense.id} className="shadow-sm transition-shadow hover:shadow-md bg-card border border-border">
+                        <Card key={expense.id} className={cn("shadow-sm transition-shadow hover:shadow-md bg-card border border-border", expense.syncStatus === 'pending' && 'border-yellow-500', expense.syncStatus === 'error' && 'border-destructive')}>
                             <CardHeader>
                                 <div className="flex justify-between items-start">
                                     <div>
                                         <CardTitle>{expense.expenseType} - {formatCurrency(expense.value)}</CardTitle>
                                         <CardDescription>
                                             {formatDate(expense.expenseDate)}
+                                             {expense.syncStatus === 'pending' && <span className="ml-2 text-xs text-yellow-600">(Pendente)</span>}
+                                             {expense.syncStatus === 'error' && <span className="ml-2 text-xs text-destructive">(Erro Sinc)</span>}
                                         </CardDescription>
                                     </div>
                                     <div className="flex gap-1">
@@ -740,11 +720,13 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
                                                       <p><strong>Data:</strong> {formatDate(expense.expenseDate)}</p>
                                                       <p><strong>Anexo:</strong> {expense.receiptFilename ? (
                                                           <a href={expense.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center gap-1">
-                                                              <Paperclip className="h-4 w-4"/> {expense.receiptFilename}
+                                                               {expense.receiptUrl?.startsWith('data:image') ? <img src={expense.receiptUrl} alt="Preview" className="h-6 w-6 object-cover rounded"/> : <Paperclip className="h-4 w-4"/>}
+                                                              {expense.receiptFilename}
                                                           </a>
                                                           ) : 'Nenhum'}
                                                       </p>
                                                       <p className="text-xs text-muted-foreground">Registrado em: {new Date(expense.timestamp).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short'})}</p>
+                                                      <p className="text-xs text-muted-foreground">Status Sinc: {expense.syncStatus || 'N/A'}</p>
                                                   </div>
                                                  <DialogFooter>
                                                       <DialogClose asChild>
@@ -813,10 +795,10 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
                                                     </div>
                                                     {renderAttachmentInput('edit')}
                                                     <DialogFooter>
-                                                        <DialogClose asChild><Button type="button" variant="outline" onClick={closeEditModal} disabled={isSaving || isUploading}>Cancelar</Button></DialogClose>
-                                                        <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isSaving || isUploading}>
+                                                        <DialogClose asChild><Button type="button" variant="outline" onClick={closeEditModal} disabled={isSaving}>Cancelar</Button></DialogClose>
+                                                        <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isSaving}>
                                                             {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                                                            Salvar Alterações
+                                                            Salvar Alterações Locais
                                                         </Button>
                                                     </DialogFooter>
                                                 </form>
@@ -838,8 +820,12 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
                                 </div>
                                 {expense.receiptFilename && (
                                      <div className="flex items-center gap-2">
-                                        <Paperclip className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-                                        <a href={expense.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline text-xs">
+                                         {expense.receiptUrl?.startsWith('data:image') ? (
+                                            <img src={expense.receiptUrl} alt="Preview" className="h-6 w-6 object-cover rounded"/>
+                                         ) : (
+                                            <Paperclip className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                                         )}
+                                        <a href={expense.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline text-xs truncate" title={expense.receiptFilename}>
                                              {expense.receiptFilename}
                                          </a>
                                      </div>
@@ -853,3 +839,5 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
         </>
     );
 };
+
+    
