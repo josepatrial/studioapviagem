@@ -1,3 +1,4 @@
+
 'use client';
 
 import React, { useEffect, useState } from 'react';
@@ -16,7 +17,7 @@ import {
     Info,
     PlusCircle,
     Trash2,
-    // Wallet, // Ensure Wallet is imported if used, or remove if not
+    Wallet, // Added Wallet import
   } from 'lucide-react';
 import {
     AlertDialog,
@@ -230,7 +231,7 @@ export const Expenses: React.FC<{ tripId?: string; tripName?: string; }> = ({ tr
     // Component JSX return statement starts here
     return (
         <div className="space-y-6">
-            <div className="flex justify-between items-center mb-4">
+           <div className="flex justify-between items-center mb-4">
                     <h3 className="text-xl font-semibold">
                         {tripName ? `Despesas da Viagem: ${tripName}` : 'Despesas'}
                     </h3>
