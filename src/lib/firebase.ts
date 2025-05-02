@@ -23,7 +23,8 @@ const validateFirebaseConfig = (config: typeof firebaseConfig): boolean => {
 
     for (const key of requiredKeys) {
         const value = config[key];
-        if (!value || value.includes('YOUR_') || value.includes('placeholder')) {
+        // Check for undefined, null, empty string, placeholder values
+        if (!value || typeof value !== 'string' || value.trim() === '' || value.includes('YOUR_') || value.includes('placeholder')) {
              console.error(`Firebase config error: NEXT_PUBLIC_FIREBASE_${key.toUpperCase()} is missing, invalid, or a placeholder. Value: "${value}". Check your .env file.`);
              missingOrInvalidKeys.push(`NEXT_PUBLIC_FIREBASE_${key.toUpperCase()}`);
              isValid = false;
@@ -45,13 +46,21 @@ let db: ReturnType<typeof getFirestore>;
 let storage: ReturnType<typeof getStorage>;
 
 try {
-  // Validate configuration before initializing
+  // Validate configuration *before* initializing
   validateFirebaseConfig(firebaseConfig);
 
-  app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-  console.log("Firebase initialized successfully with Project ID:", firebaseConfig.projectId);
+  // Check if Firebase app is already initialized
+  if (getApps().length === 0) {
+      console.log("Initializing Firebase app...");
+      app = initializeApp(firebaseConfig);
+      console.log("Firebase initialized successfully with Project ID:", firebaseConfig.projectId);
+  } else {
+      console.log("Firebase app already initialized.");
+      app = getApp();
+  }
 
-  // Initialize Firebase services only after successful app initialization
+
+  // Initialize Firebase services only after successful app initialization/retrieval
   auth = getAuth(app);
   db = getFirestore(app);
   storage = getStorage(app);
