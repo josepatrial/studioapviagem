@@ -239,6 +239,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
            errorMessage = 'Login com e-mail/senha não está habilitado. Contacte o administrador.';
       } else if (error.code === 'auth/configuration-not-found') {
            errorMessage = 'Erro de configuração do Firebase. Verifique as chaves de API e configurações no console.';
+           console.error("Firebase Login Error: auth/configuration-not-found. Ensure API keys, auth domain, etc., are correctly set in your .env file (with NEXT_PUBLIC_ prefix) and match the Firebase console.");
       }
       else if (error.code?.includes('auth/')) { // Catch other specific auth errors
           errorMessage = `Erro de autenticação (${error.code}). Tente novamente.`;
@@ -316,7 +317,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             console.error("Signup Error: Operation not allowed (Email/Password auth disabled?).");
        } else if (error.code === 'auth/configuration-not-found') {
             description = 'Erro de configuração do Firebase (auth/configuration-not-found). Verifique as chaves de API e configurações no console do Firebase e no seu .env file.';
-            console.error("Signup Error: Firebase configuration not found (auth/configuration-not-found).");
+            console.error("Signup Error: Firebase configuration not found (auth/configuration-not-found). Ensure API keys, auth domain, etc., are correctly set in your .env file (with NEXT_PUBLIC_ prefix) and match the Firebase console.");
        }
        else if (error.code?.includes('auth/')) { // Catch other specific auth errors
            description = `Erro de autenticação (${error.code}). Tente novamente.`;
