@@ -46,7 +46,7 @@ export interface DriverInfo extends Omit<User, 'role'>{ // Export DriverInfo
 // The Drivers component modifies this array directly.
 // IMPORTANT: Storing plain text passwords here is highly insecure. For demonstration only.
 export const initialDrivers: DriverInfo[] = [ // Export initialDrivers
-  { id: 'driver1', name: 'João Silva', username: 'joao.silva', email: 'joao@example.com', role: 'driver', base: 'Base SP', password: MOCK_DRIVER_PASSWORD },
+  { id: 'driver1', name: 'João Silva', username: 'joao.silva', email: 'joao@grupo2irmaos.com.br', role: 'driver', base: 'Base SP', password: MOCK_DRIVER_PASSWORD }, // Updated email
   { id: 'driver2', name: 'Maria Souza', username: 'maria.souza', email: 'maria@example.com', role: 'driver', base: 'Base RJ', password: MOCK_DRIVER_PASSWORD },
   { id: 'driver3', name: 'Carlos Pereira', username: 'carlos.pereira', email: 'carlos@example.com', role: 'driver', base: 'Base SP', password: MOCK_DRIVER_PASSWORD },
   { id: 'driver4', name: 'Ana Costa', username: 'ana.costa', email: 'ana@example.com', role: 'driver', base: 'Base MG', password: MOCK_DRIVER_PASSWORD },
@@ -144,7 +144,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
          // Simulate password check and update
          // In a real app: Verify currentPassword against stored hash before updating email
          const driver = user ? initialDrivers.find(d => d.id === user.id) : null;
-         const isPasswordCorrect = (user?.role === 'admin' && currentPassword === ADMIN_PASSWORD) || (user?.role === 'driver' && driver && driver.password === currentPassword);
+         const currentStoredPassword = user?.role === 'admin' ? ADMIN_PASSWORD : driver?.password;
+         const isPasswordCorrect = currentStoredPassword === currentPassword;
+
 
          if (isPasswordCorrect && newEmail && user) { // Check password based on role
            const updatedUser = { ...user, email: newEmail };
@@ -178,7 +180,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
        setTimeout(() => {
          // Simulate password check and update
          const driver = user ? initialDrivers.find(d => d.id === user.id) : null;
-         const isPasswordCorrect = (user?.role === 'admin' && currentPassword === ADMIN_PASSWORD) || (user?.role === 'driver' && driver && driver.password === currentPassword);
+         const currentStoredPassword = user?.role === 'admin' ? ADMIN_PASSWORD : driver?.password;
+         const isPasswordCorrect = currentStoredPassword === currentPassword;
 
 
          if (isPasswordCorrect && newPassword && user) { // Check password based on role
