@@ -15,7 +15,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuShortcut,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -59,21 +58,10 @@ const AppLayout: React.FC = () => {
              </div>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => router.push('/profile')}>
-
                 <UserIcon className="mr-2 h-4 w-4" />
-                <span>My Profile</span> 
-                
+                <span>Perfil</span> {/* Changed from My Profile */}
               </DropdownMenuItem>
-              <DropdownMenuItem>
-                <span>Alterar Nome</span> <DropdownMenuShortcut>Ctrl+N</DropdownMenuShortcut>
-              </DropdownMenuItem>
-              <DropdownMenuItem>
-                <span>Alterar E-mail</span><DropdownMenuShortcut>Ctrl+E</DropdownMenuShortcut>
-              </DropdownMenuItem>
-              <DropdownMenuItem>
-                <span>Alterar Senha</span><DropdownMenuShortcut>Ctrl+S</DropdownMenuShortcut>
-              </DropdownMenuItem>
-
+              {/* Removed Alterar Nome, E-mail, Senha options */}
               <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:bg-destructive/10 focus:text-destructive">
                 <LogOut className="mr-2 h-4 w-4" />
                 <span>Sair</span>
