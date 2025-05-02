@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Plane, Map, Wallet, Fuel, Users, Truck, Milestone, Filter, Calendar } from 'lucide-react'; // Added Calendar icon
 import { useAuth, User } from '@/contexts/AuthContext'; // Import User type
 import { Trip } from './Trips/Trips'; // Assuming these are still mock or fetched elsewhere
-import { initialVisits } from './Trips/Visits';    // Assuming these are still mock or fetched elsewhere
+import {getVisits} from './Trips/Visits';    // Assuming these are still mock or fetched elsewhere
 import { getExpenses } from './Trips/Expenses';// Assuming these are still mock or fetched elsewhere
 import { getFuelings } from '@/services/firestoreService';// Assuming these are still mock or fetched elsewhere
 import { getVehicles } from '@/services/firestoreService';      // Assuming these are still mock or fetched elsewhere
@@ -114,7 +114,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     let relevantDriverIds = drivers.map(d => d.id);
 
     let filteredTrips = trips;
-    let filteredVisits = initialVisits;
+    let filteredVisits = [];
     let filteredExpenses = expenses;
     let filteredFuelings = fuelings;
 
@@ -124,7 +124,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         const interval = { start: dateRange.from, end: dateRange.to };
         filteredTrips = filteredTrips.filter(t => isWithinInterval(parseISO(t.createdAt), interval));
         // Filter related items based on their own dates
-        filteredVisits = initialVisits.filter(v => isWithinInterval(parseISO(v.timestamp), interval));
+        filteredVisits = [].filter(v => isWithinInterval(parseISO(v.timestamp), interval));
         filteredExpenses = expenses.filter(e => isWithinInterval(parseISO(e.expenseDate), interval)); // Use expenseDate
         filteredFuelings = fuelings.filter(f => isWithinInterval(parseISO(f.date), interval)); // Use fueling date
     } else if (dateRange?.from) {
@@ -142,13 +142,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
          // Re-filter visits, expenses, fuelings based on the selected driver's trips *within the date range*
          const tripIdsForDriver = filteredTrips.map(t => t.id);
          // Ensure related items are filtered based on *both* driver and potential date range
-         filteredVisits = initialVisits.filter(v => tripIdsForDriver.includes(v.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(v.timestamp), { start: dateRange.from, end: dateRange.to })));
+         filteredVisits = [].filter(v => tripIdsForDriver.includes(v.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(v.timestamp), { start: dateRange.from, end: dateRange.to })));
          filteredExpenses = expenses.filter(e => tripIdsForDriver.includes(e.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(e.expenseDate), { start: dateRange.from, end: dateRange.to })));
          filteredFuelings = fuelings.filter(f => tripIdsForDriver.includes(f.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(f.date), { start: dateRange.from, end: dateRange.to })));
       } else {
           // If no driver filter, ensure visits/expenses/fuelings are related to the date-filtered trips
           const tripIds = filteredTrips.map(t => t.id);
-          filteredVisits = initialVisits.filter(v => tripIds.includes(v.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(v.timestamp), { start: dateRange.from, end: dateRange.to })));
+          filteredVisits = [].filter(v => tripIds.includes(v.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(v.timestamp), { start: dateRange.from, end: dateRange.to })));
           filteredExpenses = expenses.filter(e => tripIds.includes(e.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(e.expenseDate), { start: dateRange.from, end: dateRange.to })));
           filteredFuelings = fuelings.filter(f => tripIds.includes(f.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(f.date), { start: dateRange.from, end: dateRange.to })));
       }
@@ -188,7 +188,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
       const driverTripIds = driverTrips.map(t => t.id);
 
       // Filter related items based on driver's trips AND date range
-       filteredVisits = initialVisits.filter(v => driverTripIds.includes(v.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(v.timestamp), { start: dateRange.from, end: dateRange.to })));
+       filteredVisits = [].filter(v => driverTripIds.includes(v.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(v.timestamp), { start: dateRange.from, end: dateRange.to })));
        filteredExpenses = expenses.filter(e => driverTripIds.includes(e.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(e.expenseDate), { start: dateRange.from, end: dateRange.to })));
        filteredFuelings = fuelings.filter(f => driverTripIds.includes(v.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(f.date), { start: dateRange.from, end: dateRange.to })));
 
@@ -368,3 +368,4 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     </div>
   );
 };
+
