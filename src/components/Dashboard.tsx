@@ -5,16 +5,18 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Label } from '@/components/ui/label';
 import { Plane, Map, Wallet, Fuel, Users, Truck, Milestone, Filter, Calendar } from 'lucide-react'; // Added Calendar icon
 import { useAuth, User } from '@/contexts/AuthContext'; // Import User type
-import { initialTrips, Trip } from './Trips/Trips'; // Assuming these are still mock or fetched elsewhere
+import { Trip } from './Trips/Trips'; // Assuming these are still mock or fetched elsewhere
 import { initialVisits } from './Trips/Visits';    // Assuming these are still mock or fetched elsewhere
 import { getExpenses } from './Trips/Expenses';// Assuming these are still mock or fetched elsewhere
-import { initialFuelings } from './Trips/Fuelings';// Assuming these are still mock or fetched elsewhere
-import { initialVehicles } from './Vehicle';      // Assuming these are still mock or fetched elsewhere
+import { getFuelings } from '@/services/firestoreService';// Assuming these are still mock or fetched elsewhere
+import { getVehicles } from '@/services/firestoreService';      // Assuming these are still mock or fetched elsewhere
+import type { VehicleInfo } from './Vehicle';
 import { DateRangePicker } from '@/components/ui/date-range-picker'; // Import DateRangePicker
 import type { DateRange } from 'react-day-picker';
 import { isWithinInterval, parseISO } from 'date-fns';
 import { getDrivers } from '@/services/firestoreService'; // Import function to get drivers
 import { LoadingSpinner } from './LoadingSpinner'; // Import LoadingSpinner
+import {getTrips} from "@/services/firestoreService";
 
 // Helper function to format currency
 const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -35,9 +37,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
   const [filterDriverId, setFilterDriverId] = useState<string>(''); // State for driver filter
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined); // State for date range filter
   const [expenses, setExpenses] = useState<any[]>([]);
+  const [fuelings, setFuelings] = useState<any[]>([]);
+  const [trips, setTrips] = useState<Trip[]>([]);
+  const [vehicles, setVehicles] = useState<VehicleInfo[]>([]);
+
 
   // Fetch drivers on component mount if admin
   useEffect(() => {
+    const fetchTripsData = async () => {
+          try {
+              const fetchedTrips = await getTrips();
+              setTrips(fetchedTrips);
+          } catch (error) {
+              console.error("Error fetching expenses:", error);
+          }
+      };
+      fetchTripsData();
+
     if (isAdmin) {
       const fetchDrivers = async () => {
         setLoadingDrivers(true);
@@ -53,6 +69,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         }
       };
       fetchDrivers();
+
+           const fetchVehiclesData = async () => {
+               try {
+                   const fetchedVehicles = await getVehicles();
+                   setVehicles(fetchedVehicles);
+               } catch (error) {
+                   console.error("Error fetching vehicles:", error);
+               }
+           };
+           fetchVehiclesData();
     } else {
         setLoadingDrivers(false); // Not admin, no need to load drivers list
     }
@@ -70,15 +96,27 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         fetchExpensesData();
     }, []);
 
+    useEffect(() => {
+        const fetchFuelingsData = async () => {
+            try {
+                const fetchedFuelings = await getFuelings('');
+                setFuelings(fetchedFuelings);
+            } catch (error) {
+                console.error("Error fetching fuelings:", error);
+            }
+        };
+        fetchFuelingsData();
+    }, []);
+
   // Calculate summary data based on role and filters
   const summaryData = useMemo(() => {
     // Use the fetched drivers list instead of initialDrivers
     let relevantDriverIds = drivers.map(d => d.id);
 
-    let filteredTrips = initialTrips;
+    let filteredTrips = trips;
     let filteredVisits = initialVisits;
     let filteredExpenses = expenses;
-    let filteredFuelings = initialFuelings;
+    let filteredFuelings = fuelings;
 
 
     // Apply date filter first if set
@@ -88,7 +126,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         // Filter related items based on their own dates
         filteredVisits = initialVisits.filter(v => isWithinInterval(parseISO(v.timestamp), interval));
         filteredExpenses = expenses.filter(e => isWithinInterval(parseISO(e.expenseDate), interval)); // Use expenseDate
-        filteredFuelings = initialFuelings.filter(f => isWithinInterval(parseISO(f.date), interval)); // Use fueling date
+        filteredFuelings = fuelings.filter(f => isWithinInterval(parseISO(f.date), interval)); // Use fueling date
     } else if (dateRange?.from) {
         // Handle case where only 'from' date is selected (filter from that date onwards)
         // Note: isWithinInterval requires both start and end. Adjust logic if single date filter needed.
@@ -106,18 +144,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
          // Ensure related items are filtered based on *both* driver and potential date range
          filteredVisits = initialVisits.filter(v => tripIdsForDriver.includes(v.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(v.timestamp), { start: dateRange.from, end: dateRange.to })));
          filteredExpenses = expenses.filter(e => tripIdsForDriver.includes(e.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(e.expenseDate), { start: dateRange.from, end: dateRange.to })));
-         filteredFuelings = initialFuelings.filter(f => tripIdsForDriver.includes(f.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(f.date), { start: dateRange.from, end: dateRange.to })));
+         filteredFuelings = fuelings.filter(f => tripIdsForDriver.includes(f.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(f.date), { start: dateRange.from, end: dateRange.to })));
       } else {
           // If no driver filter, ensure visits/expenses/fuelings are related to the date-filtered trips
           const tripIds = filteredTrips.map(t => t.id);
           filteredVisits = initialVisits.filter(v => tripIds.includes(v.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(v.timestamp), { start: dateRange.from, end: dateRange.to })));
           filteredExpenses = expenses.filter(e => tripIds.includes(e.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(e.expenseDate), { start: dateRange.from, end: dateRange.to })));
-          filteredFuelings = initialFuelings.filter(f => tripIds.includes(f.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(f.date), { start: dateRange.from, end: dateRange.to })));
+          filteredFuelings = fuelings.filter(f => tripIds.includes(f.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(f.date), { start: dateRange.from, end: dateRange.to })));
       }
 
 
       const totalDrivers = filterDriverId ? 1 : drivers.length; // Use fetched drivers count
-      const totalVehicles = initialVehicles.length;
+      const totalVehicles = vehicles.length;
 
 
       return {
@@ -139,7 +177,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     } else {
       // Driver sees their own data - filters are not applicable from UI, but date filter applies
       const driverId = user?.id;
-      let driverTrips = initialTrips.filter(t => t.userId === driverId);
+      let driverTrips = trips.filter(t => t.userId === driverId);
 
       // Apply date filter to driver's trips
        if (dateRange?.from && dateRange?.to) {
@@ -152,7 +190,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
       // Filter related items based on driver's trips AND date range
        filteredVisits = initialVisits.filter(v => driverTripIds.includes(v.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(v.timestamp), { start: dateRange.from, end: dateRange.to })));
        filteredExpenses = expenses.filter(e => driverTripIds.includes(e.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(e.expenseDate), { start: dateRange.from, end: dateRange.to })));
-       filteredFuelings = initialFuelings.filter(f => driverTripIds.includes(v.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(f.date), { start: dateRange.from, end: dateRange.to })));
+       filteredFuelings = fuelings.filter(f => driverTripIds.includes(v.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(f.date), { start: dateRange.from, end: dateRange.to })));
 
 
       return {
@@ -171,7 +209,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
          filterContext: `Suas Atividades ${dateRange ? `(${dateRange.from?.toLocaleDateString('pt-BR')} - ${dateRange.to?.toLocaleDateString('pt-BR') ?? '...'})` : ''}`.trim(),
       };
     }
-  }, [isAdmin, user?.id, filterDriverId, dateRange, drivers, expenses]); // Add drivers to dependency array
+  }, [isAdmin, user?.id, filterDriverId, dateRange, drivers, expenses, fuelings, trips, vehicles]); // Add fuelings to dependency array
 
 
   return (
