@@ -10,17 +10,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { initialDrivers } from '@/contexts/AuthContext'; // Import mock drivers
+import { initialDrivers, DriverInfo } from '@/contexts/AuthContext'; // Import mock drivers and DriverInfo interface
 
-// Define the Driver interface locally or import if shared
-interface Driver {
-    id: string;
-    name: string;
-    username: string;
-    email: string;
-    base: string;
-    // password is not stored/displayed directly for security
-}
+// Driver interface now uses DriverInfo from AuthContext
+type Driver = DriverInfo;
 
 
 export const Drivers: React.FC = () => {
@@ -34,7 +27,7 @@ export const Drivers: React.FC = () => {
     const [name, setName] = useState('');
     const [username, setUsername] = useState('');
     const [email, setEmail] = useState('');
-    const [password, setPassword] = useState(''); // Only for create/edit, not stored in state
+    const [password, setPassword] = useState(''); // Only for create/edit, not stored in local component state after save
     const [confirmPassword, setConfirmPassword] = useState(''); // For create/edit password validation
     const [base, setBase] = useState('');
 
@@ -60,11 +53,11 @@ export const Drivers: React.FC = () => {
             return;
          }
         // Check if username or email already exists (simple check on mock data)
-        if (drivers.some(d => d.username === username)) {
+        if (initialDrivers.some(d => d.username === username)) { // Check against the source array
             toast({ variant: "destructive", title: "Erro", description: "Nome de usuário já existe." });
             return;
         }
-        if (drivers.some(d => d.email === email)) {
+        if (initialDrivers.some(d => d.email === email)) { // Check against the source array
             toast({ variant: "destructive", title: "Erro", description: "E-mail já cadastrado." });
             return;
         }
@@ -75,9 +68,10 @@ export const Drivers: React.FC = () => {
             username,
             email,
             base,
-            // password is sent to backend, not stored directly in frontend state array
+            role: 'driver', // Set role explicitly
+            password: password, // Store the password (INSECURE - demo only)
         };
-        // In a real app, save to backend (sending the password)
+        // In a real app, save to backend (sending the password hash)
         initialDrivers.push(newDriver); // Add to global mock data
         setDrivers(prevDrivers => [newDriver, ...prevDrivers]); // Update local state
         resetForm();
@@ -96,21 +90,26 @@ export const Drivers: React.FC = () => {
             return;
         }
         // Password update logic (optional during edit)
-        if (password && password !== confirmPassword) {
-             toast({ variant: "destructive", title: "Erro", description: "As senhas não coincidem." });
-             return;
+        let updatedPassword = currentDriver.password; // Keep current password by default
+        if (password) { // If a new password was entered
+             if (password !== confirmPassword) {
+                 toast({ variant: "destructive", title: "Erro", description: "As senhas não coincidem." });
+                 return;
+             }
+             if (password.length < 6) {
+                toast({ variant: "destructive", title: "Erro", description: "A nova senha deve ter pelo menos 6 caracteres." });
+                return;
+             }
+             updatedPassword = password; // Set the new password
         }
-         if (password && password.length < 6) {
-            toast({ variant: "destructive", title: "Erro", description: "A nova senha deve ter pelo menos 6 caracteres." });
-            return;
-         }
+
 
         // Check for duplicate username/email (excluding the current driver)
-        if (drivers.some(d => d.username === username && d.id !== currentDriver.id)) {
+        if (initialDrivers.some(d => d.username === username && d.id !== currentDriver.id)) {
             toast({ variant: "destructive", title: "Erro", description: "Nome de usuário já existe." });
             return;
         }
-        if (drivers.some(d => d.email === email && d.id !== currentDriver.id)) {
+        if (initialDrivers.some(d => d.email === email && d.id !== currentDriver.id)) {
             toast({ variant: "destructive", title: "Erro", description: "E-mail já cadastrado." });
             return;
         }
@@ -121,9 +120,10 @@ export const Drivers: React.FC = () => {
             username,
             email,
             base,
+            password: updatedPassword, // Update password if changed
         };
 
-        // In a real app, save to backend (send password only if changed)
+        // In a real app, save to backend (send password hash only if changed)
         const index = initialDrivers.findIndex(d => d.id === currentDriver.id);
         if (index !== -1) {
             initialDrivers[index] = updatedDriver; // Update global mock data

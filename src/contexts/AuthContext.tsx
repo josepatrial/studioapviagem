@@ -31,24 +31,25 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 // Mock admin user credentials
 const ADMIN_EMAIL = 'admin@example.com';
 const ADMIN_PASSWORD = 'adminpassword'; // Use a more secure method in production
-const MOCK_DRIVER_PASSWORD = 'password123'; // Mock password for all drivers
+const MOCK_DRIVER_PASSWORD = 'password123'; // Default password for initial drivers
 
 // Mock drivers data (needed for login simulation) - Consider moving this to a separate file
 // Use the exported User interface but narrow down roles for this list
-interface DriverInfo extends Omit<User, 'role'>{
+export interface DriverInfo extends Omit<User, 'role'>{ // Export DriverInfo
     role: 'driver'; // Explicitly driver
     username: string; // Add username back for the Drivers component needs
+    password?: string; // Add password field (INSECURE - for demo only)
 }
 
 
 // This array serves as the *source of truth* for drivers in this mock setup.
 // The Drivers component modifies this array directly.
+// IMPORTANT: Storing plain text passwords here is highly insecure. For demonstration only.
 export const initialDrivers: DriverInfo[] = [ // Export initialDrivers
-  { id: 'driver1', name: 'João Silva', username: 'joao.silva', email: 'joao@example.com', role: 'driver', base: 'Base SP' },
-  { id: 'driver2', name: 'Maria Souza', username: 'maria.souza', email: 'maria@example.com', role: 'driver', base: 'Base RJ' },
-  // Add more drivers if needed for testing filters
-  { id: 'driver3', name: 'Carlos Pereira', username: 'carlos.pereira', email: 'carlos@example.com', role: 'driver', base: 'Base SP' },
-  { id: 'driver4', name: 'Ana Costa', username: 'ana.costa', email: 'ana@example.com', role: 'driver', base: 'Base MG' },
+  { id: 'driver1', name: 'João Silva', username: 'joao.silva', email: 'joao@example.com', role: 'driver', base: 'Base SP', password: MOCK_DRIVER_PASSWORD },
+  { id: 'driver2', name: 'Maria Souza', username: 'maria.souza', email: 'maria@example.com', role: 'driver', base: 'Base RJ', password: MOCK_DRIVER_PASSWORD },
+  { id: 'driver3', name: 'Carlos Pereira', username: 'carlos.pereira', email: 'carlos@example.com', role: 'driver', base: 'Base SP', password: MOCK_DRIVER_PASSWORD },
+  { id: 'driver4', name: 'Ana Costa', username: 'ana.costa', email: 'ana@example.com', role: 'driver', base: 'Base MG', password: MOCK_DRIVER_PASSWORD },
 ];
 
 
@@ -103,8 +104,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         else {
            // Find driver in the potentially updated `initialDrivers` array
            const driver = initialDrivers.find(d => d.email === email);
-           // Use the mock password for ALL drivers, including newly created ones
-           if (driver && pass === MOCK_DRIVER_PASSWORD) {
+           // Check against the DRIVER'S specific password
+           if (driver && driver.password && pass === driver.password) {
                 simulatedUser = {
                    id: driver.id,
                    email: driver.email,
@@ -142,12 +143,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
        setTimeout(() => {
          // Simulate password check and update
          // In a real app: Verify currentPassword against stored hash before updating email
-         const isPasswordCorrect = (user?.role === 'admin' && currentPassword === ADMIN_PASSWORD) || (user?.role === 'driver' && currentPassword === MOCK_DRIVER_PASSWORD);
+         const driver = user ? initialDrivers.find(d => d.id === user.id) : null;
+         const isPasswordCorrect = (user?.role === 'admin' && currentPassword === ADMIN_PASSWORD) || (user?.role === 'driver' && driver && driver.password === currentPassword);
 
          if (isPasswordCorrect && newEmail && user) { // Check password based on role
            const updatedUser = { ...user, email: newEmail };
            setUser(updatedUser);
            localStorage.setItem('rotaCertaUser', JSON.stringify(updatedUser));
+
+            // Also update the email in the initialDrivers array if it's a driver
+            if (user.role === 'driver') {
+                 const driverIndex = initialDrivers.findIndex(d => d.id === user.id);
+                 if (driverIndex !== -1) {
+                    initialDrivers[driverIndex].email = newEmail;
+                 }
+            }
+
            setLoading(false);
            toast({ title: "Sucesso", description: "E-mail atualizado." });
            resolve(true);
@@ -166,13 +177,26 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
      return new Promise((resolve) => {
        setTimeout(() => {
          // Simulate password check and update
-          // In a real app: Verify currentPassword against stored hash before updating
-         const isPasswordCorrect = (user?.role === 'admin' && currentPassword === ADMIN_PASSWORD) || (user?.role === 'driver' && currentPassword === MOCK_DRIVER_PASSWORD);
+         const driver = user ? initialDrivers.find(d => d.id === user.id) : null;
+         const isPasswordCorrect = (user?.role === 'admin' && currentPassword === ADMIN_PASSWORD) || (user?.role === 'driver' && driver && driver.password === currentPassword);
 
-         if (isPasswordCorrect && newPassword) { // Check password based on role
-           // In a real app, update the password in the backend (send newPassword hash)
-           console.log("Password updated (simulated)");
-           // Update the mock password for this user if needed (though not used for login check)
+
+         if (isPasswordCorrect && newPassword && user) { // Check password based on role
+           // In a real app, update the password hash in the backend
+
+           // Update the mock password for this user in initialDrivers
+            if (user.role === 'driver') {
+                const driverIndex = initialDrivers.findIndex(d => d.id === user.id);
+                 if (driverIndex !== -1) {
+                    initialDrivers[driverIndex].password = newPassword;
+                     console.log(`Password updated for driver ${user.id} (simulated)`);
+                 }
+            } else if (user.role === 'admin') {
+                // Note: Admin password change isn't persisted in this mock setup beyond runtime.
+                console.log("Admin password change requested (not persisted in mock)");
+            }
+
+
            setLoading(false);
            toast({ title: "Sucesso", description: "Senha atualizada." });
            resolve(true);
@@ -194,6 +218,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
            const updatedUser = { ...user, name: newName };
            setUser(updatedUser);
            localStorage.setItem('rotaCertaUser', JSON.stringify(updatedUser));
+
+           // Also update the name in the initialDrivers array if it's a driver
+            if (user.role === 'driver') {
+                const driverIndex = initialDrivers.findIndex(d => d.id === user.id);
+                 if (driverIndex !== -1) {
+                    initialDrivers[driverIndex].name = newName;
+                 }
+            }
+
            setLoading(false);
            toast({ title: "Sucesso", description: "Nome atualizado." });
            resolve(true);
