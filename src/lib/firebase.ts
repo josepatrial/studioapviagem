@@ -1,7 +1,7 @@
 // src/lib/firebase.ts
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, enableMultiTabIndexedDbPersistence } from 'firebase/firestore'; // Import enableMultiTabIndexedDbPersistence
 import { getStorage } from 'firebase/storage';
 
 // Log the environment variables *before* using them
@@ -64,6 +64,7 @@ let app: FirebaseApp | null = null;
 let auth: ReturnType<typeof getAuth> | null = null;
 let db: ReturnType<typeof getFirestore> | null = null;
 let storage: ReturnType<typeof getStorage> | null = null;
+let persistenceEnabled = false; // Flag to track if persistence has been enabled
 
 try {
   console.log("Attempting Firebase initialization...");
@@ -99,6 +100,34 @@ try {
         db = getFirestore(app);
         storage = getStorage(app);
         console.log("Firebase services initialized successfully.");
+
+        // Enable Firestore offline persistence
+        // Use a flag to prevent multiple calls in HMR scenarios
+        if (!persistenceEnabled && db) {
+          enableMultiTabIndexedDbPersistence(db) // Use multi-tab persistence
+            .then(() => {
+              persistenceEnabled = true;
+              console.log("Firestore multi-tab offline persistence enabled.");
+            })
+            .catch((err) => {
+              if (err.code === 'failed-precondition') {
+                // Multiple tabs open, persistence can only be enabled in one tab at a time.
+                console.warn("Firestore persistence failed: Multiple tabs open. Persistence might be enabled in another tab.");
+                persistenceEnabled = true; // Assume it's enabled elsewhere
+              } else if (err.code === 'unimplemented') {
+                // The current browser does not support all of the
+                // features required to enable persistence
+                console.error("Firestore persistence failed: Browser does not support required features.");
+              } else {
+                console.error("Firestore persistence failed with error:", err);
+              }
+            });
+        } else if (persistenceEnabled) {
+             console.log("Firestore persistence already enabled or attempted.");
+        } else {
+             console.error("Firestore instance (db) is null, cannot enable persistence.");
+        }
+
     } catch (serviceError: any) {
         console.error("CRITICAL: Error initializing Firebase services:", serviceError.message, serviceError.code);
         // Ensure services are null if their initialization fails
