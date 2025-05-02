@@ -39,18 +39,20 @@ const validateFirebaseConfig = (config: typeof firebaseConfig): { isValid: boole
 
     for (const key of requiredKeys) {
         const value = config[key];
-        const envVarName = `NEXT_PUBLIC_FIREBASE_${key.toUpperCase()}`;
+        const envVarName = `NEXT_PUBLIC_FIREBASE_${key.replace(/([A-Z])/g, '_$1').toUpperCase()}`; // Convert camelCase to UPPER_SNAKE_CASE for env var name
         // Check for undefined, null, empty string, placeholder values
         if (!value || typeof value !== 'string' || value.trim() === '' || value.includes('YOUR_') || value.includes('placeholder') || value === '[DEFAULT]') {
              console.error(`Firebase config validation error: ${envVarName} is missing, invalid, or a placeholder. Value received: "${value}". Check your .env file.`);
              missingOrInvalidKeys.push(envVarName);
              isValid = false;
              // Don't break, log all missing/invalid keys
+        } else {
+             console.log(`Firebase config validation: ${envVarName} looks OK.`);
         }
     }
 
     if (!isValid) {
-      console.error("Firebase config validation FAILED.");
+      console.error("Firebase config validation FAILED. Check the keys listed above.");
     } else {
       console.log("Firebase config validation PASSED.");
     }
@@ -70,9 +72,9 @@ try {
   const { isValid, missingOrInvalidKeys } = validateFirebaseConfig(firebaseConfig);
 
   if (!isValid) {
-     const errorMessage = `Firebase configuration is invalid. The following keys are missing or invalid in your .env file: ${missingOrInvalidKeys.join(', ')}. Please ensure they are set correctly (with NEXT_PUBLIC_ prefix) and the development server is restarted.`;
-     console.error("FATAL:", errorMessage);
-     // Throw error *before* attempting initializeApp
+     const errorMessage = `Firebase configuration is invalid or incomplete. The following keys are missing or invalid in your .env file: ${missingOrInvalidKeys.join(', ')}. Please ensure they are set correctly (with NEXT_PUBLIC_ prefix) and the development server is restarted.`;
+     console.error("FATAL: Firebase Initialization Stopped.", errorMessage);
+     // Throw error *before* attempting initializeApp to make it clear
      throw new Error(errorMessage);
   }
 
@@ -85,28 +87,44 @@ try {
   } else {
       console.log("Firebase app already initialized, getting existing app.");
       app = getApp();
-       console.log("Using existing Firebase app with Project ID:", app.options.projectId);
+       console.log("Using existing Firebase app with Project ID:", app?.options?.projectId ?? 'Unknown'); // Add null check for safety
   }
 
 
   // Initialize Firebase services only after successful app initialization/retrieval
-  console.log("Initializing Firebase services (Auth, Firestore, Storage)...");
-  auth = getAuth(app);
-  db = getFirestore(app);
-  storage = getStorage(app);
-  console.log("Firebase services initialized.");
+  if (app) {
+    console.log("Initializing Firebase services (Auth, Firestore, Storage)...");
+    try {
+        auth = getAuth(app);
+        db = getFirestore(app);
+        storage = getStorage(app);
+        console.log("Firebase services initialized successfully.");
+    } catch (serviceError: any) {
+        console.error("CRITICAL: Error initializing Firebase services:", serviceError.message, serviceError.code);
+        // Ensure services are null if their initialization fails
+        auth = null;
+        db = null;
+        storage = null;
+        throw new Error(`Failed to initialize Firebase services: ${serviceError.message}`); // Re-throw specific service error
+    }
+  } else {
+      // This case should ideally not be reached if validation passes, but good for safety
+      throw new Error("Firebase app object is null after initialization attempt.");
+  }
 
-} catch (error) {
-  console.error("CRITICAL: Firebase initialization failed:", error instanceof Error ? error.message : error);
+} catch (error: any) { // Catch errors from validation or initialization
+  console.error("CRITICAL: Firebase initialization process failed:", error instanceof Error ? error.message : error);
   // Throwing the error here will halt the application and make the configuration issue very clear.
-  const detailedError = `Could not initialize Firebase. Please check the console logs for configuration errors (especially missing or invalid keys in .env starting with NEXT_PUBLIC_) and ensure your .env file is correct and the server was restarted. Original Error: ${(error as Error).message}`;
+  const detailedError = `Could not initialize Firebase. Please check the console logs above for configuration errors (especially missing or invalid keys in .env starting with NEXT_PUBLIC_) and ensure your .env file is correct and the server was restarted. Original Error: ${(error as Error).message}`;
   console.error("DETAILED ERROR:", detailedError);
   // Ensure services are null if initialization fails
   app = null;
   auth = null;
   db = null;
   storage = null;
-  throw new Error(detailedError); // Re-throw the error to make it visible
+  // It's often better to let the error propagate and crash the server during startup
+  // for configuration errors, rather than trying to continue in a broken state.
+  // throw new Error(detailedError); // Uncomment if you want startup to fail hard on config errors
 }
 
 
