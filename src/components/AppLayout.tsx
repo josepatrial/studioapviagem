@@ -19,6 +19,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { cn } from '@/lib/utils'; // Import cn utility
 
 const AppLayout: React.FC = () => {
   const router = useRouter();
@@ -26,7 +27,8 @@ const AppLayout: React.FC = () => {
   const [activeTab, setActiveTab] = useState('dashboard');
 
   const isAdmin = user?.role === 'admin';
-  const numberOfTabs = isAdmin ? 4 : 3; // Adjust grid columns based on role
+  // numberOfTabs is no longer needed for className, but can be kept for other logic if necessary.
+  // const numberOfTabs = isAdmin ? 4 : 3;
 
   const getInitials = (name: string | undefined, email: string | undefined) => {
     if (name) {
@@ -87,8 +89,11 @@ const AppLayout: React.FC = () => {
       {/* Main Content Area with Tabs */}
        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-1 flex-col overflow-hidden">
           <div className="overflow-x-auto border-b bg-background">
-             {/* Updated grid columns dynamically */}
-             <TabsList className={`grid w-full grid-cols-${numberOfTabs} rounded-none bg-transparent p-0 sm:w-auto sm:inline-flex`}>
+             {/* Use explicit class names for Tailwind grid columns */}
+             <TabsList className={cn(
+                "grid w-full rounded-none bg-transparent p-0 sm:w-auto sm:inline-flex",
+                isAdmin ? "grid-cols-4" : "grid-cols-3" // Apply correct grid class based on isAdmin
+             )}>
                  <TabsTrigger value="dashboard" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
                    <LayoutDashboard className="mr-2 h-4 w-4 sm:hidden md:inline-block" /> Dashboard
                  </TabsTrigger>
