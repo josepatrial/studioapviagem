@@ -91,24 +91,36 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     // Ensure auth is initialized before using it
     if (!auth) {
-      console.error("Firebase Auth is not initialized. Cannot set up listener.");
+      console.error("AuthProvider useEffect: Firebase Auth is not initialized. Cannot set up listener.");
       setLoading(false);
       return;
+    } else {
+      console.log("AuthProvider useEffect: Firebase Auth initialized, setting up listener.");
     }
 
     let isMounted = true; // Flag to prevent state updates on unmounted component
 
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
-      if (!isMounted) return; // Don't update if unmounted
+       console.log("AuthProvider onAuthStateChanged triggered. isMounted:", isMounted);
+      if (!isMounted) {
+         console.log("AuthProvider onAuthStateChanged: Component unmounted, skipping state update.");
+         return;
+      }
 
       setFirebaseUser(fbUser); // Store the raw Firebase user
       if (fbUser) {
-        console.log("Firebase Auth user found:", fbUser.uid);
+        console.log("AuthProvider onAuthStateChanged: Firebase Auth user found:", fbUser.uid, "Email:", fbUser.email);
+        setLoading(true); // Set loading while fetching Firestore data
         try {
+            console.log("AuthProvider: Attempting to fetch Firestore data for UID:", fbUser.uid);
             const userData = await getUserData(fbUser.uid);
+            if (!isMounted) {
+                console.log("AuthProvider: Component unmounted after fetching Firestore data, skipping state update.");
+                return;
+            }
+
             if (userData) {
-              if (!isMounted) return;
-              console.log("Firestore user data found:", userData);
+              console.log("AuthProvider: Firestore user data found:", userData);
               setUser({
                   id: fbUser.uid,
                   email: fbUser.email || userData.email || 'N/A', // Prioritize Auth email, then Firestore, then fallback
@@ -118,14 +130,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                   username: userData.username, // Include username from Firestore
               });
             } else {
-                if (!isMounted) return;
-                console.warn("Firestore user data not found for UID:", fbUser.uid);
+                console.warn("AuthProvider: Firestore user data not found for UID:", fbUser.uid);
                 // If Firestore doc is missing, try to read from Auth (user might be newly created)
                  // Check again if the document exists, maybe it was created just now by another process/tab
                 const freshUserData = await getUserData(fbUser.uid);
+                if (!isMounted) {
+                    console.log("AuthProvider: Component unmounted after second Firestore check, skipping state update.");
+                    return;
+                }
                 if (freshUserData) {
-                     if (!isMounted) return;
-                     console.log("Retrieved Firestore data on second attempt:", freshUserData);
+                     console.log("AuthProvider: Retrieved Firestore data on second attempt:", freshUserData);
                       setUser({
                          id: fbUser.uid,
                          email: fbUser.email || freshUserData.email || 'N/A',
@@ -136,27 +150,33 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                       });
                 } else {
                     // If still missing after re-check, use basic Auth data and attempt creation
-                    console.warn("Firestore user data still missing for UID:", fbUser.uid, " - attempting creation (or using basic data).");
+                    console.warn("AuthProvider: Firestore user data still missing for UID:", fbUser.uid, " - attempting creation (or using basic data).");
                     const basicUserData = {
                         id: fbUser.uid,
                         email: fbUser.email || 'unknown@example.com',
                         name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Novo Usuário',
                         role: 'driver' as UserRole, // Assign default role
                     };
-                     if (!isMounted) return;
+                     if (!isMounted) {
+                        console.log("AuthProvider: Component unmounted before setting basic user data, skipping.");
+                        return;
+                     }
                      setUser(basicUserData);
                      // Attempt to create the Firestore document only if it seems truly missing
                      try {
                        await createUserDocument(fbUser.uid, basicUserData.email, basicUserData.name);
-                       console.log("Attempted to create Firestore document for new/missing user:", fbUser.uid);
+                       console.log("AuthProvider: Attempted to auto-create Firestore document for new/missing user:", fbUser.uid);
                      } catch (creationError: any) {
-                        console.error("Failed to auto-create Firestore document on auth change:", creationError.message);
+                        console.error("AuthProvider: Failed to auto-create Firestore document on auth change:", creationError.message);
                      }
                 }
             }
         } catch (error: any) {
-             if (!isMounted) return;
-             console.error("Error fetching or processing Firestore user data:", error.message);
+             if (!isMounted) {
+                console.log("AuthProvider: Component unmounted after Firestore error, skipping state update.");
+                return;
+             }
+             console.error("AuthProvider: Error fetching or processing Firestore user data:", error.message);
              // Fallback to basic user info from Auth if Firestore interaction fails
               setUser({
                   id: fbUser.uid,
@@ -164,18 +184,28 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                   name: fbUser.displayName || 'Erro ao Carregar',
                   role: 'driver', // Default role on error
               });
+              toast({ variant: "destructive", title: "Erro de Dados", description: "Não foi possível carregar os dados completos do usuário." });
+        } finally {
+           if (isMounted) {
+             console.log("AuthProvider: Finished processing user state, setting loading to false.");
+             setLoading(false);
+           }
         }
 
       } else {
-        if (!isMounted) return;
-        console.log("No Firebase Auth user.");
+        console.log("AuthProvider onAuthStateChanged: No Firebase Auth user.");
+        if (!isMounted) {
+            console.log("AuthProvider: Component unmounted while processing null user, skipping state update.");
+            return;
+        }
         setUser(null); // No user logged in
+        setLoading(false);
       }
-       if (isMounted) setLoading(false);
     });
 
     // Cleanup function
     return () => {
+        console.log("AuthProvider useEffect cleanup: Unsubscribing from onAuthStateChanged.");
         isMounted = false; // Set flag on unmount
         unsubscribe(); // Cleanup subscription
     };
@@ -207,13 +237,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           errorMessage = 'Erro de rede ao tentar fazer login. Verifique sua conexão.';
       } else if (error.code === 'auth/operation-not-allowed') {
            errorMessage = 'Login com e-mail/senha não está habilitado. Contacte o administrador.';
-      } else if (error.code?.includes('auth/')) { // Catch other specific auth errors
+      } else if (error.code === 'auth/configuration-not-found') {
+           errorMessage = 'Erro de configuração do Firebase. Verifique as chaves de API e configurações no console.';
+      }
+      else if (error.code?.includes('auth/')) { // Catch other specific auth errors
           errorMessage = `Erro de autenticação (${error.code}). Tente novamente.`;
       }
       toast({
         variant: "destructive",
         title: "Falha no Login",
         description: errorMessage,
+        duration: 9000, // Show longer duration for critical errors
       });
       setLoading(false); // Ensure loading is false on error
       return false;
@@ -232,30 +266,30 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
      try {
        // 1. Create user in Firebase Authentication
-       console.log("Attempting to create user in Firebase Auth...");
+       console.log("Signup: Attempting to create user in Firebase Auth...");
        const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
        userId = userCredential.user.uid;
-       console.log('Firebase Auth user created successfully:', userId);
+       console.log('Signup: Firebase Auth user created successfully:', userId);
 
 
        // 2. Update Firebase Auth profile (display name)
-       console.log("Attempting to update Firebase Auth profile...");
+       console.log("Signup: Attempting to update Firebase Auth profile...");
        await updateProfile(userCredential.user, { displayName: name });
-       console.log('Firebase Auth profile updated successfully for:', userId);
+       console.log('Signup: Firebase Auth profile updated successfully for:', userId);
 
        // 3. Create user document in Firestore using the helper function
-       console.log("Attempting to create Firestore document...");
+       console.log("Signup: Attempting to create Firestore document...");
        await createUserDocument(userId, email, name, username);
-       console.log('Firestore document created successfully for user:', userId);
+       console.log('Signup: Firestore document created successfully for user:', userId);
 
        console.log('Signup successful and Firestore document created for:', email);
 
        // Sign the user out immediately after signup, requiring them to log in
-       console.log("Signing out user after signup...");
+       console.log("Signup: Signing out user after signup...");
        await signOut(auth);
        setUser(null);
        setFirebaseUser(null);
-       console.log('User signed out after successful signup.');
+       console.log('Signup: User signed out after successful signup.');
 
 
        setLoading(false);
@@ -280,7 +314,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
        } else if (error.code === 'auth/operation-not-allowed') {
             description = 'Cadastro com e-mail/senha não está habilitado. Contacte o administrador.';
             console.error("Signup Error: Operation not allowed (Email/Password auth disabled?).");
-       } else if (error.code?.includes('auth/')) { // Catch other specific auth errors
+       } else if (error.code === 'auth/configuration-not-found') {
+            description = 'Erro de configuração do Firebase (auth/configuration-not-found). Verifique as chaves de API e configurações no console do Firebase e no seu .env file.';
+            console.error("Signup Error: Firebase configuration not found (auth/configuration-not-found).");
+       }
+       else if (error.code?.includes('auth/')) { // Catch other specific auth errors
            description = `Erro de autenticação (${error.code}). Tente novamente.`;
            console.error(`Signup Auth Error: ${error.code}`, error.message);
        } else if (error.message?.includes('Failed to create Firestore user document')) {
@@ -296,7 +334,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
          description = `Erro inesperado: ${error.message || 'Verifique os dados e tente novamente.'}`;
        }
 
-       toast({ variant: "destructive", title: "Falha no Cadastro", description });
+       toast({ variant: "destructive", title: "Falha no Cadastro", description, duration: 9000 });
        setLoading(false);
        return false;
      }
@@ -472,4 +510,3 @@ export const useAuth = (): AuthContextType => {
   }
   return context;
 };
-
