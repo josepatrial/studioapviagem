@@ -3,13 +3,14 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import Link from 'next/link'; // Import Link
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { LogIn } from 'lucide-react';
+import { LogIn, UserPlus } from 'lucide-react'; // Added UserPlus icon
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -34,21 +35,14 @@ export default function LoginPage() {
     }
     // Removed the else block that showed the redundant toast.
     // The login function in AuthContext already shows a toast on failure.
-    // else {
-    //   toast({
-    //     variant: "destructive",
-    //     title: "Falha no Login",
-    //     description: "Verifique seu e-mail e senha.",
-    //   });
-    // }
   };
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-secondary p-4">
       <Card className="w-full max-w-md shadow-lg">
         <CardHeader className="text-center">
-          <CardTitle className="text-2xl font-bold text-primary">Grupo 2 Irmãos</CardTitle> {/* Updated title */}
-          <CardDescription>Bem-vindo de volta! Faça login para continuar.</CardDescription>
+          <CardTitle className="text-2xl font-bold text-primary">Grupo 2 Irmãos</CardTitle>
+          <CardDescription>Bem-vindo! Faça login ou cadastre-se para continuar.</CardDescription> {/* Updated description */}
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin} className="space-y-4">
@@ -79,10 +73,21 @@ export default function LoginPage() {
              <Button type="submit" className="w-full bg-primary hover:bg-primary/90" disabled={isLoading}>
               {isLoading ? 'Entrando...' : <> <LogIn className="mr-2 h-4 w-4" /> Entrar </>}
             </Button>
+             {/* Optional: Add forgot password link */}
+             {/* <div className="text-center text-sm">
+               <Link href="/forgot-password" className="text-primary hover:underline">
+                 Esqueceu sua senha?
+               </Link>
+             </div> */}
           </form>
         </CardContent>
-         <CardFooter className="text-center text-sm text-muted-foreground">
-          {/* Placeholder for potential links like "Forgot password?" or "Sign up" */}
+         <CardFooter className="flex flex-col items-center space-y-2 pt-4">
+           <p className="text-sm text-muted-foreground">Não tem uma conta?</p>
+           <Link href="/signup" passHref> {/* Link to the future signup page */}
+              <Button variant="outline" className="w-full">
+                 <UserPlus className="mr-2 h-4 w-4" /> Cadastrar
+              </Button>
+           </Link>
         </CardFooter>
       </Card>
     </div>
