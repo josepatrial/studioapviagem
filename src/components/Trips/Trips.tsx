@@ -89,6 +89,8 @@ export const Trips: React.FC = () => {
   // Fetch initial data (vehicles, drivers)
   useEffect(() => {
     const fetchInitialDeps = async () => {
+        const startTime = performance.now();
+        console.log('[Trips Effect] Fetching initial dependencies (vehicles, drivers)...');
         setLoading(true); // Start loading before fetching anything
         try {
             const [vehiclesData, driversData] = await Promise.all([
@@ -97,6 +99,8 @@ export const Trips: React.FC = () => {
             ]);
             setVehicles(vehiclesData);
             setDrivers(driversData.filter(d => d.role === 'driver'));
+            const endTime = performance.now();
+             console.log(`[Trips Effect] Fetched ${vehiclesData.length} vehicles and ${driversData.length} potential drivers in ${endTime - startTime} ms.`);
         } catch (error) {
             console.error("Error fetching initial dependencies:", error);
             toast({ variant: "destructive", title: "Erro", description: "Não foi possível carregar veículos/motoristas." });
@@ -110,9 +114,15 @@ export const Trips: React.FC = () => {
   // Fetch Trips based on filters
   useEffect(() => {
     const fetchTripsAndCounts = async () => {
-      if (loading && !isAdmin && !user) return; // Don't fetch if loading initial deps or no user context yet for driver
+      const startTime = performance.now();
+      console.log(`[Trips Effect] Starting fetchTripsAndCounts. Loading: ${loading}, isAdmin: ${isAdmin}, User available: ${!!user}`);
+      if (loading && !isAdmin && !user) {
+        console.log('[Trips Effect] Skipping fetch: Still loading initial deps or driver user not available.');
+        return; // Don't fetch if loading initial deps or no user context yet for driver
+      }
 
       setLoading(true); // Start loading for trips fetch
+      console.log('[Trips Effect] Set loading to true for trips fetch.');
       try {
         const filters: TripFilter = {};
         if (isAdmin) {
@@ -120,6 +130,7 @@ export const Trips: React.FC = () => {
         } else if (user) {
           filters.userId = user.id; // Driver always sees their own trips
         } else {
+            console.log('[Trips Effect] No user context, setting empty trips and stopping load.');
             setAllTrips([]); // No user, no trips
             setLoading(false);
             return;
@@ -131,10 +142,14 @@ export const Trips: React.FC = () => {
         if (filterDateRange?.to) {
             filters.endDate = endOfDay(filterDateRange.to).toISOString();
         }
-
+        console.log('[Trips Effect] Fetching trips with filters:', filters);
         const tripsData = await getTrips(filters); // Fetch filtered trips
+        const fetchTripsEndTime = performance.now();
+        console.log(`[Trips Effect] Fetched ${tripsData.length} trips in ${fetchTripsEndTime - startTime} ms.`);
 
          // Fetch counts for each trip
+         console.log(`[Trips Effect] Fetching counts for ${tripsData.length} trips...`);
+         const countsStartTime = performance.now();
          const countsPromises = tripsData.map(async (trip) => {
              const [visits, expenses, fuelings] = await Promise.all([
                  fetchVisits(trip.id),
@@ -151,6 +166,9 @@ export const Trips: React.FC = () => {
          });
 
          const countsResults = await Promise.all(countsPromises);
+         const countsEndTime = performance.now();
+         console.log(`[Trips Effect] Fetched counts for all trips in ${countsEndTime - countsStartTime} ms.`);
+
          const newVisitCounts: Record<string, number> = {};
          const newExpenseCounts: Record<string, number> = {};
          const newFuelingCounts: Record<string, number> = {};
@@ -159,6 +177,7 @@ export const Trips: React.FC = () => {
          countsResults.forEach(result => {
              newVisitCounts[result.tripId] = result.visitCount;
              newExpenseCounts[result.tripId] = result.expenseCount;
+             newFuelingCounts[result.tripId] = result.expenseCount;
              newFuelingCounts[result.tripId] = result.fuelingCount;
              allVisits = allVisits.concat(result.visits);
          });
@@ -169,6 +188,7 @@ export const Trips: React.FC = () => {
          setVisitsDataForFinish(allVisits); // Store all fetched visits
 
         setAllTrips(tripsData); // Set the fetched and sorted trips
+        console.log('[Trips Effect] Updated trips and counts state.');
 
       } catch (error) {
         console.error("Error fetching trips:", error);
@@ -176,28 +196,33 @@ export const Trips: React.FC = () => {
         setAllTrips([]); // Clear trips on error
       } finally {
         setLoading(false); // Finish loading after fetching trips
+        const finalEndTime = performance.now();
+        console.log(`[Trips Effect] Finished fetchTripsAndCounts. Total time: ${finalEndTime - startTime} ms. Set loading to false.`);
       }
     };
 
     // Only run fetchTripsAndCounts if vehicles/drivers are loaded (or not admin)
     // and the user context is available (for non-admins)
-    // if (!loading || (isAdmin && vehicles.length > 0 && drivers.length > 0) || (!isAdmin && user)) {
-    // Add a small delay to ensure dependencies are truly loaded
-    const timer = setTimeout(() => {
-      if ((isAdmin && vehicles.length > 0 && drivers.length > 0) || (!isAdmin && user)) {
-          fetchTripsAndCounts();
-      } else if (!loading) { // If still loading dependencies, wait
-          // If not loading dependencies and still don't have what's needed, maybe set loading false
-          console.log("Dependencies not met for fetching trips, setting loading false.");
-          setLoading(false);
-      }
-    }, 100); // 100ms delay, adjust as needed
+     // Added more robust check: ensure vehicles/drivers have loaded for admin, or user is present for driver
+     if ((isAdmin && vehicles.length > 0 && drivers.length > 0) || (!isAdmin && user)) {
+        console.log("[Trips Effect] Dependencies met, running fetchTripsAndCounts...");
+        fetchTripsAndCounts();
+     } else {
+        console.log("[Trips Effect] Dependencies not yet met, skipping fetchTripsAndCounts.");
+        // If dependencies are not met but we weren't explicitly loading before, ensure loading is off.
+        if (!loading && vehicles.length === 0 && isAdmin) {
+             // Special case: Admin, initial deps fetch might have finished but yielded no results. Stop loading.
+             console.log("[Trips Effect] Dependencies finished loading but are empty (Admin). Setting loading false.");
+             setLoading(false);
+        } else if (!loading && !user && !isAdmin) {
+             console.log("[Trips Effect] Dependencies finished loading but user is null (Driver). Setting loading false.");
+             setLoading(false);
+        }
 
-     return () => clearTimeout(timer); // Cleanup timer on unmount or re-run
-
-    // }, [user, isAdmin, filterDriver, filterDateRange, toast, vehicles, drivers, loading]); // Include loading in dependency array
+     }
+    // Removed 'loading' from dependency array as it caused potential loops.
+    // Logic now relies on vehicles/drivers/user state.
   }, [user, isAdmin, filterDriver, filterDateRange, toast, vehicles, drivers]); // Re-fetch when filters change
-
 
   const getVehicleDisplay = (vehicleId: string) => {
     const vehicle = vehicles.find(v => v.id === vehicleId);
@@ -212,9 +237,9 @@ export const Trips: React.FC = () => {
   const getTripDescription = (trip: Trip): string => {
       const vehicle = vehicles.find(v => v.id === trip.vehicleId);
       const driverName = isAdmin ? ` - ${getDriverName(trip.userId)}` : '';
-      // const baseInfo = trip.base ? ` (Base: ${trip.base})` : ''; // Base info removed
+      const baseInfo = trip.base ? ` (Base: ${trip.base})` : '';
       const vehicleInfo = vehicle ? `${vehicle.model} (${vehicle.licensePlate})` : 'Veículo Desconhecido';
-      return `${vehicleInfo}${driverName}`; // Removed baseInfo
+      return `${vehicleInfo}${driverName}${baseInfo}`;
   };
 
   const formatKm = (km?: number): string => km ? km.toLocaleString('pt-BR') + ' Km' : 'N/A';
@@ -230,23 +255,22 @@ export const Trips: React.FC = () => {
       toast({ variant: 'destructive', title: 'Erro', description: 'Veículo é obrigatório.' });
       return;
     }
-     // Base validation removed
-     // if (!user.base) {
-     //    toast({ variant: 'destructive', title: 'Erro', description: 'Base do motorista não definida. Não é possível criar a viagem.' });
-     //    return;
-     // }
+     if (!user.base) {
+        toast({ variant: 'destructive', title: 'Erro', description: 'Base do motorista não definida. Não é possível criar a viagem.' });
+        return;
+     }
 
     const vehicleDisplay = getVehicleDisplay(selectedVehicleId);
     const dateStr = new Date().toLocaleDateString('pt-BR');
     const generatedTripName = `Viagem ${vehicleDisplay} - ${dateStr}`;
-    // const base = user.base; // Base removed
+    const base = user.base;
 
     const newTripData: Omit<Trip, 'id' | 'updatedAt' | 'createdAt'> = {
       name: generatedTripName,
       vehicleId: selectedVehicleId,
       userId: user.id,
       status: 'Andamento',
-      // base: base, // Base removed
+      base: base,
     };
 
     setIsSaving(true);
@@ -480,12 +504,11 @@ export const Trips: React.FC = () => {
                   <Label>Motorista</Label>
                   <p className="text-sm text-muted-foreground">{user?.name || user?.email || 'Não identificado'}</p>
                 </div>
-                {/* Base Section Removed */}
-                {/* <div className="space-y-2">
+                <div className="space-y-2">
                   <Label>Base</Label>
                   <p className="text-sm text-muted-foreground">{user?.base || 'Não definida'}</p>
                    {!user?.base && <p className="text-xs text-destructive">Você precisa ter uma base definida para criar viagens.</p>}
-                </div> */}
+                </div>
                 <div className="space-y-2">
                   <Label>Status</Label>
                   <p className="text-sm font-medium text-emerald-600 flex items-center gap-1">
@@ -496,7 +519,7 @@ export const Trips: React.FC = () => {
                   <DialogClose asChild>
                     <Button type="button" variant="outline" onClick={closeCreateModal} disabled={isSaving}>Cancelar</Button>
                   </DialogClose>
-                  <Button type="submit" disabled={loading || isSaving} className="bg-primary hover:bg-primary/90">
+                  <Button type="submit" disabled={!user?.base || loading || isSaving} className="bg-primary hover:bg-primary/90">
                      {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                      {isSaving ? 'Salvando...' : 'Salvar Viagem'}
                   </Button>
@@ -533,7 +556,7 @@ export const Trips: React.FC = () => {
                                     <>
                                        <SelectItem value="all">Todos os Motoristas</SelectItem>
                                        {drivers.map(driver => (
-                                           <SelectItem key={driver.id} value={driver.id}>{driver.name} ({driver.base || 'Sem base'})</SelectItem> // Show "(Sem base)" if undefined
+                                           <SelectItem key={driver.id} value={driver.id}>{driver.name} ({driver.base})</SelectItem>
                                        ))}
                                    </>
                                 )}
@@ -620,7 +643,7 @@ export const Trips: React.FC = () => {
                               onClick={(e) => openFinishModal(trip, e)}
                               className="h-8 px-2 sm:px-3 text-emerald-600 border-emerald-600/50 hover:bg-emerald-50 hover:text-emerald-700"
                               disabled={isSaving || isDeleting}
-                              // removed asChild={false} as it's default
+                              // Removed asChild - it was causing the hydration error
                            >
                                {isSaving && tripToFinish?.id === trip.id ? <Loader2 className="h-4 w-4 animate-spin sm:mr-1" /> : <CheckCircle2 className="h-4 w-4 sm:mr-1" /> }
                               <span className="hidden sm:inline">{isSaving && tripToFinish?.id === trip.id ? 'Finalizando...': 'Finalizar'}</span>
@@ -630,9 +653,8 @@ export const Trips: React.FC = () => {
                            <>
                                 <Dialog open={isEditModalOpen && currentTrip?.id === trip.id} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); }}>
                                   <DialogTrigger asChild>
-                                     <Button asChild={false} variant="ghost" size="icon" onClick={(e) => openEditModal(trip, e)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving || isDeleting}>
+                                     <Button variant="ghost" size="icon" onClick={(e) => openEditModal(trip, e)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving || isDeleting}>
                                        <Edit className="h-4 w-4" />
-                                       {/* <span className="sr-only">Editar Viagem</span> */}
                                      </Button>
                                   </DialogTrigger>
                                   <DialogContent className="sm:max-w-[425px]">
@@ -670,11 +692,10 @@ export const Trips: React.FC = () => {
                                         <Label>Motorista</Label>
                                         <p className="text-sm text-muted-foreground">{getDriverName(trip.userId)}</p>
                                       </div>
-                                      {/* Base section removed from Edit dialog */}
-                                      {/* <div className="space-y-2">
+                                      <div className="space-y-2">
                                         <Label>Base</Label>
                                         <p className="text-sm text-muted-foreground">{trip.base || 'Não definida'}</p>
-                                      </div> */}
+                                      </div>
                                       <div className="space-y-2">
                                         <Label>Status</Label>
                                         <p className="text-sm font-medium">{currentTrip?.status}</p>
@@ -694,9 +715,8 @@ export const Trips: React.FC = () => {
 
                                 <AlertDialog open={!!tripToDelete && tripToDelete.id === trip.id} onOpenChange={(isOpen) => !isOpen && closeDeleteConfirmation()}>
                                     <AlertDialogTrigger asChild>
-                                        <Button asChild={false} variant="ghost" size="icon" onClick={(e) => openDeleteConfirmation(trip, e)} className="text-muted-foreground hover:text-destructive h-8 w-8" disabled={isSaving || isDeleting}>
+                                        <Button variant="ghost" size="icon" onClick={(e) => openDeleteConfirmation(trip, e)} className="text-muted-foreground hover:text-destructive h-8 w-8" disabled={isSaving || isDeleting}>
                                             <Trash2 className="h-4 w-4" />
-                                            {/* <span className="sr-only">Excluir Viagem</span> */}
                                         </Button>
                                     </AlertDialogTrigger>
                                     <AlertDialogContent>
@@ -724,7 +744,8 @@ export const Trips: React.FC = () => {
                                 </AlertDialog>
                             </>
                          )}
-                         {/* Chevron is part of AccordionTrigger now */}
+                          {/* Chevron is part of AccordionTrigger now */}
+                          <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200 text-muted-foreground group-data-[state=open]/item:rotate-180" />
                      </div>
                  </AccordionTrigger>
 
