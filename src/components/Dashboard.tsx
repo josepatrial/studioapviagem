@@ -6,13 +6,13 @@ import { Label } from '@/components/ui/label';
 import { Plane, Map, Wallet, Fuel, Users, Truck, Milestone, Filter, Calendar } from 'lucide-react'; // Added Calendar icon
 import { useAuth, User } from '@/contexts/AuthContext'; // Import User type
 import { Trip } from './Trips/Trips'; // Assuming these are still mock or fetched elsewhere
-import {getVisits as fetchLocalVisits, getLocalExpenses, getLocalFuelings, getLocalTrips, getLocalVehicles, LocalVehicle, LocalExpense, LocalFueling, LocalTrip, LocalVisit} from '@/services/localDbService'; // Import local fetch functions
+import {getLocalVisits as fetchLocalVisits, getLocalExpenses, getLocalFuelings, getLocalTrips, getLocalVehicles, LocalVehicle, LocalExpense, LocalFueling, LocalTrip, LocalVisit} from '@/services/localDbService'; // Import local fetch functions
 // Removed incorrect import: import { getExpenses } from './Trips/Expenses';
 import { getFuelings as fetchOnlineFuelings, getVehicles as fetchOnlineVehicles } from '@/services/firestoreService';// Assuming these are still mock or fetched elsewhere
 import type { VehicleInfo } from './Vehicle';
 import { DateRangePicker } from '@/components/ui/date-range-picker'; // Import DateRangePicker
 import type { DateRange } from 'react-day-picker';
-import { isWithinInterval, parseISO } from 'date-fns';
+import { isWithinInterval, parseISO, startOfDay, endOfDay } from 'date-fns'; // Added startOfDay and endOfDay
 import { getDrivers } from '@/services/firestoreService'; // Import function to get drivers
 import { LoadingSpinner } from './LoadingSpinner'; // Import LoadingSpinner
 import {getTrips as fetchOnlineTrips} from "@/services/firestoreService";
@@ -414,4 +414,3 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     </div>
   );
 };
-

@@ -18,7 +18,7 @@ import {
     LocalVehicle, // Import LocalVehicle type
     addLocalRecord, // Needed for saving fetched online data
     updateLocalRecord, // Needed for updating fetched online data
-    STORE_VEHICLES, // Needed for DB store name
+    // STORE_VEHICLES removed - not directly needed here
 } from '@/services/localDbService'; // Adjust imports
 import { getVehicles as fetchOnlineVehicles } from '@/services/firestoreService'; // Import getVehicles from firestoreService
 import { LoadingSpinner } from './LoadingSpinner'; // Import LoadingSpinner
@@ -72,12 +72,12 @@ export const Vehicle: React.FC = () => {
                         // This example assumes updateLocalRecord can handle adding if not found based on localId,
                         // or you'd need a more sophisticated upsert logic.
                         // For simplicity, let's try adding, catching potential errors if it exists.
-                        return addLocalRecord(STORE_VEHICLES, localVehicleData).catch(async (err) => {
+                        return addLocalRecord('vehicles', localVehicleData).catch(async (err) => { // Pass store name directly
                             // If add fails (e.g., unique constraint on firebaseId if indexed), try update
                             console.warn(`Vehicle ${v.id} might exist locally, attempting update.`);
                             const existing = await getLocalVehicles().then(vs => vs.find(lv => lv.firebaseId === v.id));
                             if (existing) {
-                                return updateLocalRecord(STORE_VEHICLES, { ...localVehicleData, localId: existing.localId });
+                                return updateLocalRecord('vehicles', { ...localVehicleData, localId: existing.localId }); // Pass store name
                             } else {
                                 // Rethrow if add failed and it wasn't found
                                 throw err;
@@ -125,8 +125,8 @@ export const Vehicle: React.FC = () => {
     const localId = `local_vehicle_${uuidv4()}`;
 
     // Prepare data for LocalVehicle
-    const newVehicleData: Omit<LocalVehicle, 'syncStatus' | 'deleted' | 'firebaseId'> = {
-      localId: localId,
+    const newVehicleData: Omit<LocalVehicle, 'localId' | 'syncStatus' | 'deleted' | 'firebaseId'> = {
+      // localId: localId, // localId is added by addLocalVehicle implicitly
       id: localId, // Use localId also as the base ID initially
       model,
       year: Number(year),
@@ -135,11 +135,11 @@ export const Vehicle: React.FC = () => {
 
     setIsSaving(true);
     try {
-        await addLocalVehicle(newVehicleData);
+        const assignedLocalId = await addLocalVehicle(newVehicleData); // Use specific add function
 
         // Optimistically update UI state
         const createdVehicleUI: VehicleInfo = {
-             id: localId, // Use localId for the UI initially
+             id: assignedLocalId, // Use returned localId for the UI
              model: newVehicleData.model,
              year: newVehicleData.year,
              licensePlate: newVehicleData.licensePlate,

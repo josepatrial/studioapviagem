@@ -9,12 +9,12 @@ import { v4 as uuidv4 } from 'uuid'; // Import uuid
 const DB_NAME = 'RotaCertaDB';
 const DB_VERSION = 1;
 
-// Define object stores
-const STORE_VEHICLES = 'vehicles';
-const STORE_TRIPS = 'trips';
-const STORE_VISITS = 'visits';
-const STORE_EXPENSES = 'expenses';
-const STORE_FUELINGS = 'fuelings';
+// Define object stores - Export constants
+export const STORE_VEHICLES = 'vehicles';
+export const STORE_TRIPS = 'trips';
+export const STORE_VISITS = 'visits';
+export const STORE_EXPENSES = 'expenses';
+export const STORE_FUELINGS = 'fuelings';
 
 // Define sync status type
 export type SyncStatus = 'pending' | 'synced' | 'error';
@@ -109,7 +109,7 @@ export const getStore = (storeName: string, mode: IDBTransactionMode): Promise<I
   });
 };
 
-const addLocalRecord = <T extends LocalRecord & { localId: string }>(storeName: string, record: T): Promise<string> => {
+export const addLocalRecord = <T extends LocalRecord & { localId: string }>(storeName: string, record: T): Promise<string> => {
   return getStore(storeName, 'readwrite').then(store => {
     return new Promise<string>((resolve, reject) => {
       const request = store.add(record);
@@ -119,7 +119,7 @@ const addLocalRecord = <T extends LocalRecord & { localId: string }>(storeName: 
   });
 };
 
-const updateLocalRecord = <T extends { localId: string }>(storeName: string, record: T): Promise<void> => {
+export const updateLocalRecord = <T extends { localId: string }>(storeName: string, record: T): Promise<void> => {
     return getStore(storeName, 'readwrite').then(store => {
         return new Promise<void>((resolve, reject) => {
             // Check if the record exists before attempting to update
