@@ -23,13 +23,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 // Mock data - Imported to fix the reference error, but could be moved back if unused here
-import { initialVisits, type Visit } from './Visits';
+import { initialVisits, type Visit, Visits } from './Visits';
 // Import initialExpenses and initialFuelings directly
 import { Expenses, initialExpenses, Expense } from './Expenses';
 import { Fuelings, initialFuelings, Fueling } from './Fuelings';
-import { Visits } from './Visits'; // Import the Visits component
+// import { Visits } from './Visits'; // Import the Visits component
 import { useToast } from '@/hooks/use-toast';
-import { useAuth, initialDrivers } from '@/contexts/AuthContext'; // Import initialDrivers as well
+import { useAuth, initialDrivers, User } from '@/contexts/AuthContext'; // Import initialDrivers as well
 import { initialVehicles, type VehicleInfo } from '../Vehicle';
 import { Badge } from '@/components/ui/badge';
 import { FinishTripDialog } from './FinishTripDialog';
@@ -55,12 +55,16 @@ export interface Trip {
 // Find driver IDs from initialDrivers to associate trips
 const driver1Id = initialDrivers.find(d => d.username === 'joao.silva')?.id || 'driver1';
 const driver2Id = initialDrivers.find(d => d.username === 'maria.souza')?.id || 'driver2';
+const driver3Id = initialDrivers.find(d => d.username === 'carlos.pereira')?.id || 'driver3';
+const driver4Id = initialDrivers.find(d => d.username === 'ana.costa')?.id || 'driver4';
 
 const initialTrips: Trip[] = [
-  { id: '1', name: 'Viagem Scania R450 (BRA2E19) - 23/07/2024', vehicleId: 'v1', userId: driver1Id, status: 'Andamento', createdAt: new Date(2024, 6, 20).toISOString(), updatedAt: new Date(2024, 6, 21).toISOString(), base: 'Base SP' },
-  { id: '2', name: 'Viagem Volvo FH540 (MER1C01) - 22/07/2024', vehicleId: 'v2', userId: driver2Id, status: 'Finalizado', createdAt: new Date(2024, 6, 15).toISOString(), updatedAt: new Date(2024, 6, 22).toISOString(), finalKm: 16500, totalDistance: 500, base: 'Base RJ' },
-  // Add more trips for different drivers/bases if needed
-  { id: '3', name: 'Viagem Scania R450 (BRA2E19) - 25/07/2024', vehicleId: 'v1', userId: driver1Id, status: 'Finalizado', createdAt: new Date(2024, 6, 24).toISOString(), updatedAt: new Date(2024, 6, 25).toISOString(), finalKm: 15800, totalDistance: 650, base: 'Base SP' },
+  { id: '1', name: 'Viagem Scania R450 (BRA2E19) - 21/07/2024', vehicleId: 'v1', userId: driver1Id, status: 'Andamento', createdAt: new Date(2024, 6, 20).toISOString(), updatedAt: new Date(2024, 6, 21).toISOString(), base: 'Base SP' },
+  { id: '2', name: 'Viagem Volvo FH540 (MER1C01) - 15/07/2024', vehicleId: 'v2', userId: driver2Id, status: 'Finalizado', createdAt: new Date(2024, 6, 15).toISOString(), updatedAt: new Date(2024, 6, 22).toISOString(), finalKm: 16500, totalDistance: 500, base: 'Base RJ' },
+  { id: '3', name: 'Viagem Scania R450 (BRA2E19) - 24/07/2024', vehicleId: 'v1', userId: driver1Id, status: 'Finalizado', createdAt: new Date(2024, 6, 24).toISOString(), updatedAt: new Date(2024, 6, 25).toISOString(), finalKm: 15800, totalDistance: 650, base: 'Base SP' },
+  { id: '4', name: 'Viagem Volvo FH540 (MER1C01) - 26/07/2024', vehicleId: 'v2', userId: driver2Id, status: 'Andamento', createdAt: new Date(2024, 6, 26).toISOString(), updatedAt: new Date(2024, 6, 26).toISOString(), base: 'Base RJ' },
+  { id: '5', name: 'Viagem Scania R450 (BRA2E19) - 28/07/2024', vehicleId: 'v1', userId: driver3Id, status: 'Andamento', createdAt: new Date(2024, 6, 28).toISOString(), updatedAt: new Date(2024, 6, 28).toISOString(), base: 'Base SP' },
+   { id: '6', name: 'Viagem Outro Modelo (XYZ1A23) - 01/08/2024', vehicleId: 'v1', userId: driver4Id, status: 'Finalizado', createdAt: new Date(2024, 7, 1).toISOString(), updatedAt: new Date(2024, 7, 2).toISOString(), finalKm: 10500, totalDistance: 300, base: 'Base MG' },
 ];
 export { initialTrips }; // Export for Dashboard
 
@@ -70,7 +74,7 @@ export const Trips: React.FC = () => {
   const [allTrips, setAllTrips] = useState<Trip[]>(initialTrips); // Store all trips from source
   const [displayedTrips, setDisplayedTrips] = useState<Trip[]>([]); // Trips shown based on role/filter
   const [vehicles, setVehicles] = useState<VehicleInfo[]>(initialVehicles);
-  const [drivers, setDrivers] = useState(initialDrivers); // Keep track of drivers for display/filtering
+  const [drivers, setDrivers] = useState<User[]>(initialDrivers); // Keep track of drivers for display/filtering
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isFinishModalOpen, setIsFinishModalOpen] = useState(false);
@@ -118,7 +122,17 @@ export const Trips: React.FC = () => {
         }
     } else {
         // Driver: Only show their own trips (and their specific base)
-        filtered = filtered.filter(trip => trip.userId === user?.id && trip.base === user?.base);
+        // Ensure user and user.base exist before filtering
+        if (user && user.base) {
+            filtered = filtered.filter(trip => trip.userId === user?.id && trip.base === user.base);
+        } else if (user) {
+             // Driver logged in but no base assigned? Show only their trips without base filtering.
+             console.warn("Driver user has no base assigned. Filtering only by userId.");
+             filtered = filtered.filter(trip => trip.userId === user.id);
+        } else {
+            // Not admin and not logged in? Show nothing.
+             filtered = [];
+        }
     }
     setDisplayedTrips(filtered);
 
@@ -136,7 +150,8 @@ export const Trips: React.FC = () => {
 
   const getTripDescription = (trip: Trip): string => {
       const vehicle = vehicles.find(v => v.id === trip.vehicleId);
-      const driverName = isAdmin ? ` - ${getDriverName(trip.userId)}` : ''; // Show driver name for admin
+      // Conditionally show driver name ONLY if admin is viewing
+      const driverName = isAdmin ? ` - ${getDriverName(trip.userId)}` : '';
       const baseInfo = trip.base ? ` (Base: ${trip.base})` : '';
       const vehicleInfo = vehicle ? `${vehicle.model} (${vehicle.licensePlate})` : 'Veículo Desconhecido';
       return `${vehicleInfo}${driverName}${baseInfo}`;
@@ -159,12 +174,16 @@ export const Trips: React.FC = () => {
       toast({ variant: 'destructive', title: 'Erro', description: 'Veículo é obrigatório.' });
       return;
     }
+     if (!user.base) {
+        toast({ variant: 'destructive', title: 'Erro', description: 'Base do motorista não definida. Não é possível criar a viagem.' });
+        return;
+     }
 
     const vehicleDisplay = getVehicleDisplay(selectedVehicleId);
     const dateStr = new Date().toLocaleDateString('pt-BR');
     const generatedTripName = `Viagem ${vehicleDisplay} - ${dateStr}`;
     // Determine base - Use user's base
-    const base = user?.base || 'Base Padrão'; // Use user's base or a default
+    const base = user.base; // Use user's base
 
     const newTrip: Trip = {
       id: String(Date.now()),
@@ -202,6 +221,8 @@ export const Trips: React.FC = () => {
       vehicleId: selectedVehicleId,
       updatedAt: new Date().toISOString(),
        // Keep the original base, or allow admin to change it if needed
+       // Admin editing should maybe allow changing base? For now, keep original.
+       // base: isAdmin ? selectedBase : currentTrip.base
     };
 
     const index = initialTrips.findIndex(t => t.id === currentTrip.id);
@@ -316,11 +337,16 @@ export const Trips: React.FC = () => {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h2 className="text-2xl font-semibold">
           {isAdmin ? 'Todas as Viagens' : 'Minhas Viagens'}
+           {isAdmin && (filterDriver || filterBase) && (
+               <span className="text-base font-normal text-muted-foreground ml-2">
+                   ({filterDriver ? `Motorista: ${getDriverName(filterDriver)}` : filterBase ? `Base: ${filterBase}` : ''})
+               </span>
+           )}
         </h2>
         <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
            {isAdmin && ( // Filter options for Admin
                 <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
-                     <Select value={filterBase} onValueChange={(value) => setFilterBase(value === 'all' ? '' : value)}>
+                     <Select value={filterBase} onValueChange={(value) => { setFilterBase(value === 'all' ? '' : value); setFilterDriver(''); /* Clear driver if base changes */ }}>
                         <SelectTrigger className="w-full sm:w-[180px] h-9">
                             <SelectValue placeholder="Filtrar por Base" />
                         </SelectTrigger>
@@ -337,14 +363,17 @@ export const Trips: React.FC = () => {
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">Todos os Motoristas</SelectItem>
-                            {drivers.map(driver => (
-                                <SelectItem key={driver.id} value={driver.id}>{driver.name}</SelectItem>
+                             {/* Filter drivers based on selected base, or show all if no base filter */}
+                            {drivers
+                                .filter(driver => !filterBase || driver.base === filterBase)
+                                .map(driver => (
+                                <SelectItem key={driver.id} value={driver.id}>{driver.name} ({driver.base})</SelectItem>
                             ))}
                         </SelectContent>
                     </Select>
                 </div>
             )}
-          <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
+          <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
             <DialogTrigger asChild>
               <Button onClick={() => { resetForm(); setIsCreateModalOpen(true); }} className="bg-primary hover:bg-primary/90 text-primary-foreground h-9">
                 <PlusCircle className="mr-2 h-4 w-4" /> Criar Nova Viagem
@@ -380,7 +409,8 @@ export const Trips: React.FC = () => {
                 </div>
                 <div className="space-y-2">
                   <Label>Base</Label>
-                  <p className="text-sm text-muted-foreground">{user?.base || 'Base Padrão'}</p>
+                  <p className="text-sm text-muted-foreground">{user?.base || 'Não definida'}</p>
+                   {!user?.base && <p className="text-xs text-destructive">Você precisa ter uma base definida para criar viagens.</p>}
                 </div>
                 <div className="space-y-2">
                   <Label>Status</Label>
@@ -392,7 +422,7 @@ export const Trips: React.FC = () => {
                   <DialogClose asChild>
                     <Button type="button" variant="outline" onClick={closeCreateModal}>Cancelar</Button>
                   </DialogClose>
-                  <Button type="submit" className="bg-primary hover:bg-primary/90">Salvar Viagem</Button>
+                  <Button type="submit" disabled={!user?.base} className="bg-primary hover:bg-primary/90">Salvar Viagem</Button>
                 </DialogFooter>
               </form>
             </DialogContent>
@@ -411,7 +441,7 @@ export const Trips: React.FC = () => {
                     : 'Você ainda não cadastrou nenhuma viagem.'}
             </p>
             {!isAdmin && (
-              <Button variant="link" onClick={() => setIsCreateModalOpen(true)} className="mt-2 text-primary">
+              <Button variant="link" onClick={() => { resetForm(); setIsCreateModalOpen(true); }} className="mt-2 text-primary">
                 Criar sua primeira viagem
               </Button>
             )}
@@ -439,23 +469,23 @@ export const Trips: React.FC = () => {
                             <CardDescription className="text-sm flex items-center gap-1">
                               <Car className="h-4 w-4 text-muted-foreground" /> {getTripDescription(trip)}
                             </CardDescription>
-                            <div className="flex items-center flex-wrap space-x-2 text-xs text-muted-foreground">
-                              <span>
-                                <MapPin className="h-3 w-3 inline-block mr-1" /> {visitCount} {visitCount === 1 ? 'Visita' : 'Visitas'}
+                            <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                              <span className="inline-flex items-center gap-1">
+                                <MapPin className="h-3 w-3" /> {visitCount} {visitCount === 1 ? 'Visita' : 'Visitas'}
                               </span>
-                              <span>
-                                <Wallet className="h-3 w-3 inline-block mr-1" /> {expenseCount} {expenseCount === 1 ? 'Despesa' : 'Despesas'}
+                              <span className="inline-flex items-center gap-1">
+                                <Wallet className="h-3 w-3" /> {expenseCount} {expenseCount === 1 ? 'Despesa' : 'Despesas'}
                               </span>
-                              <span>
-                                <Fuel className="h-3 w-3 inline-block mr-1" /> {fuelingCount} {fuelingCount === 1 ? 'Abastec.' : 'Abastec.'}
+                              <span className="inline-flex items-center gap-1">
+                                <Fuel className="h-3 w-3" /> {fuelingCount} {fuelingCount === 1 ? 'Abastec.' : 'Abastec.'}
                               </span>
                              {trip.status === 'Finalizado' && trip.totalDistance !== undefined && (
-                                <span className="text-emerald-600 font-medium">
-                                  <Milestone className="h-3 w-3 inline-block mr-1" /> {formatKm(trip.totalDistance)} Percorridos
+                                <span className="text-emerald-600 font-medium inline-flex items-center gap-1">
+                                  <Milestone className="h-3 w-3" /> {formatKm(trip.totalDistance)} Percorridos
                                 </span>
                              )}
                             </div>
-                            <div className="flex items-center space-x-2 text-xs text-muted-foreground">
+                            <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
                               <span>Início: {new Date(trip.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
                               <span>Atualizado: {new Date(trip.updatedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
                             </div>
@@ -464,24 +494,24 @@ export const Trips: React.FC = () => {
                      {/* Action buttons moved outside the trigger but within the header flex container */}
                      <div className="flex items-center gap-1 flex-shrink-0 ml-2">
                         {trip.status === 'Andamento' && (isAdmin || trip.userId === user?.id) && (
-                            <Button
-                               variant="outline"
-                               size="sm"
-                               onClick={(e) => openFinishModal(trip, e)}
-                               className="h-8 px-2 sm:px-3 text-emerald-600 border-emerald-600/50 hover:bg-emerald-50 hover:text-emerald-700"
-                            >
-                               <CheckCircle2 className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">Finalizar</span>
-                            </Button>
+                           <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={(e) => openFinishModal(trip, e)}
+                              className="h-8 px-2 sm:px-3 text-emerald-600 border-emerald-600/50 hover:bg-emerald-50 hover:text-emerald-700"
+                           >
+                              <CheckCircle2 className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">Finalizar</span>
+                           </Button>
                         )}
                         {(isAdmin || trip.userId === user?.id) && (
                            <>
-                                <Dialog open={isEditModalOpen && currentTrip?.id === trip.id} onOpenChange={(isOpen) => !isOpen && closeEditModal()}>
+                                <Dialog open={isEditModalOpen && currentTrip?.id === trip.id} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); else openEditModal(trip, { stopPropagation: () => {} } as React.MouseEvent); }}>
                                   <DialogTrigger asChild>
                                     {/* Use a simple button for the trigger */}
-                                    <Button variant="ghost" size="icon" onClick={(e) => openEditModal(trip, e)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8">
-                                      <Edit className="h-4 w-4" />
-                                      <span className="sr-only">Editar Viagem</span>
-                                    </Button>
+                                     <Button variant="ghost" size="icon" onClick={(e) => openEditModal(trip, e)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8">
+                                       <Edit className="h-4 w-4" />
+                                       <span className="sr-only">Editar Viagem</span>
+                                     </Button>
                                   </DialogTrigger>
                                   <DialogContent className="sm:max-w-[425px]">
                                     <DialogHeader>
@@ -513,7 +543,7 @@ export const Trips: React.FC = () => {
                                       </div>
                                       <div className="space-y-2">
                                         <Label>Base</Label>
-                                        <p className="text-sm text-muted-foreground">{trip.base}</p>
+                                        <p className="text-sm text-muted-foreground">{trip.base || 'Não definida'}</p>
                                       </div>
                                       <div className="space-y-2">
                                         <Label>Status</Label>
@@ -557,8 +587,6 @@ export const Trips: React.FC = () => {
                                 </AlertDialog>
                             </>
                          )}
-                          {/* Chevron is kept outside the trigger, aligned with buttons */}
-                         {/* <ChevronDown className="h-5 w-5 transition-transform duration-200 group-data-[state=open]:rotate-180 flex-shrink-0 ml-1 sm:ml-2" /> */}
                      </div>
                  </div>
 

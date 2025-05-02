@@ -32,6 +32,23 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const ADMIN_EMAIL = 'admin@example.com';
 const ADMIN_PASSWORD = 'adminpassword'; // Use a more secure method in production
 
+// Mock drivers data (needed for login simulation) - Consider moving this to a separate file
+// Use the exported User interface but narrow down roles for this list
+interface DriverInfo extends Omit<User, 'role'>{
+    role: 'driver'; // Explicitly driver
+    username: string; // Add username back for the Drivers component needs
+}
+
+
+export const initialDrivers: DriverInfo[] = [ // Export initialDrivers
+  { id: 'driver1', name: 'João Silva', username: 'joao.silva', email: 'joao@example.com', role: 'driver', base: 'Base SP' },
+  { id: 'driver2', name: 'Maria Souza', username: 'maria.souza', email: 'maria@example.com', role: 'driver', base: 'Base RJ' },
+  // Add more drivers if needed for testing filters
+  { id: 'driver3', name: 'Carlos Pereira', username: 'carlos.pereira', email: 'carlos@example.com', role: 'driver', base: 'Base SP' },
+  { id: 'driver4', name: 'Ana Costa', username: 'ana.costa', email: 'ana@example.com', role: 'driver', base: 'Base MG' },
+];
+
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -76,6 +93,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               email: ADMIN_EMAIL,
               name: 'Administrador',
               role: 'admin'
+              // Admin doesn't have a 'base' in this model
           };
         }
         // Simulate regular driver login (replace with actual driver lookup)
@@ -119,7 +137,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
      return new Promise((resolve) => {
        setTimeout(() => {
          // Simulate password check and update
-         if (currentPassword === 'password123' && newEmail && user) { // Replace 'password123' with real check logic
+         // In a real app: Verify currentPassword against stored hash before updating email
+         const isPasswordCorrect = (user?.role === 'admin' && currentPassword === ADMIN_PASSWORD) || (user?.role === 'driver' && currentPassword === 'password123');
+
+         if (isPasswordCorrect && newEmail && user) { // Check password based on role
            const updatedUser = { ...user, email: newEmail };
            setUser(updatedUser);
            localStorage.setItem('rotaCertaUser', JSON.stringify(updatedUser));
@@ -141,8 +162,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
      return new Promise((resolve) => {
        setTimeout(() => {
          // Simulate password check and update
-         if (currentPassword === 'password123' && newPassword) { // Replace 'password123' with real check logic
-           // In a real app, update the password in the backend
+          // In a real app: Verify currentPassword against stored hash before updating
+         const isPasswordCorrect = (user?.role === 'admin' && currentPassword === ADMIN_PASSWORD) || (user?.role === 'driver' && currentPassword === 'password123');
+
+         if (isPasswordCorrect && newPassword) { // Check password based on role
+           // In a real app, update the password in the backend (send newPassword hash)
            console.log("Password updated (simulated)");
            setLoading(false);
            toast({ title: "Sucesso", description: "Senha atualizada." });
@@ -191,16 +215,3 @@ export const useAuth = (): AuthContextType => {
   }
   return context;
 };
-
-// Mock drivers data (needed for login simulation) - Consider moving this to a separate file
-// Use the exported User interface but narrow down roles for this list
-interface DriverInfo extends Omit<User, 'role'>{
-    role: 'driver'; // Explicitly driver
-    username: string; // Add username back for the Drivers component needs
-}
-
-
-export const initialDrivers: DriverInfo[] = [
-  { id: 'driver1', name: 'João Silva', username: 'joao.silva', email: 'joao@example.com', role: 'driver', base: 'Base SP' },
-  { id: 'driver2', name: 'Maria Souza', username: 'maria.souza', email: 'maria@example.com', role: 'driver', base: 'Base RJ' },
-];
