@@ -89,63 +89,76 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   // Listen to Firebase Auth state changes
   useEffect(() => {
+    console.log("[AuthProvider Effect] Setting up auth state listener.");
+    setLoading(true); // Start loading whenever the listener setup runs
+
     // Ensure auth is initialized before using it
     if (!auth) {
       console.error("AuthProvider useEffect: Firebase Auth instance is not available. Cannot set up listener. Check firebase.ts initialization.");
-      setLoading(false);
-      setUser(null); // Ensure user state is cleared if auth fails
+      setLoading(false); // Stop loading if auth fails
+      setUser(null);
       setFirebaseUser(null);
-      return; // Stop execution if auth is null
+      return;
     } else {
-      console.log("AuthProvider useEffect: Firebase Auth instance available, setting up listener.");
+      console.log("AuthProvider useEffect: Firebase Auth instance available.");
     }
 
-    let isMounted = true; // Flag to prevent state updates on unmounted component
+    let isMounted = true;
 
     const unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
-       console.log("AuthProvider onAuthStateChanged triggered. isMounted:", isMounted);
+      const startTime = performance.now();
+      console.log(`[AuthProvider onAuthStateChanged ${startTime}] Received auth state. isMounted: ${isMounted}, fbUser present: ${!!fbUser}`);
       if (!isMounted) {
-         console.log("AuthProvider onAuthStateChanged: Component unmounted, skipping state update.");
+         console.log(`[AuthProvider onAuthStateChanged ${startTime}] Component unmounted, skipping state update.`);
          return;
       }
 
-      setFirebaseUser(fbUser); // Store the raw Firebase user
+      // **Crucially, set loading to true HERE when auth state changes and we need to process it**
+      setLoading(true);
+      setFirebaseUser(fbUser);
+
       if (fbUser) {
-        console.log("AuthProvider onAuthStateChanged: Firebase Auth user found:", fbUser.uid, "Email:", fbUser.email);
-        setLoading(true); // Set loading while fetching Firestore data
+        console.log(`[AuthProvider onAuthStateChanged ${startTime}] Firebase Auth user found: ${fbUser.uid}, Email: ${fbUser.email}. Fetching Firestore data...`);
         try {
-            // Check db instance before fetching data
-             if (!db) {
+            if (!db) {
                 throw new Error('Firestore DB instance is not available. Cannot fetch user data.');
-             }
-            console.log("AuthProvider: Attempting to fetch Firestore data for UID:", fbUser.uid);
+            }
+            const firestoreStartTime = performance.now();
+            console.log(`[AuthProvider ${startTime}] Attempting to fetch Firestore data for UID: ${fbUser.uid}`);
             const userData = await getUserData(fbUser.uid);
+            const firestoreEndTime = performance.now();
+            console.log(`[AuthProvider ${startTime}] Firestore data fetch for ${fbUser.uid} took ${firestoreEndTime - firestoreStartTime} ms.`);
+
             if (!isMounted) {
-                console.log("AuthProvider: Component unmounted after fetching Firestore data, skipping state update.");
+                console.log(`[AuthProvider ${startTime}] Component unmounted after fetching Firestore data, skipping state update.`);
+                setLoading(false); // Ensure loading stops even if unmounted after async operation
                 return;
             }
 
             if (userData) {
-              console.log("AuthProvider: Firestore user data found:", userData);
+              console.log(`[AuthProvider ${startTime}] Firestore user data found for ${fbUser.uid}:`, userData);
               setUser({
                   id: fbUser.uid,
-                  email: fbUser.email || userData.email || 'N/A', // Prioritize Auth email, then Firestore, then fallback
+                  email: fbUser.email || userData.email || 'N/A',
                   name: fbUser.displayName || userData.name,
-                  role: userData.role || 'driver', // Default to driver if role missing
+                  role: userData.role || 'driver',
                   base: userData.base,
-                  username: userData.username, // Include username from Firestore
+                  username: userData.username,
               });
             } else {
-                console.warn("AuthProvider: Firestore user data not found for UID:", fbUser.uid);
-                // If Firestore doc is missing, try to read from Auth (user might be newly created)
+                console.warn(`[AuthProvider ${startTime}] Firestore user data NOT found for UID: ${fbUser.uid}. Attempting second check/creation.`);
                  // Check again if the document exists, maybe it was created just now by another process/tab
                 const freshUserData = await getUserData(fbUser.uid);
+                const secondCheckEndTime = performance.now();
+                 console.log(`[AuthProvider ${startTime}] Second Firestore check took ${secondCheckEndTime - firestoreEndTime} ms.`);
+
                 if (!isMounted) {
-                    console.log("AuthProvider: Component unmounted after second Firestore check, skipping state update.");
+                    console.log(`[AuthProvider ${startTime}] Component unmounted after second Firestore check, skipping state update.`);
+                     setLoading(false);
                     return;
-                }
+                 }
                 if (freshUserData) {
-                     console.log("AuthProvider: Retrieved Firestore data on second attempt:", freshUserData);
+                     console.log(`[AuthProvider ${startTime}] Retrieved Firestore data on second attempt for ${fbUser.uid}:`, freshUserData);
                       setUser({
                          id: fbUser.uid,
                          email: fbUser.email || freshUserData.email || 'N/A',
@@ -155,199 +168,191 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                          username: freshUserData.username,
                       });
                 } else {
-                    // If still missing after re-check, use basic Auth data and attempt creation
-                    console.warn("AuthProvider: Firestore user data still missing for UID:", fbUser.uid, " - attempting creation (or using basic data).");
+                    console.warn(`[AuthProvider ${startTime}] Firestore user data still missing for UID: ${fbUser.uid}. Using basic Auth data and attempting creation.`);
                     const basicUserData = {
                         id: fbUser.uid,
                         email: fbUser.email || 'unknown@example.com',
                         name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Novo Usuário',
-                        role: 'driver' as UserRole, // Assign default role
+                        role: 'driver' as UserRole,
                     };
                      if (!isMounted) {
-                        console.log("AuthProvider: Component unmounted before setting basic user data, skipping.");
+                        console.log(`[AuthProvider ${startTime}] Component unmounted before setting basic user data, skipping.`);
+                        setLoading(false);
                         return;
                      }
                      setUser(basicUserData);
-                     // Attempt to create the Firestore document only if it seems truly missing
                      try {
                        await createUserDocument(fbUser.uid, basicUserData.email, basicUserData.name);
-                       console.log("AuthProvider: Attempted to auto-create Firestore document for new/missing user:", fbUser.uid);
+                       console.log(`[AuthProvider ${startTime}] Attempted to auto-create Firestore document for new/missing user: ${fbUser.uid}`);
                      } catch (creationError: any) {
-                        console.error("AuthProvider: Failed to auto-create Firestore document on auth change:", creationError.message);
+                        console.error(`[AuthProvider ${startTime}] Failed to auto-create Firestore document:`, creationError.message);
                      }
                 }
             }
         } catch (error: any) {
              if (!isMounted) {
-                console.log("AuthProvider: Component unmounted after Firestore error, skipping state update.");
+                console.log(`[AuthProvider ${startTime}] Component unmounted after Firestore error, skipping state update.`);
+                setLoading(false);
                 return;
              }
-             console.error("AuthProvider: Error fetching or processing user data:", error.message);
-             // Fallback to basic user info from Auth if Firestore interaction fails
+             console.error(`[AuthProvider ${startTime}] Error fetching or processing user data for ${fbUser.uid}:`, error.message);
               setUser({
                   id: fbUser.uid,
                   email: fbUser.email || 'error@example.com',
                   name: fbUser.displayName || 'Erro ao Carregar',
-                  role: 'driver', // Default role on error
+                  role: 'driver',
               });
               toast({ variant: "destructive", title: "Erro de Dados", description: "Não foi possível carregar os dados completos do usuário." });
         } finally {
            if (isMounted) {
-             console.log("AuthProvider: Finished processing user state, setting loading to false.");
+             const endTime = performance.now();
+             console.log(`[AuthProvider onAuthStateChanged ${startTime}] Finished processing user state for ${fbUser.uid}. Total time: ${endTime - startTime} ms. Setting loading to false.`);
+             setLoading(false); // **Ensure loading is false after processing**
+           } else {
+             console.log(`[AuthProvider ${startTime}] Component unmounted before finally block could set loading to false.`);
+             // If unmounted, the state update wouldn't happen anyway, but explicitly setting it
+             // might prevent issues if there's a slight delay in unmounting logic.
              setLoading(false);
            }
         }
 
       } else {
-        console.log("AuthProvider onAuthStateChanged: No Firebase Auth user.");
+        console.log(`[AuthProvider onAuthStateChanged ${startTime}] No Firebase Auth user.`);
         if (!isMounted) {
-            console.log("AuthProvider: Component unmounted while processing null user, skipping state update.");
+            console.log(`[AuthProvider ${startTime}] Component unmounted while processing null user, skipping state update.`);
+            setLoading(false);
             return;
         }
-        setUser(null); // No user logged in
-        setLoading(false);
+        setUser(null);
+        setFirebaseUser(null); // Ensure firebaseUser is also cleared
+        setLoading(false); // **Ensure loading is false when no user**
+        console.log(`[AuthProvider onAuthStateChanged ${startTime}] Processed null user. Loading set to false.`);
       }
     });
 
-    // Cleanup function
     return () => {
-        console.log("AuthProvider useEffect cleanup: Unsubscribing from onAuthStateChanged.");
-        isMounted = false; // Set flag on unmount
-        unsubscribe(); // Cleanup subscription
+        console.log("[AuthProvider Effect Cleanup] Unsubscribing from auth state changes.");
+        isMounted = false;
+        unsubscribe();
     };
-  }, []); // Empty dependency array ensures this runs once on mount
+  }, [toast]); // Added toast to dependency array as it's used inside
 
   // Firebase Login
   const login = async (email: string, pass: string): Promise<boolean> => {
-    // **CRITICAL**: Check if auth is initialized
+    const loginStartTime = performance.now();
+    console.log(`[AuthProvider Login ${loginStartTime}] Attempting login for ${email}`);
     if (!auth) {
-       console.error("Login attempt failed: Firebase Auth instance is not available. Check firebase.ts initialization.");
-       toast({ variant: "destructive", title: "Erro de Configuração", description: "Autenticação não inicializada. Verifique as configurações do Firebase.", duration: 9000 });
+       console.error(`[AuthProvider Login ${loginStartTime}] Login failed: Firebase Auth instance is not available.`);
+       toast({ variant: "destructive", title: "Erro de Configuração", description: "Autenticação não inicializada.", duration: 9000 });
        return false;
     }
-    setLoading(true);
+    // Don't set loading here, the onAuthStateChanged listener handles it
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, pass);
-      // User state will be updated by onAuthStateChanged listener
-      console.log('Login successful for:', userCredential.user.email);
-      // setLoading(false); // Loading is set to false by the listener
+      const loginEndTime = performance.now();
+      console.log(`[AuthProvider Login ${loginStartTime}] signInWithEmailAndPassword successful for ${userCredential.user.email}. Time: ${loginEndTime - loginStartTime} ms. Waiting for onAuthStateChanged...`);
+      // **Crucially, we return true here, but the UI update depends on the listener**
       return true;
     } catch (error: any) {
-      console.error('Login failed:', error); // Log the raw error
-      let errorMessage = 'Falha no Login. Verifique seu e-mail e senha.';
-      if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
-        errorMessage = 'E-mail ou senha inválidos.';
-      } else if (error.code === 'auth/invalid-email') {
-        errorMessage = 'Formato de e-mail inválido.';
-      } else if (error.code === 'auth/too-many-requests') {
-         errorMessage = 'Muitas tentativas de login falhadas. Tente novamente mais tarde.';
-      } else if (error.code === 'auth/network-request-failed') {
-          errorMessage = 'Erro de rede ao tentar fazer login. Verifique sua conexão.';
-      } else if (error.code === 'auth/operation-not-allowed') {
-           errorMessage = 'Login com e-mail/senha não está habilitado. Contacte o administrador.';
-      } else if (error.code === 'auth/configuration-not-found') {
-           // THIS IS THE LIKELY ERROR BASED ON PREVIOUS CONSOLE LOGS
-           errorMessage = 'Erro de configuração do Firebase (auth/configuration-not-found). Verifique as chaves de API e outras configurações no console do Firebase e no seu arquivo .env.';
-           console.error("Firebase Login Error: auth/configuration-not-found. Ensure API keys, auth domain, etc., are correctly set in your .env file (with NEXT_PUBLIC_ prefix) and match the Firebase console.");
-      }
-      else if (error.code?.includes('auth/')) { // Catch other specific auth errors
-          errorMessage = `Erro de autenticação (${error.code}). Tente novamente.`;
-      }
+       const loginEndTime = performance.now();
+       console.error(`[AuthProvider Login ${loginStartTime}] Login failed for ${email}. Time: ${loginEndTime - loginStartTime} ms. Error:`, error);
+       let errorMessage = 'Falha no Login. Verifique seu e-mail e senha.';
+       // ... (keep existing error message handling) ...
+        if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
+            errorMessage = 'E-mail ou senha inválidos.';
+        } else if (error.code === 'auth/invalid-email') {
+            errorMessage = 'Formato de e-mail inválido.';
+        } else if (error.code === 'auth/too-many-requests') {
+             errorMessage = 'Muitas tentativas de login falhadas. Tente novamente mais tarde.';
+        } else if (error.code === 'auth/network-request-failed') {
+              errorMessage = 'Erro de rede ao tentar fazer login. Verifique sua conexão.';
+        } else if (error.code === 'auth/operation-not-allowed') {
+               errorMessage = 'Login com e-mail/senha não está habilitado. Contacte o administrador.';
+        } else if (error.code === 'auth/configuration-not-found') {
+             errorMessage = 'Erro de configuração do Firebase (auth/configuration-not-found). Verifique as chaves de API e outras configurações no console do Firebase e no seu arquivo .env.';
+             console.error("Firebase Login Error: auth/configuration-not-found. Ensure API keys, auth domain, etc., are correctly set in your .env file (with NEXT_PUBLIC_ prefix) and match the Firebase console.");
+         }
+         else if (error.code?.includes('auth/')) { // Catch other specific auth errors
+              errorMessage = `Erro de autenticação (${error.code}). Tente novamente.`;
+         }
       toast({
         variant: "destructive",
         title: "Falha no Login",
         description: errorMessage,
-        duration: 9000, // Show longer duration for critical errors
+        duration: 9000,
       });
-      setLoading(false); // Ensure loading is false on error
+      // Set loading false here only if login *fails*. Success relies on listener.
+      setLoading(false);
       return false;
     }
-    // No need for finally here, listener handles success case loading
   };
 
    // Firebase Signup
    const signup = async (email: string, pass: string, name: string, username?: string): Promise<boolean> => {
-     // **CRITICAL**: Check if auth is initialized
+     const signupStartTime = performance.now();
+     console.log(`[AuthProvider Signup ${signupStartTime}] Attempting signup for ${email}`);
      if (!auth) {
-        console.error("Signup attempt failed: Firebase Auth instance is not available. Check firebase.ts initialization.");
-        toast({ variant: "destructive", title: "Erro de Configuração", description: "Autenticação não inicializada. Verifique as configurações do Firebase.", duration: 9000 });
+        console.error(`[AuthProvider Signup ${signupStartTime}] Signup failed: Firebase Auth instance not available.`);
+        toast({ variant: "destructive", title: "Erro de Configuração", description: "Autenticação não inicializada.", duration: 9000 });
         return false;
      }
+     // **Set loading true at the start of the signup process**
      setLoading(true);
-     let userId: string | null = null; // Keep track of userId for potential cleanup
+     let userId: string | null = null;
 
      try {
-       // 1. Create user in Firebase Authentication
-       console.log("Signup: Attempting to create user in Firebase Auth...");
+       console.log(`[AuthProvider Signup ${signupStartTime}] Creating user in Firebase Auth...`);
        const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
        userId = userCredential.user.uid;
-       console.log('Signup: Firebase Auth user created successfully:', userId);
+       console.log(`[AuthProvider Signup ${signupStartTime}] Firebase Auth user created: ${userId}`);
 
-
-       // 2. Update Firebase Auth profile (display name)
-       console.log("Signup: Attempting to update Firebase Auth profile...");
+       console.log(`[AuthProvider Signup ${signupStartTime}] Updating Firebase Auth profile for ${userId}...`);
        await updateProfile(userCredential.user, { displayName: name });
-       console.log('Signup: Firebase Auth profile updated successfully for:', userId);
+       console.log(`[AuthProvider Signup ${signupStartTime}] Firebase Auth profile updated for ${userId}.`);
 
-       // 3. Create user document in Firestore using the helper function
-       console.log("Signup: Attempting to create Firestore document...");
+       console.log(`[AuthProvider Signup ${signupStartTime}] Creating Firestore document for ${userId}...`);
        await createUserDocument(userId, email, name, username);
-       console.log('Signup: Firestore document created successfully for user:', userId);
+       console.log(`[AuthProvider Signup ${signupStartTime}] Firestore document created for ${userId}.`);
 
-       console.log('Signup successful and Firestore document created for:', email);
-
-       // Sign the user out immediately after signup, requiring them to log in
-       console.log("Signup: Signing out user after signup...");
-       await signOut(auth); // Use the initialized auth instance
+       console.log(`[AuthProvider Signup ${signupStartTime}] Signing out user ${userId} after signup...`);
+       await signOut(auth);
        setUser(null);
        setFirebaseUser(null);
-       console.log('Signup: User signed out after successful signup.');
+       console.log(`[AuthProvider Signup ${signupStartTime}] User signed out successfully.`);
 
-
+       const signupEndTime = performance.now();
+       console.log(`[AuthProvider Signup ${signupStartTime}] Signup process completed successfully in ${signupEndTime - signupStartTime} ms.`);
+       // **Set loading false after successful signup and signout**
        setLoading(false);
        return true;
      } catch (error: any) {
-       console.error('Signup failed:', error); // Log the detailed error
-       let description = "Ocorreu um erro ao cadastrar."; // Default message
-
-       // Check for specific Firebase Auth errors during creation/update
+       const signupEndTime = performance.now();
+       console.error(`[AuthProvider Signup ${signupStartTime}] Signup failed after ${signupEndTime - signupStartTime} ms. Error:`, error);
+       let description = "Ocorreu um erro ao cadastrar.";
+       // ... (keep existing error handling) ...
        if (error.code === 'auth/email-already-in-use') {
          description = "Este e-mail já está em uso por outra conta.";
-         console.error("Signup Error: Email already in use.");
        } else if (error.code === 'auth/invalid-email') {
          description = "O formato do e-mail é inválido.";
-         console.error("Signup Error: Invalid email format.");
        } else if (error.code === 'auth/weak-password') {
          description = "A senha é muito fraca (mínimo 6 caracteres).";
-         console.error("Signup Error: Weak password.");
        } else if (error.code === 'auth/network-request-failed') {
            description = 'Erro de rede ao tentar cadastrar. Verifique sua conexão.';
-           console.error("Signup Error: Network request failed.");
        } else if (error.code === 'auth/operation-not-allowed') {
             description = 'Cadastro com e-mail/senha não está habilitado. Contacte o administrador.';
-            console.error("Signup Error: Operation not allowed (Email/Password auth disabled?).");
        } else if (error.code === 'auth/configuration-not-found') {
-            // THIS IS THE LIKELY ERROR
             description = 'Erro de configuração do Firebase (auth/configuration-not-found). Verifique as chaves de API e configurações no console do Firebase e no seu .env file.';
-            console.error("Signup Error: Firebase configuration not found (auth/configuration-not-found). Ensure API keys, auth domain, etc., are correctly set in your .env file (with NEXT_PUBLIC_ prefix) and match the Firebase console.");
        }
-       else if (error.code?.includes('auth/')) { // Catch other specific auth errors
+       else if (error.code?.includes('auth/')) {
            description = `Erro de autenticação (${error.code}). Tente novamente.`;
-           console.error(`Signup Auth Error: ${error.code}`, error.message);
        } else if (error.message?.includes('Failed to create Firestore user document')) {
-          // Catch the specific error thrown by our helper
           description = `Falha ao salvar dados do usuário. ${error.message}`;
-          console.error("Signup Error: Failed to create Firestore document.", error);
-          // Consider deleting the Auth user if Firestore creation failed critically
-          // if (userId) { /* delete Auth user */ }
        }
        else {
-         // Handle potential Firestore errors during createUserDocument or other non-auth errors
-         console.error('An unexpected error occurred during signup:', error.message, error);
          description = `Erro inesperado: ${error.message || 'Verifique os dados e tente novamente.'}`;
        }
-
        toast({ variant: "destructive", title: "Falha no Cadastro", description, duration: 9000 });
+       // **Set loading false in the catch block as well**
        setLoading(false);
        return false;
      }
@@ -356,43 +361,49 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   // Firebase Logout
   const logout = async () => {
-    // **CRITICAL**: Check if auth is initialized
+    const logoutStartTime = performance.now();
+    console.log(`[AuthProvider Logout ${logoutStartTime}] Attempting logout...`);
     if (!auth) {
-       console.error("Logout attempt failed: Firebase Auth instance is not available.");
+       console.error(`[AuthProvider Logout ${logoutStartTime}] Logout failed: Firebase Auth instance not available.`);
        toast({ variant: "destructive", title: "Erro de Configuração", description: "Autenticação não inicializada." });
        return;
     }
-    setLoading(true);
+    // Don't set loading here, listener handles it
     try {
       await signOut(auth);
-      setUser(null); // Clear app user state immediately
-      setFirebaseUser(null);
-      console.log('Logout successful');
+      // User state clearing is handled by the listener
+      const logoutEndTime = performance.now();
+      console.log(`[AuthProvider Logout ${logoutStartTime}] signOut successful. Time: ${logoutEndTime - logoutStartTime} ms. Waiting for onAuthStateChanged...`);
     } catch (error) {
-      console.error('Logout failed:', error);
+      const logoutEndTime = performance.now();
+      console.error(`[AuthProvider Logout ${logoutStartTime}] Logout failed after ${logoutEndTime - logoutStartTime} ms. Error:`, error);
       toast({ variant: "destructive", title: "Erro", description: "Não foi possível sair." });
-    } finally {
+      // Ensure loading is false if signOut itself throws an error
       setLoading(false);
     }
   };
 
   // Re-authenticate user helper needed for sensitive operations
   const reauthenticate = async (currentPassword: string): Promise<boolean> => {
-      // **CRITICAL**: Check if auth is initialized
+      const reauthStartTime = performance.now();
       if (!auth || !firebaseUser || !firebaseUser.email) {
-          console.error("Reauthenticate failed: Auth not initialized or user not logged in.");
+          console.error(`[AuthProvider Reauthenticate ${reauthStartTime}] Failed: Auth not init or user not logged in.`);
           toast({ variant: "destructive", title: "Erro", description: "Usuário não autenticado ou Auth não inicializado." });
           return false;
       }
+      console.log(`[AuthProvider Reauthenticate ${reauthStartTime}] Attempting reauthentication for ${firebaseUser.email}`);
       const credential = EmailAuthProvider.credential(firebaseUser.email, currentPassword);
       try {
           await reauthenticateWithCredential(firebaseUser, credential);
+          const reauthEndTime = performance.now();
+          console.log(`[AuthProvider Reauthenticate ${reauthStartTime}] Reauthentication successful. Time: ${reauthEndTime - reauthStartTime} ms.`);
           return true;
-      } catch (error: any) { // Catch specific error
-          console.error("Re-authentication failed:", error);
+      } catch (error: any) {
+          const reauthEndTime = performance.now();
+          console.error(`[AuthProvider Reauthenticate ${reauthStartTime}] Reauthentication failed after ${reauthEndTime - reauthStartTime} ms. Error:`, error);
           let desc = "Senha atual incorreta.";
           if (error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
-              // Keep the specific message
+              // Keep msg
           } else if (error.code === 'auth/too-many-requests') {
                desc = 'Muitas tentativas falhadas. Tente novamente mais tarde.';
           } else {
@@ -406,9 +417,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   // Update Email in Firebase Auth and Firestore
   const updateEmail = async (currentPassword: string, newEmail: string): Promise<boolean> => {
-      // **CRITICAL**: Check if auth is initialized
+      const updateEmailStartTime = performance.now();
+      console.log(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Attempting to update email to ${newEmail}`);
       if (!auth || !firebaseUser) {
-          console.error("Update Email failed: Auth not initialized or user not logged in.");
+          console.error(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Failed: Auth not init or user not logged in.`);
           toast({ variant: "destructive", title: "Erro", description: "Usuário não autenticado ou Auth não inicializado." });
           return false;
       }
@@ -421,22 +433,26 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
 
       try {
+          console.log(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Reauthentication successful. Updating email in Firebase Auth...`);
           await firebaseUpdateEmail(firebaseUser, newEmail);
-           // Check db instance before update
+          console.log(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Firebase Auth email updated. Updating Firestore...`);
           if (!db) {
                throw new Error('Firestore DB instance is not available. Cannot update user email in Firestore.');
            }
-          // Update email in Firestore user document as well
           await setUserData(firebaseUser.uid, { email: newEmail });
-          // Update local state (optional, as listener might catch it)
+          console.log(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Firestore email updated. Updating local state...`);
           if (user) setUser({ ...user, email: newEmail });
 
           toast({ title: "Sucesso", description: "E-mail atualizado." });
+          const updateEmailEndTime = performance.now();
+          console.log(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Email update successful. Total time: ${updateEmailEndTime - updateEmailStartTime} ms.`);
           setLoading(false);
           return true;
       } catch (error: any) {
-          console.error("Error updating email:", error);
+          const updateEmailEndTime = performance.now();
+          console.error(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Email update failed after ${updateEmailEndTime - updateEmailStartTime} ms. Error:`, error);
           let desc = "Não foi possível atualizar o e-mail.";
+          // ... (keep existing error handling) ...
           if (error.code === 'auth/email-already-in-use') {
               desc = "Este e-mail já está em uso por outra conta.";
           } else if (error.code === 'auth/invalid-email') {
@@ -454,9 +470,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   // Update Password in Firebase Auth
   const updatePassword = async (currentPassword: string, newPassword: string): Promise<boolean> => {
-      // **CRITICAL**: Check if auth is initialized
+      const updatePassStartTime = performance.now();
+      console.log(`[AuthProvider UpdatePassword ${updatePassStartTime}] Attempting password update.`);
       if (!auth || !firebaseUser) {
-          console.error("Update Password failed: Auth not initialized or user not logged in.");
+          console.error(`[AuthProvider UpdatePassword ${updatePassStartTime}] Failed: Auth not init or user not logged in.`);
           toast({ variant: "destructive", title: "Erro", description: "Usuário não autenticado ou Auth não inicializado." });
           return false;
       }
@@ -469,13 +486,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
 
       try {
+          console.log(`[AuthProvider UpdatePassword ${updatePassStartTime}] Reauthentication successful. Updating password...`);
           await firebaseUpdatePassword(firebaseUser, newPassword);
           toast({ title: "Sucesso", description: "Senha atualizada." });
+          const updatePassEndTime = performance.now();
+          console.log(`[AuthProvider UpdatePassword ${updatePassStartTime}] Password update successful. Total time: ${updatePassEndTime - updatePassStartTime} ms.`);
           setLoading(false);
           return true;
       } catch (error: any) {
-          console.error("Error updating password:", error);
+          const updatePassEndTime = performance.now();
+           console.error(`[AuthProvider UpdatePassword ${updatePassStartTime}] Password update failed after ${updatePassEndTime - updatePassStartTime} ms. Error:`, error);
            let desc = "Não foi possível atualizar a senha.";
+           // ... (keep existing error handling) ...
            if (error.code === 'auth/weak-password') {
                desc = "A nova senha é muito fraca. Use pelo menos 6 caracteres.";
            } else if (error.code === 'auth/requires-recent-login') {
@@ -489,9 +511,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   // Update Display Name in Firebase Auth and Firestore
   const updateProfileName = async (newName: string): Promise<boolean> => {
-       // **CRITICAL**: Check if auth is initialized
+      const updateNameStartTime = performance.now();
+       console.log(`[AuthProvider UpdateName ${updateNameStartTime}] Attempting name update to ${newName}.`);
        if (!auth || !firebaseUser || !user) {
-          console.error("Update Profile Name failed: Auth not initialized or user not logged in.");
+          console.error(`[AuthProvider UpdateName ${updateNameStartTime}] Failed: Auth not init or user not logged in.`);
           toast({ variant: "destructive", title: "Erro", description: "Usuário não autenticado ou Auth não inicializado." });
           return false;
       }
@@ -503,23 +526,26 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
 
       try {
-          // Update Firebase Auth display name
+          console.log(`[AuthProvider UpdateName ${updateNameStartTime}] Updating Firebase Auth display name...`);
           await updateProfile(firebaseUser, { displayName: newName });
-           // Check db instance before update
+          console.log(`[AuthProvider UpdateName ${updateNameStartTime}] Firebase Auth name updated. Updating Firestore...`);
            if (!db) {
                throw new Error('Firestore DB instance is not available. Cannot update user name in Firestore.');
            }
-          // Update Firestore user document
           await setUserData(firebaseUser.uid, { name: newName });
-          // Update local state
+          console.log(`[AuthProvider UpdateName ${updateNameStartTime}] Firestore name updated. Updating local state...`);
           setUser({ ...user, name: newName });
 
           toast({ title: "Sucesso", description: "Nome atualizado." });
+           const updateNameEndTime = performance.now();
+          console.log(`[AuthProvider UpdateName ${updateNameStartTime}] Name update successful. Total time: ${updateNameEndTime - updateNameStartTime} ms.`);
           setLoading(false);
           return true;
-      } catch (error: any) { // Catch specific error
-          console.error("Error updating profile name:", error);
-          let desc = "Não foi possível atualizar o nome.";
+      } catch (error: any) {
+           const updateNameEndTime = performance.now();
+           console.error(`[AuthProvider UpdateName ${updateNameStartTime}] Name update failed after ${updateNameEndTime - updateNameStartTime} ms. Error:`, error);
+           let desc = "Não foi possível atualizar o nome.";
+           // ... (keep existing error handling) ...
            if (error.code === 'auth/requires-recent-login') {
               desc = 'Esta operação requer login recente. Faça logout e login novamente.';
            } else if (error.message?.includes('Firestore DB instance is not available')) {
@@ -533,10 +559,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   return (
     <AuthContext.Provider value={{ user, firebaseUser, loading, login, signup, logout, updateEmail, updatePassword, updateProfileName }}>
-      {/* Only render children if auth is potentially initialized or loading state is handled */}
-      {/* This prevents rendering children components that might rely on auth before it's ready */}
-       {/* {loading ? <LoadingSpinner /> : children} */} {/* Optional: Show loading spinner */}
-       {children} {/* Render children directly, components should handle loading state */}
+       {children}
     </AuthContext.Provider>
   );
 };
