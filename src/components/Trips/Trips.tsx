@@ -23,6 +23,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Visits, initialVisits } from './Visits';
+// Import initialExpenses and initialFuelings directly
 import { Expenses, initialExpenses } from './Expenses';
 import { Fuelings, initialFuelings } from './Fuelings';
 import { useToast } from '@/hooks/use-toast';
@@ -117,8 +118,8 @@ export const Trips: React.FC = () => {
             filtered = filtered.filter(trip => trip.userId === filterDriver);
         }
     } else {
-        // Driver: Only show their own trips
-        filtered = filtered.filter(trip => trip.userId === user?.id);
+        // Driver: Only show their own trips (and their specific base)
+        filtered = filtered.filter(trip => trip.userId === user?.id && trip.base === user?.base);
     }
     setDisplayedTrips(filtered);
 
@@ -163,8 +164,8 @@ export const Trips: React.FC = () => {
     const vehicleDisplay = getVehicleDisplay(selectedVehicleId);
     const dateStr = new Date().toLocaleDateString('pt-BR');
     const generatedTripName = `Viagem ${vehicleDisplay} - ${dateStr}`;
-    // Determine base - for admin, maybe allow selection, for driver use their base
-    const base = isAdmin ? 'AdminBase' : (user as any)?.base || 'DefaultBase'; // Adjust base logic as needed
+    // Determine base - Use user's base
+    const base = user?.base || 'Base Padrão'; // Use user's base or a default
 
     const newTrip: Trip = {
       id: String(Date.now()),
@@ -201,6 +202,7 @@ export const Trips: React.FC = () => {
       name: tripName,
       vehicleId: selectedVehicleId,
       updatedAt: new Date().toISOString(),
+       // Keep the original base, or allow admin to change it if needed
     };
 
     const index = initialTrips.findIndex(t => t.id === currentTrip.id);
@@ -316,9 +318,9 @@ export const Trips: React.FC = () => {
         <h2 className="text-2xl font-semibold">
           {isAdmin ? 'Todas as Viagens' : 'Minhas Viagens'}
         </h2>
-        <div className="flex gap-2">
+        <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
            {isAdmin && ( // Filter options for Admin
-                <div className="flex gap-2 items-center">
+                <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
                      <Select value={filterBase} onValueChange={setFilterBase}>
                         <SelectTrigger className="w-full sm:w-[180px] h-9">
                             <SelectValue placeholder="Filtrar por Base" />
@@ -376,6 +378,10 @@ export const Trips: React.FC = () => {
                 <div className="space-y-2">
                   <Label>Motorista</Label>
                   <p className="text-sm text-muted-foreground">{user?.name || user?.email || 'Não identificado'}</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Base</Label>
+                  <p className="text-sm text-muted-foreground">{user?.base || 'Base Padrão'}</p>
                 </div>
                 <div className="space-y-2">
                   <Label>Status</Label>
@@ -501,6 +507,10 @@ export const Trips: React.FC = () => {
                                   <div className="space-y-2">
                                     <Label>Motorista</Label>
                                     <p className="text-sm text-muted-foreground">{getDriverName(trip.userId)}</p>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label>Base</Label>
+                                    <p className="text-sm text-muted-foreground">{trip.base}</p>
                                   </div>
                                   <div className="space-y-2">
                                     <Label>Status</Label>

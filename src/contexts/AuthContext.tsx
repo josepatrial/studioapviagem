@@ -7,7 +7,7 @@ import { useToast } from '@/hooks/use-toast'; // Import useToast
 // Define user roles
 export type UserRole = 'driver' | 'admin';
 
-interface User {
+export interface User { // Export User interface
   id: string;
   email: string;
   name?: string;
@@ -79,17 +79,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           };
         }
         // Simulate regular driver login (replace with actual driver lookup)
-        else if (email && pass) {
-           const name = email.split('@')[0]; // Default name from email
+        else {
            // Find driver in mock data (replace with real auth)
            const driver = initialDrivers.find(d => d.email === email); // Assuming initialDrivers exists globally or is accessible
-           simulatedUser = {
-               id: driver?.id || String(Date.now()), // Use driver ID or generate one
-               email,
-               name: driver?.name || name,
-               role: 'driver',
-               base: driver?.base || 'DefaultBase' // Use driver base or default
-            };
+           if (driver && pass === 'password123') { // Use a mock password check for drivers
+                simulatedUser = {
+                   id: driver.id,
+                   email: driver.email,
+                   name: driver.name,
+                   role: 'driver',
+                   base: driver.base
+                };
+           }
         }
 
 
@@ -192,15 +193,14 @@ export const useAuth = (): AuthContextType => {
 };
 
 // Mock drivers data (needed for login simulation) - Consider moving this to a separate file
-interface Driver {
-    id: string;
-    name: string;
-    username: string;
-    email: string;
-    base: string;
+// Use the exported User interface but narrow down roles for this list
+interface DriverInfo extends Omit<User, 'role'>{
+    role: 'driver'; // Explicitly driver
+    username: string; // Add username back for the Drivers component needs
 }
 
-export const initialDrivers: Driver[] = [
-  { id: 'driver1', name: 'João Silva', username: 'joao.silva', email: 'joao@example.com', base: 'Base SP' },
-  { id: 'driver2', name: 'Maria Souza', username: 'maria.souza', email: 'maria@example.com', base: 'Base RJ' },
+
+export const initialDrivers: DriverInfo[] = [
+  { id: 'driver1', name: 'João Silva', username: 'joao.silva', email: 'joao@example.com', role: 'driver', base: 'Base SP' },
+  { id: 'driver2', name: 'Maria Souza', username: 'maria.souza', email: 'maria@example.com', role: 'driver', base: 'Base RJ' },
 ];
