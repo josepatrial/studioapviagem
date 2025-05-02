@@ -22,7 +22,8 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Visits, initialVisits, Visit } from './Visits';
+// Mock data - Imported to fix the reference error, but could be moved back if unused here
+import {initialVisits, type Visit} from './Visits';
 // Import initialExpenses and initialFuelings directly
 import { Expenses, initialExpenses, Expense } from './Expenses';
 import { Fuelings, initialFuelings, Fueling } from './Fuelings';
@@ -318,23 +319,23 @@ export const Trips: React.FC = () => {
         <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
            {isAdmin && ( // Filter options for Admin
                 <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
-                     <Select value={filterBase} onValueChange={setFilterBase}>
+                     <Select value={filterBase} onValueChange={(value) => setFilterBase(value === 'all' ? '' : value)}>
                         <SelectTrigger className="w-full sm:w-[180px] h-9">
                             <SelectValue placeholder="Filtrar por Base" />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="">Todas as Bases</SelectItem>
+                            <SelectItem value="all">Todas as Bases</SelectItem>
                             {getUniqueBases(allTrips).map(base => (
                                 <SelectItem key={base} value={base}>{base}</SelectItem>
                             ))}
                         </SelectContent>
                     </Select>
-                     <Select value={filterDriver} onValueChange={setFilterDriver}>
+                     <Select value={filterDriver} onValueChange={(value) => setFilterDriver(value === 'all' ? '' : value)}>
                         <SelectTrigger className="w-full sm:w-[180px] h-9">
                             <SelectValue placeholder="Filtrar por Motorista" />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="">Todos os Motoristas</SelectItem>
+                            <SelectItem value="all">Todos os Motoristas</SelectItem>
                             {drivers.map(driver => (
                                 <SelectItem key={driver.id} value={driver.id}>{driver.name}</SelectItem>
                             ))}
@@ -463,12 +464,15 @@ export const Trips: React.FC = () => {
                      <div className="flex items-center gap-1 flex-shrink-0 ml-2">
                         {trip.status === 'Andamento' && (isAdmin || trip.userId === user?.id) && (
                             <Button
+                               asChild // Use asChild to prevent button nesting
                                variant="outline"
                                size="sm"
                                onClick={(e) => openFinishModal(trip, e)}
                                className="h-8 px-2 sm:px-3 text-emerald-600 border-emerald-600/50 hover:bg-emerald-50 hover:text-emerald-700"
                             >
-                              <CheckCircle2 className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">Finalizar</span>
+                              <a> {/* Use an anchor or span tag */}
+                               <CheckCircle2 className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">Finalizar</span>
+                              </a>
                             </Button>
                         )}
                         {(isAdmin || trip.userId === user?.id) && (
