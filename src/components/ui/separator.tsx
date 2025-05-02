@@ -1,3 +1,4 @@
+// src/components/ui/separator.tsx
 "use client"
 
 import * as React from "react"
@@ -28,4 +29,4 @@ const Separator = React.forwardRef<
 )
 Separator.displayName = SeparatorPrimitive.Root.displayName
 
-export { Separator }
+export { Separator } // Ensure export

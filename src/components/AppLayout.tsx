@@ -24,13 +24,22 @@ const AppLayout: React.FC = () => {
   const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
 
-  const getInitials = (email: string | undefined) => {
-    if (!email) return '??';
-    const parts = email.split('@')[0].split('.');
-    if (parts.length > 1) {
-      return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+  const getInitials = (name: string | undefined, email: string | undefined) => {
+    if (name) {
+        const nameParts = name.split(' ');
+        if (nameParts.length > 1) {
+            return `${nameParts[0][0]}${nameParts[nameParts.length - 1][0]}`.toUpperCase();
+        }
+        return name.substring(0, 2).toUpperCase();
     }
-    return email.substring(0, 2).toUpperCase();
+    if (email) {
+        const emailParts = email.split('@')[0].split('.');
+        if (emailParts.length > 1) {
+            return `${emailParts[0][0]}${emailParts[1][0]}`.toUpperCase();
+        }
+        return email.substring(0, 2).toUpperCase();
+    }
+    return '??';
   };
 
   return (
@@ -46,14 +55,14 @@ const AppLayout: React.FC = () => {
                     {/* Add AvatarImage if user profile picture is available */}
                     {/* <AvatarImage src="/avatars/01.png" alt={user.email} /> */}
                     <AvatarFallback className="bg-accent text-accent-foreground">
-                       {getInitials(user.email)}
+                       {getInitials(user.name, user.email)}
                     </AvatarFallback>
                   </Avatar>
                </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-56" align="end" forceMount>
              <div className="flex flex-col px-4 py-2">
-                <p className="text-sm font-medium leading-none">Motorista</p>
+                <p className="text-sm font-medium leading-none">{user.name || 'Motorista'}</p> {/* Use name if available */}
                 <p className="text-xs leading-none text-muted-foreground">{user.email}</p>
              </div>
               <DropdownMenuSeparator />
@@ -61,7 +70,7 @@ const AppLayout: React.FC = () => {
                 <UserIcon className="mr-2 h-4 w-4" />
                 <span>Perfil</span> {/* Changed from My Profile */}
               </DropdownMenuItem>
-              {/* Removed Alterar Nome, E-mail, Senha options */}
+              {/* Removed Alterar Nome, E-mail, Senha options - User can do this in Profile page */}
               <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:bg-destructive/10 focus:text-destructive">
                 <LogOut className="mr-2 h-4 w-4" />
                 <span>Sair</span>
