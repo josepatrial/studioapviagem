@@ -1,14 +1,19 @@
+// src/app/profile/page.tsx
 'use client';
 
 import React from 'react';
+import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { useAuth } from '@/contexts/AuthContext'; // Import useAuth
-import { LoadingSpinner } from '@/components/LoadingSpinner'; // Import LoadingSpinner
+import { Button } from '@/components/ui/button'; // Import Button
+import { ArrowLeft } from 'lucide-react'; // Import an icon
+import { useAuth } from '@/contexts/AuthContext';
+import { LoadingSpinner } from '@/components/LoadingSpinner';
 
 const ProfilePage: React.FC = () => {
-  const { user, loading } = useAuth(); // Get user and loading state
+  const { user, loading } = useAuth();
+  const router = useRouter(); // Initialize router
 
   if (loading || !user) {
     return (
@@ -18,19 +23,23 @@ const ProfilePage: React.FC = () => {
     );
   }
 
+  const handleGoBack = () => {
+    router.back(); // Navigate to the previous page
+  };
+
   return (
-    <div className="flex flex-col items-center justify-center p-6">
+    <div className="flex flex-col items-center p-6">
+       <div className="w-full max-w-md mb-4">
+          <Button variant="outline" onClick={handleGoBack}>
+            <ArrowLeft className="mr-2 h-4 w-4" /> Voltar
+          </Button>
+       </div>
       <Card className="w-full max-w-md shadow-lg">
         <CardHeader>
-          <CardTitle>Perfil</CardTitle> {/* Changed title */}
-          <CardDescription>Visualize as informações do seu perfil.</CardDescription> {/* Adjusted description */}
+          <CardTitle>Perfil</CardTitle>
+          <CardDescription>Visualize as informações do seu perfil.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {/* You might want to fetch and display actual user data here */}
-          {/* <div className="space-y-2">
-            <Label htmlFor="fullName">Nome Completo</Label>
-            <Input id="fullName" value={user.name || 'N/A'} readOnly />
-          </div> */}
           <div className="space-y-2">
             <Label htmlFor="email">E-mail</Label>
             <Input id="email" value={user.email} readOnly />
@@ -39,11 +48,6 @@ const ProfilePage: React.FC = () => {
             <Label htmlFor="userId">ID do Usuário</Label>
             <Input id="userId" value={user.id} readOnly />
           </div>
-           {/* Optionally add other fields if available in your User object */}
-          {/* <div className="space-y-2">
-            <Label htmlFor="password">Senha</Label>
-            <Input id="password" value="**********" readOnly />
-          </div> */}
         </CardContent>
       </Card>
     </div>
