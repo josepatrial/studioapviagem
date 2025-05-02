@@ -1,7 +1,7 @@
 
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
     Card,
     CardContent,
@@ -17,7 +17,12 @@ import {
     Info,
     PlusCircle,
     Trash2,
-    Wallet, // Added Wallet import
+    Wallet,
+    Paperclip, // Added for attachment
+    Camera,    // Added for camera
+    Upload,    // Added for upload indication
+    Check,     // Added for capture confirmation
+    X          // Added for closing camera/clearing attachment
   } from 'lucide-react';
 import {
     AlertDialog,
@@ -42,6 +47,7 @@ import {
     DialogTitle,
     DialogTrigger
   } from '@/components/ui/dialog';
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; // Import Alert components
 
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -49,9 +55,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from '@/components/ui/textarea';
 import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
-import { Calendar } from '@/components/ui/calendar'; // Ensure Calendar is imported
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'; // Ensure Popover components are imported
-import { cn } from '@/lib/utils'; // Ensure cn is imported
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { cn } from '@/lib/utils';
+import { LoadingSpinner } from '@/components/LoadingSpinner'; // Ensure LoadingSpinner is imported
 
 export interface Expense {
     id: string;
@@ -60,12 +67,14 @@ export interface Expense {
     value: number;
     expenseDate: string;
     timestamp: string;
-    expenseType: string; // New field
+    expenseType: string;
+    receiptUrl?: string; // URL or identifier for the attached receipt (PDF/Image)
+    receiptFilename?: string; // Original filename or identifier
 };
 
-// Mock data - Exported for use in Trips.tsx
+// Mock data - Updated to include receiptUrl
 export const initialExpenses: Expense[] = [
-    { id: 'e1', tripId: '1', description: 'Pedágio da Imigrantes', value: 28.00, expenseDate: new Date(2024, 6, 21).toISOString(), timestamp: new Date(2024, 6, 21, 10, 30).toISOString(), expenseType: 'Pedágio' },
+    { id: 'e1', tripId: '1', description: 'Pedágio da Imigrantes', value: 28.00, expenseDate: new Date(2024, 6, 21).toISOString(), timestamp: new Date(2024, 6, 21, 10, 30).toISOString(), expenseType: 'Pedágio', receiptUrl: 'mock/receipt1.pdf', receiptFilename: 'receipt1.pdf' },
     { id: 'e2', tripId: '1', description: 'Almoço no Frango Assado', value: 45.00, expenseDate: new Date(2024, 6, 21).toISOString(), timestamp: new Date(2024, 6, 21, 14, 0).toISOString(), expenseType: 'Alimentação' },
     { id: 'e3', tripId: '2', description: 'Combustível no Graal', value: 500.00, expenseDate: new Date(2024, 8, 2).toISOString(), timestamp: new Date(2024, 8, 2, 9, 0).toISOString(), expenseType: 'Combustível' },
 ];
@@ -80,6 +89,8 @@ export const Expenses: React.FC<{ tripId?: string; tripName?: string; }> = ({ tr
     const [currentExpense, setCurrentExpense] = useState<Expense | null>(null);
     const [expenseToConfirm, setExpenseToConfirm] = useState<Expense | null>(null);
     const { toast } = useToast();
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const canvasRef = useRef<HTMLCanvasElement>(null);
 
     // --- Form State ---
     const [description, setDescription] = useState('');
@@ -87,10 +98,63 @@ export const Expenses: React.FC<{ tripId?: string; tripName?: string; }> = ({ tr
     const [expenseType, setExpenseType] = useState('');
     const [expenseDate, setExpenseDate] = useState<Date | undefined>(undefined);
 
+    // --- Attachment State ---
+    const [attachment, setAttachment] = useState<File | string | null>(null); // Can be File object (PDF) or data URI (Image)
+    const [attachmentFilename, setAttachmentFilename] = useState<string | null>(null);
+    const [isCameraOpen, setIsCameraOpen] = useState(false);
+    const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
+
+
     useEffect(() => {
         const filtered = tripId ? initialExpenses.filter(e => e.tripId === tripId) : initialExpenses;
         setExpenses(filtered.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
     }, [tripId]);
+
+     // Camera Permission Effect
+    useEffect(() => {
+        if (!isCameraOpen) {
+            // Stop camera stream when modal closes
+            if (videoRef.current && videoRef.current.srcObject) {
+                const stream = videoRef.current.srcObject as MediaStream;
+                stream.getTracks().forEach(track => track.stop());
+                videoRef.current.srcObject = null;
+            }
+            setHasCameraPermission(null); // Reset permission state
+            return;
+        }
+
+        const getCameraPermission = async () => {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+                setHasCameraPermission(true);
+
+                if (videoRef.current) {
+                    videoRef.current.srcObject = stream;
+                }
+            } catch (error) {
+                console.error('Error accessing camera:', error);
+                setHasCameraPermission(false);
+                toast({
+                    variant: 'destructive',
+                    title: 'Camera Access Denied',
+                    description: 'Please enable camera permissions in your browser settings to scan receipts.',
+                });
+                // Optionally close the camera view if permission is denied permanently
+                // setIsCameraOpen(false);
+            }
+        };
+
+        getCameraPermission();
+
+        // Cleanup function to stop camera when component unmounts or camera closes
+        return () => {
+            if (videoRef.current && videoRef.current.srcObject) {
+                const stream = videoRef.current.srcObject as MediaStream;
+                stream.getTracks().forEach(track => track.stop());
+            }
+        };
+    }, [isCameraOpen, toast]);
+
 
     // --- Helpers ---
     const formatCurrency = (amount: number) => amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -99,9 +163,73 @@ export const Expenses: React.FC<{ tripId?: string; tripName?: string; }> = ({ tr
         // Add timezone adjustment if needed, for now use UTC interpretation
         return format(date, 'dd/MM/yyyy');
     }
+     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (file) {
+            if (file.type === 'application/pdf') {
+                setAttachment(file);
+                setAttachmentFilename(file.name);
+                setIsCameraOpen(false); // Close camera if a file is selected
+            } else {
+                toast({ variant: "destructive", title: "Tipo de arquivo inválido", description: "Por favor, selecione um arquivo PDF." });
+                event.target.value = ''; // Reset input
+            }
+        }
+    };
+
+    const handleCaptureImage = () => {
+        if (videoRef.current && canvasRef.current) {
+            const video = videoRef.current;
+            const canvas = canvasRef.current;
+            const context = canvas.getContext('2d');
+
+            if (context) {
+                // Set canvas dimensions to video dimensions
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+
+                // Draw the current video frame onto the canvas
+                context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+                // Get the image data from the canvas as a data URI (e.g., PNG)
+                const imageDataUrl = canvas.toDataURL('image/png');
+                setAttachment(imageDataUrl);
+                setAttachmentFilename(`scan_${Date.now()}.png`);
+                setIsCameraOpen(false); // Close camera view after capture
+            }
+        }
+    };
+
+    const clearAttachment = () => {
+        setAttachment(null);
+        setAttachmentFilename(null);
+         // Reset file input if it exists
+        const fileInput = document.getElementById('receiptPdf') as HTMLInputElement | null;
+        if (fileInput) fileInput.value = '';
+    };
+
+    const simulateUpload = async (fileOrDataUrl: File | string): Promise<{ url: string, filename: string }> => {
+         // Simulate network delay
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        if (typeof fileOrDataUrl === 'string') {
+             // It's a data URL (image)
+             const filename = attachmentFilename || `upload_${Date.now()}.png`;
+             // In real app, upload data URL to storage, get URL back
+             console.log("Simulating upload for image data URI...");
+             return { url: `simulated/path/${filename}`, filename: filename };
+         } else {
+             // It's a File object (PDF)
+             const filename = fileOrDataUrl.name;
+              // In real app, upload file to storage, get URL back
+             console.log(`Simulating upload for PDF: ${filename}`);
+             return { url: `simulated/path/${filename}`, filename: filename };
+         }
+     };
+
 
     // --- Handlers ---
-    const handlePrepareExpenseForConfirmation = (e: React.FormEvent) => {
+    const handlePrepareExpenseForConfirmation = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!tripId) {
             toast({ variant: 'destructive', title: 'Erro', description: 'ID da viagem não encontrado para associar a despesa.' });
@@ -118,6 +246,21 @@ export const Expenses: React.FC<{ tripId?: string; tripName?: string; }> = ({ tr
             return;
         }
 
+        // Simulate upload if attachment exists
+        let receiptDetails: { url?: string; filename?: string } = {};
+        if (attachment) {
+            try {
+                 const { url, filename } = await simulateUpload(attachment);
+                 receiptDetails = { url: url, filename: filename };
+             } catch (error) {
+                 console.error("Simulated upload failed:", error);
+                 toast({ variant: "destructive", title: "Falha no Upload", description: "Não foi possível anexar o comprovante." });
+                 // Decide if you want to proceed without attachment or stop
+                 // return;
+            }
+        }
+
+
         const newExpense: Expense = {
             id: String(Date.now()),
             tripId: tripId,
@@ -125,7 +268,9 @@ export const Expenses: React.FC<{ tripId?: string; tripName?: string; }> = ({ tr
             value: valueNumber,
             expenseDate: expenseDate.toISOString(),
             timestamp: new Date().toISOString(),
-            expenseType
+            expenseType,
+            receiptUrl: receiptDetails.url,
+            receiptFilename: receiptDetails.filename
         };
 
         setExpenseToConfirm(newExpense);
@@ -138,13 +283,13 @@ export const Expenses: React.FC<{ tripId?: string; tripName?: string; }> = ({ tr
         // In a real app, save to backend first
         initialExpenses.push(expenseToConfirm); // Add to mock data source
         setExpenses(prevExpenses => [expenseToConfirm, ...prevExpenses].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
-        resetForm();
+        resetForm(); // Resets form fields and attachment state
         setIsConfirmModalOpen(false);
         setExpenseToConfirm(null);
         toast({ title: "Despesa criada com sucesso!" });
     };
 
-    const handleEditExpense = (e: React.FormEvent) => {
+    const handleEditExpense = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!currentExpense) return;
 
@@ -159,12 +304,37 @@ export const Expenses: React.FC<{ tripId?: string; tripName?: string; }> = ({ tr
             return;
         }
 
+        // Simulate upload if attachment has changed or is new
+        let receiptDetails: { url?: string; filename?: string } = {
+             url: currentExpense.receiptUrl,
+             filename: currentExpense.receiptFilename,
+         };
+        if (attachment && (attachment instanceof File || attachment !== currentExpense.receiptUrl)) { // Check if attachment is new/changed
+             try {
+                 const { url, filename } = await simulateUpload(attachment);
+                 receiptDetails = { url: url, filename: filename };
+             } catch (error) {
+                 console.error("Simulated upload failed:", error);
+                 toast({ variant: "destructive", title: "Falha no Upload", description: "Não foi possível atualizar o comprovante." });
+                 // Decide if you want to proceed without updating attachment or stop
+                 // return;
+             }
+        } else if (!attachment && currentExpense.receiptUrl) {
+             // Attachment was cleared
+             receiptDetails = { url: undefined, filename: undefined };
+             // In a real app, you might need to delete the old file from storage here
+             console.log("Simulating deletion of old attachment:", currentExpense.receiptUrl);
+         }
+
+
         const updatedExpense: Expense = {
             ...currentExpense,
             description,
             value: valueNumber,
             expenseDate: expenseDate.toISOString(),
             expenseType,
+            receiptUrl: receiptDetails.url,
+            receiptFilename: receiptDetails.filename,
             // Keep original timestamp or update if needed:
             // timestamp: new Date().toISOString(),
         };
@@ -184,6 +354,9 @@ export const Expenses: React.FC<{ tripId?: string; tripName?: string; }> = ({ tr
     };
 
     const handleDeleteExpense = (expenseId: string) => {
+        // Find the expense to potentially delete its attachment
+         const expenseToDelete = initialExpenses.find(e => e.id === expenseId);
+
         // Delete from mock data source
         const index = initialExpenses.findIndex(e => e.id === expenseId);
         if (index !== -1) {
@@ -191,6 +364,13 @@ export const Expenses: React.FC<{ tripId?: string; tripName?: string; }> = ({ tr
         }
         // Update local state
         setExpenses(expenses.filter(e => e.id !== expenseId));
+
+        // In a real app, delete the attachment from storage if it exists
+         if (expenseToDelete?.receiptUrl) {
+             console.log("Simulating deletion of attachment:", expenseToDelete.receiptUrl);
+             // Call your storage deletion function here
+         }
+
         toast({ title: "Despesa excluída." });
     };
 
@@ -200,6 +380,17 @@ export const Expenses: React.FC<{ tripId?: string; tripName?: string; }> = ({ tr
         setValue(expense.value);
         setExpenseType(expense.expenseType);
         setExpenseDate(new Date(expense.expenseDate));
+        // Set attachment state based on existing expense data
+        if (expense.receiptUrl) {
+             // If it's an image (assuming), set the URL; if PDF, you might just show filename
+             // For simplicity, we just show the filename. A preview could be added for images.
+             setAttachment(expense.receiptUrl); // Store URL to indicate existing attachment
+             setAttachmentFilename(expense.receiptFilename || 'Arquivo Anexado');
+        } else {
+             setAttachment(null);
+             setAttachmentFilename(null);
+        }
+        setIsCameraOpen(false); // Ensure camera is closed initially
         setIsEditModalOpen(true);
     };
 
@@ -208,6 +399,15 @@ export const Expenses: React.FC<{ tripId?: string; tripName?: string; }> = ({ tr
         setValue('');
         setExpenseType('');
         setExpenseDate(undefined);
+        setAttachment(null);
+        setAttachmentFilename(null);
+        setIsCameraOpen(false);
+         // Reset file input if it exists
+        const fileInput = document.getElementById('receiptPdf') as HTMLInputElement | null;
+        if (fileInput) fileInput.value = '';
+        const editFileInput = document.getElementById('editReceiptPdf') as HTMLInputElement | null;
+        if (editFileInput) editFileInput.value = '';
+
     };
 
     const closeCreateModal = () => {
@@ -225,18 +425,60 @@ export const Expenses: React.FC<{ tripId?: string; tripName?: string; }> = ({ tr
         setIsConfirmModalOpen(false);
         setExpenseToConfirm(null);
         // Optional: Re-open create modal if needed
+        // resetForm(); // Clear form if going back to blank state
         // setIsCreateModalOpen(true);
     }
 
+    // --- Render Attachment Input ---
+    const renderAttachmentInput = (idPrefix: string) => (
+        <div className="space-y-2">
+            <Label htmlFor={`${idPrefix}Receipt`}>Anexar Comprovante (PDF ou Imagem)</Label>
+             {attachmentFilename && (
+                 <div className="flex items-center justify-between gap-2 p-2 border rounded-md bg-muted/50">
+                     <div className="flex items-center gap-2 overflow-hidden">
+                         <Paperclip className="h-4 w-4 flex-shrink-0" />
+                         <span className="text-sm truncate" title={attachmentFilename}>{attachmentFilename}</span>
+                     </div>
+                     <Button type="button" variant="ghost" size="icon" onClick={clearAttachment} className="h-6 w-6 text-muted-foreground hover:text-destructive">
+                         <X className="h-4 w-4" />
+                         <span className="sr-only">Remover Anexo</span>
+                     </Button>
+                 </div>
+             )}
+            {!attachmentFilename && (
+                <div className="flex flex-col sm:flex-row gap-2">
+                    <Button type="button" variant="outline" onClick={() => document.getElementById(`${idPrefix}ReceiptPdf`)?.click()} className="flex-1">
+                        <Upload className="mr-2 h-4 w-4" /> Anexar PDF
+                    </Button>
+                    <Input
+                        type="file"
+                        id={`${idPrefix}ReceiptPdf`}
+                        accept="application/pdf"
+                        onChange={handleFileChange}
+                        className="hidden"
+                    />
+                    <Button type="button" variant="outline" onClick={() => setIsCameraOpen(true)} className="flex-1">
+                        <Camera className="mr-2 h-4 w-4" /> Usar Câmera
+                    </Button>
+                </div>
+            )}
+        </div>
+    );
+
+
     // Component JSX return statement starts here
     return (
+        <> {/* Use Fragment */}
+        {/* Hidden Canvas for Image Capture */}
+        <canvas ref={canvasRef} style={{ display: 'none' }} />
+
         <div className="space-y-6">
            <div className="flex justify-between items-center mb-4">
                     <h3 className="text-xl font-semibold">
                         {tripName ? `Despesas da Viagem: ${tripName}` : 'Despesas'}
                     </h3>
                     {tripId && ( // Only show button if a trip context is provided
-                        <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
+                        <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
                             <DialogTrigger asChild>
                                 <Button onClick={() => { resetForm(); setExpenseDate(new Date()); setIsCreateModalOpen(true); }} className="bg-accent hover:bg-accent/90 text-accent-foreground">
                                     <PlusCircle className="mr-2 h-4 w-4" /> Registrar Despesa
@@ -294,6 +536,9 @@ export const Expenses: React.FC<{ tripId?: string; tripName?: string; }> = ({ tr
                                         </Popover>
                                     </div>
 
+                                    {/* Attachment Input */}
+                                    {renderAttachmentInput('create')}
+
                                     <DialogFooter>
                                         <DialogClose asChild><Button type="button" variant="outline" onClick={closeCreateModal}>Cancelar</Button></DialogClose>
                                         <Button type="submit" className="bg-primary hover:bg-primary/90">Confirmar Dados</Button>
@@ -305,7 +550,7 @@ export const Expenses: React.FC<{ tripId?: string; tripName?: string; }> = ({ tr
             </div>
 
             {/* Confirmation Dialog */}
-            <AlertDialog open={isConfirmModalOpen} onOpenChange={setIsConfirmModalOpen}>
+            <AlertDialog open={isConfirmModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeConfirmModal(); }}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle className="flex items-center gap-2">
@@ -318,6 +563,7 @@ export const Expenses: React.FC<{ tripId?: string; tripName?: string; }> = ({ tr
                                 <li><strong>Valor:</strong> {expenseToConfirm ? formatCurrency(expenseToConfirm.value) : 'N/A'}</li>
                                 <li><strong>Tipo:</strong> {expenseToConfirm?.expenseType}</li>
                                 <li><strong>Data:</strong> {expenseToConfirm?.expenseDate ? formatDate(expenseToConfirm?.expenseDate) : 'N/A'}</li>
+                                 <li><strong>Anexo:</strong> {expenseToConfirm?.receiptFilename || 'Nenhum'}</li>
                             </ul>
                         </AlertDialogDescription>
                     </AlertDialogHeader>
@@ -325,11 +571,52 @@ export const Expenses: React.FC<{ tripId?: string; tripName?: string; }> = ({ tr
                         <AlertDialogCancel onClick={() => {
                             setIsConfirmModalOpen(false);
                             setIsCreateModalOpen(true); // Re-open create modal to allow editing
+                            // Keep expenseToConfirm so form can be pre-filled
                         }}>Voltar e Editar</AlertDialogCancel>
                         <AlertDialogAction onClick={confirmAndSaveExpense} className="bg-primary hover:bg-primary/90">Salvar Despesa</AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
+
+             {/* Camera Modal */}
+             <Dialog open={isCameraOpen} onOpenChange={setIsCameraOpen}>
+                 <DialogContent className="sm:max-w-md">
+                     <DialogHeader>
+                         <DialogTitle>Escanear Comprovante</DialogTitle>
+                     </DialogHeader>
+                     <div className="py-4 space-y-4">
+                         <div className="relative aspect-video bg-muted rounded-md overflow-hidden">
+                           <video ref={videoRef} className="w-full h-full object-cover" autoPlay muted playsInline />
+                           {hasCameraPermission === false && (
+                               <div className="absolute inset-0 flex items-center justify-center bg-black/50 p-4">
+                                   <Alert variant="destructive" className="max-w-sm">
+                                       <AlertTitle>Acesso à Câmera Negado</AlertTitle>
+                                       <AlertDescription>
+                                           Por favor, permita o acesso à câmera nas configurações do seu navegador para usar esta funcionalidade.
+                                       </AlertDescription>
+                                   </Alert>
+                               </div>
+                           )}
+                           {hasCameraPermission === null && (
+                               <div className="absolute inset-0 flex items-center justify-center bg-black/50">
+                                    <LoadingSpinner className="text-white"/>
+                               </div>
+                           )}
+                         </div>
+
+
+                         {hasCameraPermission && (
+                             <Button onClick={handleCaptureImage} className="w-full bg-primary hover:bg-primary/90">
+                                 <Check className="mr-2 h-4 w-4" /> Capturar Imagem
+                             </Button>
+                         )}
+                     </div>
+                     <DialogFooter>
+                         <Button variant="outline" onClick={() => setIsCameraOpen(false)}>Fechar</Button>
+                     </DialogFooter>
+                 </DialogContent>
+             </Dialog>
+
 
             {/* Expenses List */}
             {expenses.length === 0 ? (
@@ -356,14 +643,42 @@ export const Expenses: React.FC<{ tripId?: string; tripName?: string; }> = ({ tr
                                         </CardDescription>
                                     </div>
                                     <div className="flex gap-1">
-                                        {/* View/Details Button (Optional, opens a non-editable modal or expands) */}
-                                        <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary h-8 w-8">
-                                            <Eye className="h-4 w-4" />
-                                            <span className="sr-only">Visualizar Detalhes</span>
-                                        </Button>
+                                        {/* View/Details Button */}
+                                         <Dialog>
+                                              <DialogTrigger asChild>
+                                                 <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary h-8 w-8">
+                                                     <Eye className="h-4 w-4" />
+                                                     <span className="sr-only">Visualizar Detalhes</span>
+                                                 </Button>
+                                             </DialogTrigger>
+                                              <DialogContent>
+                                                  <DialogHeader>
+                                                      <DialogTitle>Detalhes da Despesa</DialogTitle>
+                                                  </DialogHeader>
+                                                  <div className="py-4 space-y-3">
+                                                      <p><strong>Tipo:</strong> {expense.expenseType}</p>
+                                                      <p><strong>Descrição:</strong> {expense.description}</p>
+                                                      <p><strong>Valor:</strong> {formatCurrency(expense.value)}</p>
+                                                      <p><strong>Data:</strong> {formatDate(expense.expenseDate)}</p>
+                                                      <p><strong>Anexo:</strong> {expense.receiptFilename ? (
+                                                          <a href={expense.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center gap-1">
+                                                              <Paperclip className="h-4 w-4"/> {expense.receiptFilename}
+                                                          </a>
+                                                          ) : 'Nenhum'}
+                                                      </p>
+                                                      <p className="text-xs text-muted-foreground">Registrado em: {new Date(expense.timestamp).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short'})}</p>
+                                                  </div>
+                                                 <DialogFooter>
+                                                      <DialogClose asChild>
+                                                          <Button variant="outline">Fechar</Button>
+                                                      </DialogClose>
+                                                  </DialogFooter>
+                                              </DialogContent>
+                                          </Dialog>
+
 
                                         {/* Edit Button */}
-                                        <Dialog open={isEditModalOpen && currentExpense?.id === expense.id} onOpenChange={(isOpen) => !isOpen && closeEditModal()}>
+                                        <Dialog open={isEditModalOpen && currentExpense?.id === expense.id} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); else openEditModal(expense); }}>
                                             <DialogTrigger asChild>
                                                 <Button variant="ghost" size="icon" onClick={() => openEditModal(expense)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8">
                                                     <Edit className="h-4 w-4" />
@@ -419,6 +734,11 @@ export const Expenses: React.FC<{ tripId?: string; tripName?: string; }> = ({ tr
                                                             </PopoverContent>
                                                         </Popover>
                                                     </div>
+
+                                                    {/* Edit Attachment Input */}
+                                                    {renderAttachmentInput('edit')}
+
+
                                                     <DialogFooter>
                                                         <DialogClose asChild><Button type="button" variant="outline" onClick={closeEditModal}>Cancelar</Button></DialogClose>
                                                         <Button type="submit" className="bg-primary hover:bg-primary/90">Salvar Alterações</Button>
@@ -452,21 +772,26 @@ export const Expenses: React.FC<{ tripId?: string; tripName?: string; }> = ({ tr
                                 </div>
                             </CardHeader>
                             <CardContent className="space-y-1 text-sm">
-                                {/* Removed redundant display of value/date, keep description */}
+                                {/* Description */}
                                 <div className="flex items-center gap-2">
                                     <Info className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
                                     <span>{expense.description}</span>
                                 </div>
-                                {/* Add timestamp if needed */}
-                                {/* <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                    <CalendarDays className="h-3 w-3 flex-shrink-0" />
-                                    <span>Registrado em: {new Date(expense.timestamp).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short'})}</span>
-                                </div> */}
+                                {/* Attachment Link */}
+                                {expense.receiptFilename && (
+                                     <div className="flex items-center gap-2">
+                                        <Paperclip className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                                        <a href={expense.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline text-xs">
+                                             {expense.receiptFilename}
+                                         </a>
+                                     </div>
+                                )}
                             </CardContent>
                         </Card>
                     ))}
                 </div>
             )}
         </div>
+        </> // Close Fragment
     ); // End of return statement
 }; // End of component function definition
