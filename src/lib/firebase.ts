@@ -17,8 +17,14 @@ const firebaseConfig = {
   measurementId: process.env.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
 };
 
-// Basic validation removed as Firebase SDK handles invalid config errors effectively.
-// The console error was just confirming the SDK's error.
+// Basic validation (optional, but helpful for debugging)
+if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "YOUR_API_KEY" || firebaseConfig.apiKey.includes("placeholder")) {
+    console.error("Firebase API Key is missing or is still the placeholder value. Please check your .env file and ensure NEXT_PUBLIC_FIREBASE_API_KEY is set correctly.");
+    // Optional: Throw an error to prevent app initialization if the key is critical and missing
+    // throw new Error("Firebase API Key is missing or invalid. Application cannot start.");
+}
+// Add similar checks for other critical keys like projectId if desired.
+
 
 // Initialize Firebase
 let app;
@@ -27,7 +33,7 @@ try {
 } catch (error) {
     console.error("Firebase initialization failed:", error);
     // Optionally, you could re-throw the error or handle it differently
-    throw new Error("Could not initialize Firebase. Please check your configuration in .env.");
+    throw new Error("Could not initialize Firebase. Please check your configuration in .env. Make sure NEXT_PUBLIC_FIREBASE_API_KEY and other variables are correctly set.");
 }
 
 const auth = getAuth(app);
