@@ -320,7 +320,7 @@ export const Drivers: React.FC = () => {
                                         <Hash className="h-3 w-3" /> {driver.username}
                                     </CardDescription>
                                      <CardDescription className="text-sm text-muted-foreground flex items-center gap-1">
-                                         <Building className="h-3 w-3" /> Base: {driver.base}
+                                         <Building className="h-3 w-3" /> Base: {driver.base || 'Sem base'} {/* Display if base is missing */}
                                      </CardDescription>
                                 </div>
                                 <div className="flex gap-1">

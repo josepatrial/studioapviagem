@@ -181,10 +181,23 @@ export const Trips: React.FC = () => {
 
     // Only run fetchTripsAndCounts if vehicles/drivers are loaded (or not admin)
     // and the user context is available (for non-admins)
-    if (!loading || (isAdmin && vehicles.length > 0 && drivers.length > 0) || (!isAdmin && user)) {
-        fetchTripsAndCounts();
-    }
+    // if (!loading || (isAdmin && vehicles.length > 0 && drivers.length > 0) || (!isAdmin && user)) {
+    // Add a small delay to ensure dependencies are truly loaded
+    const timer = setTimeout(() => {
+      if ((isAdmin && vehicles.length > 0 && drivers.length > 0) || (!isAdmin && user)) {
+          fetchTripsAndCounts();
+      } else if (!loading) { // If still loading dependencies, wait
+          // If not loading dependencies and still don't have what's needed, maybe set loading false
+          console.log("Dependencies not met for fetching trips, setting loading false.");
+          setLoading(false);
+      }
+    }, 100); // 100ms delay, adjust as needed
+
+     return () => clearTimeout(timer); // Cleanup timer on unmount or re-run
+
+    // }, [user, isAdmin, filterDriver, filterDateRange, toast, vehicles, drivers, loading]); // Include loading in dependency array
   }, [user, isAdmin, filterDriver, filterDateRange, toast, vehicles, drivers]); // Re-fetch when filters change
+
 
   const getVehicleDisplay = (vehicleId: string) => {
     const vehicle = vehicles.find(v => v.id === vehicleId);
@@ -199,9 +212,9 @@ export const Trips: React.FC = () => {
   const getTripDescription = (trip: Trip): string => {
       const vehicle = vehicles.find(v => v.id === trip.vehicleId);
       const driverName = isAdmin ? ` - ${getDriverName(trip.userId)}` : '';
-      const baseInfo = trip.base ? ` (Base: ${trip.base})` : '';
+      // const baseInfo = trip.base ? ` (Base: ${trip.base})` : ''; // Base info removed
       const vehicleInfo = vehicle ? `${vehicle.model} (${vehicle.licensePlate})` : 'Veículo Desconhecido';
-      return `${vehicleInfo}${driverName}${baseInfo}`;
+      return `${vehicleInfo}${driverName}`; // Removed baseInfo
   };
 
   const formatKm = (km?: number): string => km ? km.toLocaleString('pt-BR') + ' Km' : 'N/A';
@@ -217,22 +230,23 @@ export const Trips: React.FC = () => {
       toast({ variant: 'destructive', title: 'Erro', description: 'Veículo é obrigatório.' });
       return;
     }
-     if (!user.base) {
-        toast({ variant: 'destructive', title: 'Erro', description: 'Base do motorista não definida. Não é possível criar a viagem.' });
-        return;
-     }
+     // Base validation removed
+     // if (!user.base) {
+     //    toast({ variant: 'destructive', title: 'Erro', description: 'Base do motorista não definida. Não é possível criar a viagem.' });
+     //    return;
+     // }
 
     const vehicleDisplay = getVehicleDisplay(selectedVehicleId);
     const dateStr = new Date().toLocaleDateString('pt-BR');
     const generatedTripName = `Viagem ${vehicleDisplay} - ${dateStr}`;
-    const base = user.base;
+    // const base = user.base; // Base removed
 
     const newTripData: Omit<Trip, 'id' | 'updatedAt' | 'createdAt'> = {
       name: generatedTripName,
       vehicleId: selectedVehicleId,
       userId: user.id,
       status: 'Andamento',
-      base: base,
+      // base: base, // Base removed
     };
 
     setIsSaving(true);
@@ -466,11 +480,12 @@ export const Trips: React.FC = () => {
                   <Label>Motorista</Label>
                   <p className="text-sm text-muted-foreground">{user?.name || user?.email || 'Não identificado'}</p>
                 </div>
-                <div className="space-y-2">
+                {/* Base Section Removed */}
+                {/* <div className="space-y-2">
                   <Label>Base</Label>
                   <p className="text-sm text-muted-foreground">{user?.base || 'Não definida'}</p>
                    {!user?.base && <p className="text-xs text-destructive">Você precisa ter uma base definida para criar viagens.</p>}
-                </div>
+                </div> */}
                 <div className="space-y-2">
                   <Label>Status</Label>
                   <p className="text-sm font-medium text-emerald-600 flex items-center gap-1">
@@ -481,7 +496,7 @@ export const Trips: React.FC = () => {
                   <DialogClose asChild>
                     <Button type="button" variant="outline" onClick={closeCreateModal} disabled={isSaving}>Cancelar</Button>
                   </DialogClose>
-                  <Button type="submit" disabled={!user?.base || loading || isSaving} className="bg-primary hover:bg-primary/90">
+                  <Button type="submit" disabled={loading || isSaving} className="bg-primary hover:bg-primary/90">
                      {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                      {isSaving ? 'Salvando...' : 'Salvar Viagem'}
                   </Button>
@@ -518,7 +533,7 @@ export const Trips: React.FC = () => {
                                     <>
                                        <SelectItem value="all">Todos os Motoristas</SelectItem>
                                        {drivers.map(driver => (
-                                           <SelectItem key={driver.id} value={driver.id}>{driver.name} ({driver.base})</SelectItem>
+                                           <SelectItem key={driver.id} value={driver.id}>{driver.name} ({driver.base || 'Sem base'})</SelectItem> // Show "(Sem base)" if undefined
                                        ))}
                                    </>
                                 )}
@@ -605,7 +620,7 @@ export const Trips: React.FC = () => {
                               onClick={(e) => openFinishModal(trip, e)}
                               className="h-8 px-2 sm:px-3 text-emerald-600 border-emerald-600/50 hover:bg-emerald-50 hover:text-emerald-700"
                               disabled={isSaving || isDeleting}
-                              asChild={false} // Ensure it's not treated as a child for trigger
+                              // removed asChild={false} as it's default
                            >
                                {isSaving && tripToFinish?.id === trip.id ? <Loader2 className="h-4 w-4 animate-spin sm:mr-1" /> : <CheckCircle2 className="h-4 w-4 sm:mr-1" /> }
                               <span className="hidden sm:inline">{isSaving && tripToFinish?.id === trip.id ? 'Finalizando...': 'Finalizar'}</span>
@@ -655,10 +670,11 @@ export const Trips: React.FC = () => {
                                         <Label>Motorista</Label>
                                         <p className="text-sm text-muted-foreground">{getDriverName(trip.userId)}</p>
                                       </div>
-                                      <div className="space-y-2">
+                                      {/* Base section removed from Edit dialog */}
+                                      {/* <div className="space-y-2">
                                         <Label>Base</Label>
                                         <p className="text-sm text-muted-foreground">{trip.base || 'Não definida'}</p>
-                                      </div>
+                                      </div> */}
                                       <div className="space-y-2">
                                         <Label>Status</Label>
                                         <p className="text-sm font-medium">{currentTrip?.status}</p>
