@@ -21,8 +21,7 @@ export interface VehicleInfo {
   licensePlate: string;
 }
 
-// Remove initialVehicles - will fetch from Firestore
-// export { getVehicles as initialVehicles } from '@/services/firestoreService'; // Removed legacy export
+export { getVehicles }; // Export function for legacy imports if needed
 
 export const Vehicle: React.FC = () => {
   const [vehicles, setVehicles] = useState<VehicleInfo[]>([]);
@@ -42,7 +41,7 @@ export const Vehicle: React.FC = () => {
 
   // Fetch vehicles on mount
   useEffect(() => {
-    const fetchVehicles = async () => {
+    const fetchVehiclesData = async () => {
       setLoading(true);
       try {
         const fetchedVehicles = await getVehicles();
@@ -54,7 +53,7 @@ export const Vehicle: React.FC = () => {
         setLoading(false);
       }
     };
-    fetchVehicles();
+    fetchVehiclesData();
   }, [toast]);
 
 
@@ -76,19 +75,19 @@ export const Vehicle: React.FC = () => {
       licensePlate: licensePlate.toUpperCase(), // Store plate in uppercase
     };
 
-    setIsSaving(true);
+    setIsSaving(true); // Set saving state true
     try {
-        const newVehicleId = await addVehicle(newVehicleData);
+        const newVehicleId = await addVehicle(newVehicleData); // Call Firestore service
         const createdVehicle: VehicleInfo = { ...newVehicleData, id: newVehicleId };
-        setVehicles(prevVehicles => [createdVehicle, ...prevVehicles]);
-        resetForm();
-        setIsCreateModalOpen(false);
-        toast({ title: "Veículo cadastrado com sucesso!" });
+        setVehicles(prevVehicles => [createdVehicle, ...prevVehicles].sort((a,b)=> a.model.localeCompare(b.model))); // Add to local state and sort
+        resetForm(); // Reset form fields
+        setIsCreateModalOpen(false); // Close modal
+        toast({ title: "Veículo cadastrado com sucesso!" }); // Show success toast
     } catch (error) {
-        console.error("Error adding vehicle:", error);
-        toast({ variant: "destructive", title: "Erro", description: "Não foi possível cadastrar o veículo." });
+        console.error("Error adding vehicle:", error); // Log error
+        toast({ variant: "destructive", title: "Erro", description: "Não foi possível cadastrar o veículo." }); // Show error toast
     } finally {
-        setIsSaving(false);
+        setIsSaving(false); // **Ensure saving state is set to false in finally block**
     }
   };
 
@@ -114,7 +113,7 @@ export const Vehicle: React.FC = () => {
      try {
          await updateVehicle(currentVehicle.id, dataToUpdate);
          const updatedVehicle = { ...currentVehicle, ...dataToUpdate };
-         setVehicles(prevVehicles => prevVehicles.map(v => v.id === currentVehicle.id ? updatedVehicle : v));
+         setVehicles(prevVehicles => prevVehicles.map(v => v.id === currentVehicle.id ? updatedVehicle : v).sort((a,b)=> a.model.localeCompare(b.model)));
          resetForm();
          setIsEditModalOpen(false);
          setCurrentVehicle(null);
@@ -123,7 +122,7 @@ export const Vehicle: React.FC = () => {
           console.error("Error updating vehicle:", error);
           toast({ variant: "destructive", title: "Erro", description: "Não foi possível atualizar o veículo." });
      } finally {
-          setIsSaving(false);
+          setIsSaving(false); // Ensure saving state is reset
      }
    };
 
@@ -148,7 +147,7 @@ export const Vehicle: React.FC = () => {
              console.error("Error deleting vehicle:", error);
              toast({ variant: "destructive", title: "Erro", description: "Não foi possível excluir o veículo." });
         } finally {
-            setIsSaving(false);
+            setIsSaving(false); // Ensure saving state is reset
         }
    };
 
@@ -342,4 +341,4 @@ export const Vehicle: React.FC = () => {
        )}
     </div>
   );
-};
+}; 
