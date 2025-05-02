@@ -85,6 +85,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   // Simulate login
   const login = async (email: string, pass: string): Promise<boolean> => {
     setLoading(true);
+    console.log(`Login attempt with email: ${email}, password: ${pass}`); // Log input
     // Simulate API call
     return new Promise((resolve) => {
       setTimeout(() => {
@@ -97,22 +98,38 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               email: ADMIN_EMAIL,
               name: 'Administrador',
               role: 'admin'
-              // Admin doesn't have a 'base' in this model
           };
+           console.log('Admin login attempt successful'); // Log admin success
         }
-        // Simulate regular driver login (replace with actual driver lookup)
+        // Simulate regular driver login
         else {
-           // Find driver in the potentially updated `initialDrivers` array
+           console.log('Attempting driver login for:', email); // Log driver attempt
+           // IMPORTANT: Check against the potentially modified initialDrivers array
            const driver = initialDrivers.find(d => d.email === email);
-           // Check against the DRIVER'S specific password
-           if (driver && driver.password && pass === driver.password) {
-                simulatedUser = {
-                   id: driver.id,
-                   email: driver.email,
-                   name: driver.name,
-                   role: 'driver',
-                   base: driver.base
-                };
+           console.log('Found driver in initialDrivers:', driver); // Log found driver
+
+           if (driver) {
+                console.log('Driver password stored:', driver.password); // Log stored password
+                console.log('Password provided:', pass); // Log provided password
+                const passwordMatch = pass === driver.password;
+                console.log('Password comparison result:', passwordMatch); // Log comparison result
+
+                 // Check against the DRIVER'S specific password
+                 if (driver.password && passwordMatch) {
+                      simulatedUser = {
+                         id: driver.id,
+                         email: driver.email,
+                         name: driver.name,
+                         role: 'driver',
+                         base: driver.base
+                      };
+                      console.log('Driver login successful for:', email); // Log driver success
+                 } else {
+                     console.log('Driver login failed (password mismatch or no password) for:', email); // Log driver failure reason
+                 }
+
+           } else {
+                console.log('Driver login failed (driver not found) for:', email); // Log driver failure reason
            }
         }
 
@@ -121,14 +138,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setUser(simulatedUser);
           localStorage.setItem('rotaCertaUser', JSON.stringify(simulatedUser));
           setLoading(false);
+           console.log('User set in context:', simulatedUser); // Log setting user
           resolve(true); // Login successful
         } else {
           setLoading(false);
+          console.log('Login failed overall for:', email); // Log overall failure
           resolve(false); // Login failed
         }
-      }, 500); // Reduced delay for quicker testing
+      }, 500);
     });
   };
+
 
   const logout = () => {
     setUser(null);
