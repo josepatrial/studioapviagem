@@ -31,6 +31,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 // Mock admin user credentials
 const ADMIN_EMAIL = 'admin@example.com';
 const ADMIN_PASSWORD = 'adminpassword'; // Use a more secure method in production
+const MOCK_DRIVER_PASSWORD = 'password123'; // Mock password for all drivers
 
 // Mock drivers data (needed for login simulation) - Consider moving this to a separate file
 // Use the exported User interface but narrow down roles for this list
@@ -40,6 +41,8 @@ interface DriverInfo extends Omit<User, 'role'>{
 }
 
 
+// This array serves as the *source of truth* for drivers in this mock setup.
+// The Drivers component modifies this array directly.
 export const initialDrivers: DriverInfo[] = [ // Export initialDrivers
   { id: 'driver1', name: 'João Silva', username: 'joao.silva', email: 'joao@example.com', role: 'driver', base: 'Base SP' },
   { id: 'driver2', name: 'Maria Souza', username: 'maria.souza', email: 'maria@example.com', role: 'driver', base: 'Base RJ' },
@@ -98,9 +101,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
         // Simulate regular driver login (replace with actual driver lookup)
         else {
-           // Find driver in mock data (replace with real auth)
-           const driver = initialDrivers.find(d => d.email === email); // Assuming initialDrivers exists globally or is accessible
-           if (driver && pass === 'password123') { // Use a mock password check for drivers
+           // Find driver in the potentially updated `initialDrivers` array
+           const driver = initialDrivers.find(d => d.email === email);
+           // Use the mock password for ALL drivers, including newly created ones
+           if (driver && pass === MOCK_DRIVER_PASSWORD) {
                 simulatedUser = {
                    id: driver.id,
                    email: driver.email,
@@ -121,7 +125,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           setLoading(false);
           resolve(false); // Login failed
         }
-      }, 1000); // Simulate network delay
+      }, 500); // Reduced delay for quicker testing
     });
   };
 
@@ -138,7 +142,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
        setTimeout(() => {
          // Simulate password check and update
          // In a real app: Verify currentPassword against stored hash before updating email
-         const isPasswordCorrect = (user?.role === 'admin' && currentPassword === ADMIN_PASSWORD) || (user?.role === 'driver' && currentPassword === 'password123');
+         const isPasswordCorrect = (user?.role === 'admin' && currentPassword === ADMIN_PASSWORD) || (user?.role === 'driver' && currentPassword === MOCK_DRIVER_PASSWORD);
 
          if (isPasswordCorrect && newEmail && user) { // Check password based on role
            const updatedUser = { ...user, email: newEmail };
@@ -163,11 +167,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
        setTimeout(() => {
          // Simulate password check and update
           // In a real app: Verify currentPassword against stored hash before updating
-         const isPasswordCorrect = (user?.role === 'admin' && currentPassword === ADMIN_PASSWORD) || (user?.role === 'driver' && currentPassword === 'password123');
+         const isPasswordCorrect = (user?.role === 'admin' && currentPassword === ADMIN_PASSWORD) || (user?.role === 'driver' && currentPassword === MOCK_DRIVER_PASSWORD);
 
          if (isPasswordCorrect && newPassword) { // Check password based on role
            // In a real app, update the password in the backend (send newPassword hash)
            console.log("Password updated (simulated)");
+           // Update the mock password for this user if needed (though not used for login check)
            setLoading(false);
            toast({ title: "Sucesso", description: "Senha atualizada." });
            resolve(true);
