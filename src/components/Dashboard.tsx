@@ -1,18 +1,20 @@
 // src/components/Dashboard.tsx
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Plane, Map, Wallet, Fuel, Users, Truck, Milestone, Filter, Calendar } from 'lucide-react'; // Added Calendar icon
-import { useAuth, initialDrivers } from '@/contexts/AuthContext';
-import { initialTrips, Trip } from './Trips/Trips';
-import { initialVisits } from './Trips/Visits';
-import { initialExpenses } from './Trips/Expenses';
-import { initialFuelings } from './Trips/Fuelings';
-import { initialVehicles } from './Vehicle';
+import { useAuth, User } from '@/contexts/AuthContext'; // Import User type
+import { initialTrips, Trip } from './Trips/Trips'; // Assuming these are still mock or fetched elsewhere
+import { initialVisits } from './Trips/Visits';    // Assuming these are still mock or fetched elsewhere
+import { initialExpenses } from './Trips/Expenses';// Assuming these are still mock or fetched elsewhere
+import { initialFuelings } from './Trips/Fuelings';// Assuming these are still mock or fetched elsewhere
+import { initialVehicles } from './Vehicle';      // Assuming these are still mock or fetched elsewhere
 import { DateRangePicker } from '@/components/ui/date-range-picker'; // Import DateRangePicker
 import type { DateRange } from 'react-day-picker';
 import { isWithinInterval, parseISO } from 'date-fns';
+import { getDrivers } from '@/services/firestoreService'; // Import function to get drivers
+import { LoadingSpinner } from './LoadingSpinner'; // Import LoadingSpinner
 
 // Helper function to format currency
 const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -28,25 +30,52 @@ interface DashboardProps {
 export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
+  const [drivers, setDrivers] = useState<User[]>([]); // State for fetched drivers
+  const [loadingDrivers, setLoadingDrivers] = useState(true); // Loading state for drivers
   const [filterDriverId, setFilterDriverId] = useState<string>(''); // State for driver filter
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined); // State for date range filter
 
+  // Fetch drivers on component mount if admin
+  useEffect(() => {
+    if (isAdmin) {
+      const fetchDrivers = async () => {
+        setLoadingDrivers(true);
+        try {
+          const fetchedDrivers = await getDrivers();
+          // Ensure fetched drivers have the 'driver' role if the service returns mixed users
+          setDrivers(fetchedDrivers.filter(d => d.role === 'driver'));
+        } catch (error) {
+          console.error("Error fetching drivers:", error);
+          // Handle error appropriately, maybe show a toast
+        } finally {
+          setLoadingDrivers(false);
+        }
+      };
+      fetchDrivers();
+    } else {
+        setLoadingDrivers(false); // Not admin, no need to load drivers list
+    }
+  }, [isAdmin]);
+
   // Calculate summary data based on role and filters
   const summaryData = useMemo(() => {
+    // Use the fetched drivers list instead of initialDrivers
+    let relevantDriverIds = drivers.map(d => d.id);
+
     let filteredTrips = initialTrips;
     let filteredVisits = initialVisits;
     let filteredExpenses = initialExpenses;
     let filteredFuelings = initialFuelings;
-    let relevantDriverIds = initialDrivers.map(d => d.id);
+
 
     // Apply date filter first if set
     if (dateRange?.from && dateRange?.to) {
         const interval = { start: dateRange.from, end: dateRange.to };
         filteredTrips = filteredTrips.filter(t => isWithinInterval(parseISO(t.createdAt), interval));
         // Filter related items based on their own dates
-        filteredVisits = filteredVisits.filter(v => isWithinInterval(parseISO(v.timestamp), interval));
-        filteredExpenses = filteredExpenses.filter(e => isWithinInterval(parseISO(e.expenseDate), interval)); // Use expenseDate
-        filteredFuelings = filteredFuelings.filter(f => isWithinInterval(parseISO(f.date), interval)); // Use fueling date
+        filteredVisits = initialVisits.filter(v => isWithinInterval(parseISO(v.timestamp), interval));
+        filteredExpenses = initialExpenses.filter(e => isWithinInterval(parseISO(e.expenseDate), interval)); // Use expenseDate
+        filteredFuelings = initialFuelings.filter(f => isWithinInterval(parseISO(f.date), interval)); // Use fueling date
     } else if (dateRange?.from) {
         // Handle case where only 'from' date is selected (filter from that date onwards)
         // Note: isWithinInterval requires both start and end. Adjust logic if single date filter needed.
@@ -74,7 +103,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
       }
 
 
-      const totalDrivers = filterDriverId ? 1 : initialDrivers.length;
+      const totalDrivers = filterDriverId ? 1 : drivers.length; // Use fetched drivers count
       const totalVehicles = initialVehicles.length;
 
 
@@ -91,7 +120,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         totalDrivers: totalDrivers,
         totalVehicles: totalVehicles,
         filterApplied: !!filterDriverId || !!dateRange,
-        filterContext: `${filterDriverId ? `Motorista: ${initialDrivers.find(d=>d.id === filterDriverId)?.name}` : 'Total'} ${dateRange ? `(${dateRange.from?.toLocaleDateString('pt-BR')} - ${dateRange.to?.toLocaleDateString('pt-BR') ?? '...'})` : ''}`.trim(),
+        filterContext: `${filterDriverId ? `Motorista: ${drivers.find(d=>d.id === filterDriverId)?.name}` : 'Total'} ${dateRange ? `(${dateRange.from?.toLocaleDateString('pt-BR')} - ${dateRange.to?.toLocaleDateString('pt-BR') ?? '...'})` : ''}`.trim(),
       };
 
     } else {
@@ -129,7 +158,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
          filterContext: `Suas Atividades ${dateRange ? `(${dateRange.from?.toLocaleDateString('pt-BR')} - ${dateRange.to?.toLocaleDateString('pt-BR') ?? '...'})` : ''}`.trim(),
       };
     }
-  }, [isAdmin, user?.id, filterDriverId, dateRange]);
+  }, [isAdmin, user?.id, filterDriverId, dateRange, drivers]); // Add drivers to dependency array
 
 
   return (
@@ -141,19 +170,29 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                 <Filter className="h-5 w-5" /> Filtros do Painel
              </CardTitle>
            </CardHeader>
-           <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+           <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
              {isAdmin && ( // Driver filter only for admin
                 <div className="space-y-1.5">
                     <Label htmlFor="driverFilter">Filtrar por Motorista</Label>
-                    <Select value={filterDriverId} onValueChange={(value) => setFilterDriverId(value === 'all' ? '' : value)}>
+                    <Select value={filterDriverId} onValueChange={(value) => setFilterDriverId(value === 'all' ? '' : value)} disabled={loadingDrivers}>
                         <SelectTrigger id="driverFilter">
-                            <SelectValue placeholder="Todos os Motoristas" />
+                            <SelectValue placeholder={loadingDrivers ? "Carregando motoristas..." : "Todos os Motoristas"} />
                         </SelectTrigger>
                         <SelectContent>
-                            <SelectItem value="all">Todos os Motoristas</SelectItem>
-                            {initialDrivers.map(driver => (
-                                <SelectItem key={driver.id} value={driver.id}>{driver.name} ({driver.base})</SelectItem>
-                            ))}
+                            {loadingDrivers ? (
+                                <SelectItem value="loading" disabled>
+                                    <div className="flex items-center justify-center py-2">
+                                        <LoadingSpinner className="h-4 w-4" />
+                                    </div>
+                                </SelectItem>
+                            ) : (
+                               <>
+                                <SelectItem value="all">Todos os Motoristas</SelectItem>
+                                {drivers.map(driver => (
+                                    <SelectItem key={driver.id} value={driver.id}>{driver.name} ({driver.base})</SelectItem>
+                                ))}
+                               </>
+                            )}
                         </SelectContent>
                     </Select>
                 </div>

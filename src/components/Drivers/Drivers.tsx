@@ -4,20 +4,25 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Edit, Trash2, User, Mail, Hash, Lock, Building } from 'lucide-react'; // Added Building icon for Base
+import { PlusCircle, Edit, Trash2, User, Mail, Hash, Lock, Building, Loader2 } from 'lucide-react'; // Added Building icon for Base, Loader2
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { initialDrivers, DriverInfo } from '@/contexts/AuthContext'; // Import mock drivers and DriverInfo interface
+import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth'; // Import Firebase Auth functions
+import { auth } from '@/lib/firebase'; // Import initialized Firebase auth
+import { getDrivers, addUser, updateUser, deleteUser, getUserData } from '@/services/firestoreService'; // Import Firestore service functions
+import type { DriverInfo, User as AppUser } from '@/contexts/AuthContext'; // Import types
+import { LoadingSpinner } from '../LoadingSpinner'; // Import LoadingSpinner
 
-// Driver interface now uses DriverInfo from AuthContext
-type Driver = DriverInfo;
+// Driver interface now uses DriverInfo which extends User
+type Driver = AppUser & { username: string }; // Assuming username is still required for display
 
 
 export const Drivers: React.FC = () => {
     const [drivers, setDrivers] = useState<Driver[]>([]);
+    const [loadingDrivers, setLoadingDrivers] = useState(true); // Loading state
     const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [currentDriver, setCurrentDriver] = useState<Driver | null>(null);
@@ -27,17 +32,31 @@ export const Drivers: React.FC = () => {
     const [name, setName] = useState('');
     const [username, setUsername] = useState('');
     const [email, setEmail] = useState('');
-    const [password, setPassword] = useState(''); // Only for create/edit, not stored in local component state after save
-    const [confirmPassword, setConfirmPassword] = useState(''); // For create/edit password validation
+    const [password, setPassword] = useState('');
+    const [confirmPassword, setConfirmPassword] = useState('');
     const [base, setBase] = useState('');
+    const [isSaving, setIsSaving] = useState(false); // Loading state for save/edit/delete actions
 
+    // Fetch drivers on mount
     useEffect(() => {
-        // Load initial drivers (in real app, fetch from API)
-        setDrivers(initialDrivers);
-    }, []);
+        const fetchDrivers = async () => {
+            setLoadingDrivers(true);
+            try {
+                const fetchedDrivers = await getDrivers();
+                // Assuming getDrivers returns DriverInfo or compatible User type
+                setDrivers(fetchedDrivers as Driver[]); // Cast might be needed depending on service return type
+            } catch (error) {
+                console.error("Error fetching drivers:", error);
+                toast({ variant: "destructive", title: "Erro", description: "Não foi possível carregar os motoristas." });
+            } finally {
+                setLoadingDrivers(false);
+            }
+        };
+        fetchDrivers();
+    }, [toast]);
 
     // --- Handlers ---
-    const handleAddDriver = (e: React.FormEvent) => {
+    const handleAddDriver = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!name || !username || !email || !password || !confirmPassword || !base) {
             toast({ variant: "destructive", title: "Erro", description: "Todos os campos são obrigatórios." });
@@ -47,116 +66,158 @@ export const Drivers: React.FC = () => {
              toast({ variant: "destructive", title: "Erro", description: "As senhas não coincidem." });
              return;
         }
-        // Add basic password complexity check if needed (e.g., length)
-         if (password.length < 6) {
+        if (password.length < 6) {
             toast({ variant: "destructive", title: "Erro", description: "A senha deve ter pelo menos 6 caracteres." });
             return;
          }
-        // Check if username or email already exists (simple check on mock data)
-        if (initialDrivers.some(d => d.username === username)) { // Check against the source array
-            toast({ variant: "destructive", title: "Erro", description: "Nome de usuário já existe." });
-            return;
-        }
-        if (initialDrivers.some(d => d.email === email)) { // Check against the source array
+
+        // Check if username or email already exists (query Firestore) - Basic check shown
+        // In a real app, use Firestore queries for robust checking
+        const emailExists = drivers.some(d => d.email === email);
+        const usernameExists = drivers.some(d => d.username === username); // Assuming username is stored/needed
+
+        if (emailExists) {
             toast({ variant: "destructive", title: "Erro", description: "E-mail já cadastrado." });
             return;
         }
+        if (usernameExists) {
+            toast({ variant: "destructive", title: "Erro", description: "Nome de usuário já existe." });
+            return;
+        }
 
-        const newDriver: Driver = {
-            id: String(Date.now()), // Simple unique ID
-            name,
-            username,
-            email,
-            base,
-            role: 'driver', // Set role explicitly
-            password: password, // Store the password (INSECURE - demo only)
-        };
-        // In a real app, save to backend (sending the password hash)
-        initialDrivers.push(newDriver); // Add to global mock data
-        setDrivers(prevDrivers => [newDriver, ...prevDrivers]); // Update local state
-        resetForm();
-        setIsCreateModalOpen(false);
-        toast({ title: "Motorista cadastrado com sucesso!" });
-        // Clear password fields after successful creation
-        setPassword('');
-        setConfirmPassword('');
+        setIsSaving(true);
+        try {
+            // 1. Create user in Firebase Authentication
+            const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+            const userId = userCredential.user.uid;
+
+            // 2. Create user document in Firestore
+            const userData: Omit<DriverInfo, 'id' | 'password'> = {
+                name,
+                username,
+                email,
+                base,
+                role: 'driver', // Set role explicitly
+            };
+            await addUser(userId, userData); // Use Firestore service
+
+            // 3. Update local state
+            const newDriver = { id: userId, ...userData } as Driver;
+            setDrivers(prevDrivers => [newDriver, ...prevDrivers]);
+
+            resetForm();
+            setIsCreateModalOpen(false);
+            toast({ title: "Motorista cadastrado com sucesso!" });
+        } catch (error: any) {
+            console.error("Error adding driver:", error);
+            let description = "Ocorreu um erro ao cadastrar o motorista.";
+            if (error.code === 'auth/email-already-in-use') {
+                description = "Este e-mail já está em uso por outra conta.";
+            } else if (error.code === 'auth/invalid-email') {
+                description = "O formato do e-mail é inválido.";
+            } else if (error.code === 'auth/weak-password') {
+                 description = "A senha é muito fraca.";
+            }
+            toast({ variant: "destructive", title: "Erro", description });
+        } finally {
+            setIsSaving(false);
+        }
     };
 
-    const handleEditDriver = (e: React.FormEvent) => {
+    const handleEditDriver = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!currentDriver) return;
         if (!name || !username || !email || !base) {
             toast({ variant: "destructive", title: "Erro", description: "Nome, Nome de Usuário, E-mail e Base são obrigatórios." });
             return;
         }
-        // Password update logic (optional during edit)
-        let updatedPassword = currentDriver.password; // Keep current password by default
-        if (password) { // If a new password was entered
-             if (password !== confirmPassword) {
-                 toast({ variant: "destructive", title: "Erro", description: "As senhas não coincidem." });
-                 return;
-             }
-             if (password.length < 6) {
-                toast({ variant: "destructive", title: "Erro", description: "A nova senha deve ter pelo menos 6 caracteres." });
-                return;
-             }
-             updatedPassword = password; // Set the new password
-        }
-
 
         // Check for duplicate username/email (excluding the current driver)
-        if (initialDrivers.some(d => d.username === username && d.id !== currentDriver.id)) {
-            toast({ variant: "destructive", title: "Erro", description: "Nome de usuário já existe." });
+        const emailExists = drivers.some(d => d.email === email && d.id !== currentDriver.id);
+        const usernameExists = drivers.some(d => d.username === username && d.id !== currentDriver.id);
+
+        if (emailExists) {
+            toast({ variant: "destructive", title: "Erro", description: "E-mail já pertence a outro motorista." });
             return;
         }
-        if (initialDrivers.some(d => d.email === email && d.id !== currentDriver.id)) {
-            toast({ variant: "destructive", title: "Erro", description: "E-mail já cadastrado." });
+        if (usernameExists) {
+            toast({ variant: "destructive", title: "Erro", description: "Nome de usuário já pertence a outro motorista." });
             return;
         }
 
-        const updatedDriver: Driver = {
-            ...currentDriver,
-            name,
-            username,
-            email,
-            base,
-            password: updatedPassword, // Update password if changed
-        };
+        setIsSaving(true);
+        try {
+            const dataToUpdate: Partial<DriverInfo> = {
+                name,
+                username,
+                email, // Email update needs re-authentication, handle separately or disallow direct edit here
+                base,
+            };
 
-        // In a real app, save to backend (send password hash only if changed)
-        const index = initialDrivers.findIndex(d => d.id === currentDriver.id);
-        if (index !== -1) {
-            initialDrivers[index] = updatedDriver; // Update global mock data
+            // Note: Updating email/password for existing users via admin panel is complex
+            // due to Firebase Auth security rules (requires re-authentication).
+            // It's often better to have users manage their own credentials via profile page.
+            // We'll only update Firestore data here. Password changes are omitted.
+            if (email !== currentDriver.email) {
+                 toast({ variant: "destructive", title: "Aviso", description: "Alteração de e-mail não suportada aqui. O motorista deve alterar em seu perfil." });
+                 // Reset email field or prevent saving if email changed
+                 //setEmail(currentDriver.email);
+                 //return;
+            }
+
+
+            await updateUser(currentDriver.id, dataToUpdate); // Use Firestore service
+
+            // Update local state
+            const updatedDriver = { ...currentDriver, ...dataToUpdate } as Driver;
+            setDrivers(prevDrivers => prevDrivers.map(d => d.id === currentDriver.id ? updatedDriver : d));
+
+            resetForm();
+            setIsEditModalOpen(false);
+            setCurrentDriver(null);
+            toast({ title: "Dados do motorista atualizados com sucesso!" });
+
+        } catch (error) {
+            console.error("Error updating driver:", error);
+            toast({ variant: "destructive", title: "Erro", description: "Não foi possível atualizar os dados do motorista." });
+        } finally {
+            setIsSaving(false);
         }
-
-        setDrivers(prevDrivers => prevDrivers.map(d => d.id === currentDriver.id ? updatedDriver : d)); // Update local state
-        resetForm();
-        setIsEditModalOpen(false);
-        setCurrentDriver(null);
-        toast({ title: "Dados do motorista atualizados com sucesso!" });
-        // Clear password fields after successful edit
-        setPassword('');
-        setConfirmPassword('');
     };
 
-    const handleDeleteDriver = (driverId: string) => {
-        // In a real app, call backend to delete
-        // Add checks here if needed (e.g., cannot delete if driver has active trips)
 
-        const index = initialDrivers.findIndex(d => d.id === driverId);
-        if (index !== -1) {
-            initialDrivers.splice(index, 1); // Remove from global mock data
+    const handleDeleteDriver = async (driverId: string) => {
+         // Add checks here if needed (e.g., cannot delete if driver has active trips)
+         // This requires fetching trip data, which adds complexity.
+
+        setIsSaving(true);
+        try {
+            // 1. Delete Firestore document
+            await deleteUser(driverId); // Use Firestore service
+
+            // 2. Delete Firebase Auth user (REQUIRES ADMIN SDK on backend, not possible client-side directly)
+            //    For now, we only delete from Firestore and local state.
+            //    The Auth user will remain but won't have associated data.
+            console.warn(`Driver ${driverId} deleted from Firestore. Corresponding Auth user NOT deleted (requires backend).`);
+
+            // 3. Update local state
+            setDrivers(prevDrivers => prevDrivers.filter(d => d.id !== driverId));
+            toast({ title: "Motorista excluído do banco de dados." });
+        } catch (error) {
+            console.error("Error deleting driver:", error);
+            toast({ variant: "destructive", title: "Erro", description: "Não foi possível excluir o motorista." });
+        } finally {
+            setIsSaving(false);
         }
-        setDrivers(prevDrivers => prevDrivers.filter(d => d.id !== driverId)); // Update local state
-        toast({ title: "Motorista excluído." });
     };
+
 
     const openEditModal = (driver: Driver) => {
         setCurrentDriver(driver);
-        setName(driver.name);
-        setUsername(driver.username);
-        setEmail(driver.email);
-        setBase(driver.base);
+        setName(driver.name || '');
+        setUsername(driver.username || '');
+        setEmail(driver.email || '');
+        setBase(driver.base || '');
         setPassword(''); // Clear password fields when opening edit modal
         setConfirmPassword('');
         setIsEditModalOpen(true);
@@ -199,40 +260,47 @@ export const Drivers: React.FC = () => {
                         <form onSubmit={handleAddDriver} className="grid gap-4 py-4">
                             <div className="space-y-2">
                                 <Label htmlFor="name">Nome Completo*</Label>
-                                <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required placeholder="Nome do motorista" />
+                                <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required placeholder="Nome do motorista" disabled={isSaving} />
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="username">Nome de Usuário*</Label>
-                                <Input id="username" value={username} onChange={(e) => setUsername(e.target.value)} required placeholder="Ex: joao.silva" />
+                                <Input id="username" value={username} onChange={(e) => setUsername(e.target.value)} required placeholder="Ex: joao.silva" disabled={isSaving} />
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="email">E-mail*</Label>
-                                <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="motorista@email.com" />
+                                <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="motorista@email.com" disabled={isSaving} />
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="base">Base*</Label>
-                                <Input id="base" value={base} onChange={(e) => setBase(e.target.value)} required placeholder="Base de operação (Ex: SP, RJ)" />
+                                <Input id="base" value={base} onChange={(e) => setBase(e.target.value)} required placeholder="Base de operação (Ex: SP, RJ)" disabled={isSaving}/>
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="password">Senha*</Label>
-                                <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="Mínimo 6 caracteres" />
+                                <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="Mínimo 6 caracteres" disabled={isSaving} />
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="confirmPassword">Confirmar Senha*</Label>
-                                <Input id="confirmPassword" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required placeholder="Repita a senha" />
+                                <Input id="confirmPassword" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required placeholder="Repita a senha" disabled={isSaving} />
                             </div>
                             <DialogFooter>
                                 <DialogClose asChild>
-                                    <Button type="button" variant="outline" onClick={closeCreateModal}>Cancelar</Button>
+                                    <Button type="button" variant="outline" onClick={closeCreateModal} disabled={isSaving}>Cancelar</Button>
                                 </DialogClose>
-                                <Button type="submit" className="bg-primary hover:bg-primary/90">Salvar Motorista</Button>
+                                <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isSaving}>
+                                     {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                     {isSaving ? 'Salvando...' : 'Salvar Motorista'}
+                                </Button>
                             </DialogFooter>
                         </form>
                     </DialogContent>
                 </Dialog>
             </div>
 
-            {drivers.length === 0 ? (
+            {loadingDrivers ? (
+                 <div className="flex justify-center items-center h-40">
+                     <LoadingSpinner />
+                 </div>
+             ) : drivers.length === 0 ? (
                 <Card className="text-center py-10 bg-card border border-border shadow-sm rounded-lg">
                     <CardContent>
                         <p className="text-muted-foreground">Nenhum motorista cadastrado.</p>
@@ -259,7 +327,7 @@ export const Drivers: React.FC = () => {
                                     {/* Edit Button */}
                                     <Dialog open={isEditModalOpen && currentDriver?.id === driver.id} onOpenChange={(isOpen) => !isOpen && closeEditModal()}>
                                         <DialogTrigger asChild>
-                                            <Button variant="ghost" size="icon" onClick={() => openEditModal(driver)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8">
+                                            <Button variant="ghost" size="icon" onClick={() => openEditModal(driver)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving}>
                                                 <Edit className="h-4 w-4" />
                                                 <span className="sr-only">Editar Motorista</span>
                                             </Button>
@@ -271,33 +339,32 @@ export const Drivers: React.FC = () => {
                                             <form onSubmit={handleEditDriver} className="grid gap-4 py-4">
                                                 <div className="space-y-2">
                                                     <Label htmlFor="editName">Nome Completo*</Label>
-                                                    <Input id="editName" value={name} onChange={(e) => setName(e.target.value)} required />
+                                                    <Input id="editName" value={name} onChange={(e) => setName(e.target.value)} required disabled={isSaving}/>
                                                 </div>
                                                 <div className="space-y-2">
                                                     <Label htmlFor="editUsername">Nome de Usuário*</Label>
-                                                    <Input id="editUsername" value={username} onChange={(e) => setUsername(e.target.value)} required />
+                                                    <Input id="editUsername" value={username} onChange={(e) => setUsername(e.target.value)} required disabled={isSaving}/>
                                                 </div>
                                                 <div className="space-y-2">
                                                     <Label htmlFor="editEmail">E-mail*</Label>
-                                                    <Input id="editEmail" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+                                                    <Input id="editEmail" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required disabled={true} // Disable email editing client-side for now
+                                                           title="Alteração de e-mail deve ser feita pelo perfil do motorista."
+                                                     />
+                                                      <p className="text-xs text-muted-foreground">Alteração de e-mail indisponível aqui.</p>
                                                 </div>
                                                  <div className="space-y-2">
                                                     <Label htmlFor="editBase">Base*</Label>
-                                                    <Input id="editBase" value={base} onChange={(e) => setBase(e.target.value)} required />
+                                                    <Input id="editBase" value={base} onChange={(e) => setBase(e.target.value)} required disabled={isSaving} />
                                                  </div>
-                                                <div className="space-y-2 mt-4 border-t pt-4">
-                                                    <Label htmlFor="editPassword">Nova Senha (Opcional)</Label>
-                                                    <Input id="editPassword" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Deixe em branco para manter a atual" />
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <Label htmlFor="editConfirmPassword">Confirmar Nova Senha</Label>
-                                                    <Input id="editConfirmPassword" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Repita a nova senha" disabled={!password} />
-                                                </div>
+                                                {/* Password fields removed from edit for simplicity/security */}
                                                 <DialogFooter>
                                                     <DialogClose asChild>
-                                                        <Button type="button" variant="outline" onClick={closeEditModal}>Cancelar</Button>
+                                                        <Button type="button" variant="outline" onClick={closeEditModal} disabled={isSaving}>Cancelar</Button>
                                                     </DialogClose>
-                                                    <Button type="submit" className="bg-primary hover:bg-primary/90">Salvar Alterações</Button>
+                                                    <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isSaving}>
+                                                        {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                                        {isSaving ? 'Salvando...' : 'Salvar Alterações'}
+                                                    </Button>
                                                 </DialogFooter>
                                             </form>
                                         </DialogContent>
@@ -306,7 +373,7 @@ export const Drivers: React.FC = () => {
                                     {/* Delete Button */}
                                     <AlertDialog>
                                         <AlertDialogTrigger asChild>
-                                            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8">
+                                            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" disabled={isSaving}>
                                                 <Trash2 className="h-4 w-4" />
                                                 <span className="sr-only">Excluir Motorista</span>
                                             </Button>
@@ -315,16 +382,18 @@ export const Drivers: React.FC = () => {
                                             <AlertDialogHeader>
                                                 <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
                                                 <AlertDialogDescription>
-                                                    Tem certeza que deseja excluir o motorista {driver.name} ({driver.username})? Esta ação não pode ser desfeita.
+                                                    Tem certeza que deseja excluir o motorista {driver.name} ({driver.username})? Esta ação removerá o registro do sistema, mas o login associado pode precisar ser removido manualmente pelo administrador do Firebase.
                                                 </AlertDialogDescription>
                                             </AlertDialogHeader>
                                             <AlertDialogFooter>
-                                                <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                                <AlertDialogCancel disabled={isSaving}>Cancelar</AlertDialogCancel>
                                                 <AlertDialogAction
                                                     onClick={() => handleDeleteDriver(driver.id)}
                                                     className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                                                    disabled={isSaving}
                                                 >
-                                                    Excluir
+                                                     {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                                     {isSaving ? 'Excluindo...' : 'Excluir'}
                                                 </AlertDialogAction>
                                             </AlertDialogFooter>
                                         </AlertDialogContent>

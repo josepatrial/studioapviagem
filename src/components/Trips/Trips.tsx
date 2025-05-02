@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Edit, Trash2, ChevronDown, ChevronUp, Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Filter } from 'lucide-react'; // Added Milestone, Filter
+import { PlusCircle, Edit, Trash2, ChevronDown, ChevronUp, Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Filter, Loader2 } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -19,20 +19,23 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-// Mock data - Imported to fix the reference error, but could be moved back if unused here
-import { initialVisits, type Visit, Visits } from './Visits';
-// Import initialExpenses and initialFuelings directly
-import { Expenses, initialExpenses, Expense } from './Expenses';
-import { Fuelings, initialFuelings, Fueling } from './Fuelings';
+// Mock data imports - keep for counts until replaced
+import { Visits, getVisits as fetchVisits, type Visit } from './Visits';
+import { Expenses, getExpenses as fetchExpenses, type Expense } from './Expenses';
+import { Fuelings, getFuelings as fetchFuelings, type Fueling } from './Fuelings';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth, initialDrivers, User } from '@/contexts/AuthContext'; // Import initialDrivers as well
-import { initialVehicles, type VehicleInfo } from '../Vehicle';
+import { useAuth, User } from '@/contexts/AuthContext';
+import { getVehicles as fetchVehicles, type VehicleInfo } from '../Vehicle';
 import { Badge } from '@/components/ui/badge';
 import { FinishTripDialog } from './FinishTripDialog';
 import { cn } from '@/lib/utils';
+import { getTrips, addTrip, updateTrip, deleteTripAndRelatedData, getDrivers, TripFilter } from '@/services/firestoreService';
+import { LoadingSpinner } from '../LoadingSpinner';
+import { DateRangePicker } from '@/components/ui/date-range-picker';
+import type { DateRange } from 'react-day-picker';
+import { parseISO, startOfDay, endOfDay } from 'date-fns';
 
 // Define Trip interface
 export interface Trip {
@@ -41,86 +44,145 @@ export interface Trip {
   vehicleId: string;
   userId: string; // ID of the driver who owns the trip
   status: 'Andamento' | 'Finalizado';
-  createdAt: string;
-  updatedAt: string;
-  visitCount?: number;
-  expenseCount?: number;
-  fuelingCount?: number;
+  createdAt: string; // ISO String
+  updatedAt: string; // ISO String
+  visitCount?: number; // Calculated client-side for display
+  expenseCount?: number; // Calculated client-side for display
+  fuelingCount?: number; // Calculated client-side for display
   finalKm?: number;
   totalDistance?: number;
-  base?: string; // Add base information to the trip
+  base?: string;
+  // Include counts directly from Firestore if aggregated, otherwise calculate client-side
 }
-
-// Mock data - Updated to include userId and base
-// Find driver IDs from initialDrivers to associate trips
-const driver1Id = initialDrivers.find(d => d.username === 'joao.silva')?.id || 'driver1';
-const driver2Id = initialDrivers.find(d => d.username === 'maria.souza')?.id || 'driver2';
-const driver3Id = initialDrivers.find(d => d.username === 'carlos.pereira')?.id || 'driver3';
-const driver4Id = initialDrivers.find(d => d.username === 'ana.costa')?.id || 'driver4';
-
-const initialTrips: Trip[] = [
-  { id: '1', name: 'Viagem Scania R450 (BRA2E19) - 21/07/2024', vehicleId: 'v1', userId: driver1Id, status: 'Andamento', createdAt: new Date(2024, 6, 20).toISOString(), updatedAt: new Date(2024, 6, 21).toISOString(), base: 'Base SP' },
-  { id: '2', name: 'Viagem Volvo FH540 (MER1C01) - 15/07/2024', vehicleId: 'v2', userId: driver2Id, status: 'Finalizado', createdAt: new Date(2024, 6, 15).toISOString(), updatedAt: new Date(2024, 6, 22).toISOString(), finalKm: 16500, totalDistance: 500, base: 'Base RJ' },
-  { id: '3', name: 'Viagem Scania R450 (BRA2E19) - 24/07/2024', vehicleId: 'v1', userId: driver1Id, status: 'Finalizado', createdAt: new Date(2024, 6, 24).toISOString(), updatedAt: new Date(2024, 6, 25).toISOString(), finalKm: 15800, totalDistance: 650, base: 'Base SP' },
-  { id: '4', name: 'Viagem Volvo FH540 (MER1C01) - 26/07/2024', vehicleId: 'v2', userId: driver2Id, status: 'Andamento', createdAt: new Date(2024, 6, 26).toISOString(), updatedAt: new Date(2024, 6, 26).toISOString(), base: 'Base RJ' },
-  { id: '5', name: 'Viagem Scania R450 (BRA2E19) - 28/07/2024', vehicleId: 'v1', userId: driver3Id, status: 'Andamento', createdAt: new Date(2024, 6, 28).toISOString(), updatedAt: new Date(2024, 6, 28).toISOString(), base: 'Base SP' },
-   { id: '6', name: 'Viagem Outro Modelo (XYZ1A23) - 01/08/2024', vehicleId: 'v1', userId: driver4Id, status: 'Finalizado', createdAt: new Date(2024, 7, 1).toISOString(), updatedAt: new Date(2024, 7, 2).toISOString(), finalKm: 10500, totalDistance: 300, base: 'Base MG' },
-];
-export { initialTrips }; // Export for Dashboard
 
 export const Trips: React.FC = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
-  const [allTrips, setAllTrips] = useState<Trip[]>(initialTrips); // Store all trips from source
-  const [displayedTrips, setDisplayedTrips] = useState<Trip[]>([]); // Trips shown based on role/filter
-  const [vehicles, setVehicles] = useState<VehicleInfo[]>(initialVehicles);
-  const [drivers, setDrivers] = useState<User[]>(initialDrivers); // Keep track of drivers for display/filtering
+  const [allTrips, setAllTrips] = useState<Trip[]>([]);
+  const [vehicles, setVehicles] = useState<VehicleInfo[]>([]);
+  const [drivers, setDrivers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isFinishModalOpen, setIsFinishModalOpen] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [currentTrip, setCurrentTrip] = useState<Trip | null>(null);
   const [tripToFinish, setTripToFinish] = useState<Trip | null>(null);
+  const [tripToDelete, setTripToDelete] = useState<Trip | null>(null); // For delete confirmation
   const [expandedTripId, setExpandedTripId] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const [tripName, setTripName] = useState('');
   const [selectedVehicleId, setSelectedVehicleId] = useState('');
-  // Add state for filtering (Admin only)
-  const [filterDriver, setFilterDriver] = useState<string>(''); // Only driver filter remains
+  const [filterDriver, setFilterDriver] = useState<string>('');
+  const [filterDateRange, setFilterDateRange] = useState<DateRange | undefined>(undefined);
 
+   // State for counts (will be fetched per trip)
+   const [visitCounts, setVisitCounts] = useState<Record<string, number>>({});
+   const [expenseCounts, setExpenseCounts] = useState<Record<string, number>>({});
+   const [fuelingCounts, setFuelingCounts] = useState<Record<string, number>>({});
+   // State for visit data needed for FinishTripDialog
+   const [visitsDataForFinish, setVisitsDataForFinish] = useState<Visit[]>([]);
+
+  // Fetch initial data (vehicles, drivers)
   useEffect(() => {
-      // Initial load and sorting
-      const sortedTrips = [...initialTrips].sort((a, b) => {
-          if (a.status === 'Andamento' && b.status === 'Finalizado') return -1;
-          if (a.status === 'Finalizado' && b.status === 'Andamento') return 1;
-          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-      });
-      setAllTrips(sortedTrips); // Update the master list
-  }, []);
-
-
-  useEffect(() => {
-    // Filter and display logic based on role and filters
-    let filtered = [...allTrips]; // Start with all sorted trips
-
-    if (isAdmin) {
-        // Admin: Apply driver filter if set
-        if (filterDriver) {
-            filtered = filtered.filter(trip => trip.userId === filterDriver);
+    const fetchInitialDeps = async () => {
+        setLoading(true); // Start loading before fetching anything
+        try {
+            const [vehiclesData, driversData] = await Promise.all([
+                fetchVehicles(),
+                isAdmin ? getDrivers() : Promise.resolve([]),
+            ]);
+            setVehicles(vehiclesData);
+            setDrivers(driversData.filter(d => d.role === 'driver'));
+        } catch (error) {
+            console.error("Error fetching initial dependencies:", error);
+            toast({ variant: "destructive", title: "Erro", description: "Não foi possível carregar veículos/motoristas." });
+        } finally {
+            // Don't set loading false here, wait for trips fetch
         }
-    } else {
-        // Driver: Only show their own trips
-        if (user) {
-             filtered = filtered.filter(trip => trip.userId === user.id);
+    };
+    fetchInitialDeps();
+  }, [isAdmin, toast]);
+
+  // Fetch Trips based on filters
+  useEffect(() => {
+    const fetchTripsAndCounts = async () => {
+      if (loading && !isAdmin && !user) return; // Don't fetch if loading initial deps or no user context yet for driver
+
+      setLoading(true); // Start loading for trips fetch
+      try {
+        const filters: TripFilter = {};
+        if (isAdmin) {
+          if (filterDriver) filters.userId = filterDriver;
+        } else if (user) {
+          filters.userId = user.id; // Driver always sees their own trips
         } else {
-            // Not admin and not logged in? Show nothing.
-             filtered = [];
+            setAllTrips([]); // No user, no trips
+            setLoading(false);
+            return;
         }
+
+        if (filterDateRange?.from) {
+            filters.startDate = startOfDay(filterDateRange.from).toISOString();
+        }
+        if (filterDateRange?.to) {
+            filters.endDate = endOfDay(filterDateRange.to).toISOString();
+        }
+
+        const tripsData = await getTrips(filters); // Fetch filtered trips
+
+         // Fetch counts for each trip
+         const countsPromises = tripsData.map(async (trip) => {
+             const [visits, expenses, fuelings] = await Promise.all([
+                 fetchVisits(trip.id),
+                 fetchExpenses(trip.id),
+                 fetchFuelings(trip.id),
+             ]);
+             return {
+                 tripId: trip.id,
+                 visitCount: visits.length,
+                 expenseCount: expenses.length,
+                 fuelingCount: fuelings.length,
+                 visits: visits, // Keep visits data for Finish dialog
+             };
+         });
+
+         const countsResults = await Promise.all(countsPromises);
+         const newVisitCounts: Record<string, number> = {};
+         const newExpenseCounts: Record<string, number> = {};
+         const newFuelingCounts: Record<string, number> = {};
+         let allVisits: Visit[] = [];
+
+         countsResults.forEach(result => {
+             newVisitCounts[result.tripId] = result.visitCount;
+             newExpenseCounts[result.tripId] = result.expenseCount;
+             newFuelingCounts[result.tripId] = result.fuelingCount;
+             allVisits = allVisits.concat(result.visits);
+         });
+
+         setVisitCounts(newVisitCounts);
+         setExpenseCounts(newExpenseCounts);
+         setFuelingCounts(newFuelingCounts);
+         setVisitsDataForFinish(allVisits); // Store all fetched visits
+
+        setAllTrips(tripsData); // Set the fetched and sorted trips
+
+      } catch (error) {
+        console.error("Error fetching trips:", error);
+        toast({ variant: "destructive", title: "Erro", description: "Não foi possível carregar as viagens." });
+        setAllTrips([]); // Clear trips on error
+      } finally {
+        setLoading(false); // Finish loading after fetching trips
+      }
+    };
+
+    // Only run fetchTripsAndCounts if vehicles/drivers are loaded (or not admin)
+    // and the user context is available (for non-admins)
+    if (!loading || (isAdmin && vehicles.length > 0 && drivers.length > 0) || (!isAdmin && user)) {
+        fetchTripsAndCounts();
     }
-    setDisplayedTrips(filtered);
-
-  }, [user, allTrips, isAdmin, filterDriver]); // Removed filterBase dependency
-
+  }, [user, isAdmin, filterDriver, filterDateRange, toast, vehicles, drivers]); // Re-fetch when filters change
 
   const getVehicleDisplay = (vehicleId: string) => {
     const vehicle = vehicles.find(v => v.id === vehicleId);
@@ -134,21 +196,16 @@ export const Trips: React.FC = () => {
 
   const getTripDescription = (trip: Trip): string => {
       const vehicle = vehicles.find(v => v.id === trip.vehicleId);
-      // Conditionally show driver name ONLY if admin is viewing
       const driverName = isAdmin ? ` - ${getDriverName(trip.userId)}` : '';
       const baseInfo = trip.base ? ` (Base: ${trip.base})` : '';
       const vehicleInfo = vehicle ? `${vehicle.model} (${vehicle.licensePlate})` : 'Veículo Desconhecido';
       return `${vehicleInfo}${driverName}${baseInfo}`;
   };
 
-
   const formatKm = (km?: number): string => km ? km.toLocaleString('pt-BR') + ' Km' : 'N/A';
 
-  const getVisitCount = (tripId: string): number => initialVisits.filter(v => v.tripId === tripId).length;
-  const getExpenseCount = (tripId: string): number => initialExpenses.filter(e => e.tripId === tripId).length;
-  const getFuelingCount = (tripId: string): number => initialFuelings.filter(f => f.tripId === tripId).length;
 
-  const handleCreateTrip = (e: React.FormEvent) => {
+  const handleCreateTrip = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) {
       toast({ variant: 'destructive', title: 'Erro', description: 'Usuário não autenticado.' });
@@ -166,141 +223,179 @@ export const Trips: React.FC = () => {
     const vehicleDisplay = getVehicleDisplay(selectedVehicleId);
     const dateStr = new Date().toLocaleDateString('pt-BR');
     const generatedTripName = `Viagem ${vehicleDisplay} - ${dateStr}`;
-    // Determine base - Use user's base
-    const base = user.base; // Use user's base
+    const base = user.base;
 
-    const newTrip: Trip = {
-      id: String(Date.now()),
+    const newTripData: Omit<Trip, 'id' | 'updatedAt' | 'createdAt'> = {
       name: generatedTripName,
       vehicleId: selectedVehicleId,
       userId: user.id,
       status: 'Andamento',
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
       base: base,
     };
-    initialTrips.push(newTrip); // Add to the source mock array
-    // Update the master list state, triggering the filtering useEffect
-     setAllTrips(prevAllTrips => [newTrip, ...prevAllTrips].sort((a, b) => {
-       if (a.status === 'Andamento' && b.status === 'Finalizado') return -1;
-       if (a.status === 'Finalizado' && b.status === 'Andamento') return 1;
-       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-     }));
-    resetForm();
-    setIsCreateModalOpen(false);
-    toast({ title: 'Viagem criada com sucesso!' });
+
+    setIsSaving(true);
+    try {
+        const newTripId = await addTrip(newTripData);
+        // Re-fetch trips to get the latest list including the new one
+        // This simplifies state management compared to manually adding
+        const tripsData = await getTrips(isAdmin ? {} : { userId: user.id });
+        setAllTrips(tripsData);
+        resetForm();
+        setIsCreateModalOpen(false);
+        toast({ title: 'Viagem criada com sucesso!' });
+    } catch (error) {
+        console.error("Error creating trip:", error);
+        toast({ variant: "destructive", title: "Erro", description: "Não foi possível criar a viagem." });
+    } finally {
+        setIsSaving(false);
+    }
   };
 
-  const handleEditTrip = (e: React.FormEvent) => {
+  const handleEditTrip = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentTrip || !user) return;
-    if (!tripName || !selectedVehicleId) {
-      toast({ variant: 'destructive', title: 'Erro', description: 'Nome da viagem e veículo são obrigatórios.' });
-      return;
+    // Trip name is generated automatically, no longer edited by user
+    // if (!tripName) { ... }
+    if (!selectedVehicleId) {
+        toast({ variant: 'destructive', title: 'Erro', description: 'Veículo é obrigatório.' });
+        return;
     }
 
-    const updatedTrip: Trip = {
-      ...currentTrip,
-      name: tripName,
+    const dataToUpdate: Partial<Trip> = {
+      // name: tripName, // Name is not editable
       vehicleId: selectedVehicleId,
-      updatedAt: new Date().toISOString(),
-       // Keep the original base, or allow admin to change it if needed
-       // Admin editing should maybe allow changing base? For now, keep original.
-       // base: isAdmin ? selectedBase : currentTrip.base
     };
 
-    const index = initialTrips.findIndex(t => t.id === currentTrip.id);
-    if (index !== -1) {
-      initialTrips[index] = updatedTrip; // Update source mock array
-    }
+    setIsSaving(true);
+    try {
+        await updateTrip(currentTrip.id, dataToUpdate);
+        // Re-fetch trips to get the updated data
+        const filters: TripFilter = isAdmin ? {} : { userId: user.id };
+        if (filterDriver) filters.userId = filterDriver;
+        if (filterDateRange?.from) filters.startDate = startOfDay(filterDateRange.from).toISOString();
+        if (filterDateRange?.to) filters.endDate = endOfDay(filterDateRange.to).toISOString();
 
-    // Update the master list state, triggering the filtering useEffect
-    setAllTrips(prevAllTrips => prevAllTrips.map(trip => trip.id === currentTrip.id ? updatedTrip : trip)
-      .sort((a, b) => {
-        if (a.status === 'Andamento' && b.status === 'Finalizado') return -1;
-        if (a.status === 'Finalizado' && b.status === 'Andamento') return 1;
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-      }));
-    resetForm();
-    setIsEditModalOpen(false);
-    setCurrentTrip(null);
-    toast({ title: 'Viagem atualizada com sucesso!' });
+        const tripsData = await getTrips(filters);
+        setAllTrips(tripsData);
+
+        resetForm();
+        setIsEditModalOpen(false);
+        setCurrentTrip(null);
+        toast({ title: 'Viagem atualizada com sucesso!' });
+    } catch (error) {
+        console.error("Error updating trip:", error);
+        toast({ variant: "destructive", title: "Erro", description: "Não foi possível atualizar a viagem." });
+    } finally {
+        setIsSaving(false);
+    }
   };
 
-  const openFinishModal = (trip: Trip, event: React.MouseEvent) => {
+  const openFinishModal = (trip: Trip, event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     setTripToFinish(trip);
     setIsFinishModalOpen(true);
   };
 
-  const confirmFinishTrip = (tripId: string, finalKm: number, totalDistance: number) => {
-    const index = initialTrips.findIndex(t => t.id === tripId);
-    if (index === -1) return;
+  const confirmFinishTrip = async (tripId: string, finalKm: number, totalDistance: number) => {
+    setIsSaving(true);
+    try {
+        const dataToUpdate: Partial<Trip> = {
+          status: 'Finalizado',
+          finalKm: finalKm,
+          totalDistance: totalDistance,
+        };
+        await updateTrip(tripId, dataToUpdate);
 
-    const updatedTrip: Trip = {
-      ...initialTrips[index],
-      status: 'Finalizado',
-      updatedAt: new Date().toISOString(),
-      finalKm: finalKm,
-      totalDistance: totalDistance,
-    };
-    initialTrips[index] = updatedTrip; // Update source mock array
+        // Re-fetch trips to update the list
+        const filters: TripFilter = isAdmin ? {} : { userId: user.id };
+        if (filterDriver) filters.userId = filterDriver;
+        if (filterDateRange?.from) filters.startDate = startOfDay(filterDateRange.from).toISOString();
+        if (filterDateRange?.to) filters.endDate = endOfDay(filterDateRange.to).toISOString();
 
-    // Update the master list state, triggering the filtering useEffect
-    setAllTrips(prevAllTrips => [...prevAllTrips].map(trip => trip.id === tripId ? updatedTrip : trip)
-      .sort((a, b) => {
-        if (a.status === 'Andamento' && b.status === 'Finalizado') return -1;
-        if (a.status === 'Finalizado' && b.status === 'Andamento') return 1;
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-      }));
+        const tripsData = await getTrips(filters);
+        setAllTrips(tripsData);
 
-    setIsFinishModalOpen(false);
-    setTripToFinish(null);
-    toast({
-      title: `Viagem "${updatedTrip.name}" finalizada.`,
-      description: `Distância percorrida: ${formatKm(totalDistance)}`,
-    });
-  };
 
-  const handleDeleteTrip = (tripId: string) => {
-    const hasRelatedItems =
-      initialVisits.some(v => v.tripId === tripId) ||
-      initialExpenses.some(e => e.tripId === tripId) ||
-      initialFuelings.some(f => f.tripId === tripId);
-
-    if (hasRelatedItems) {
+        setIsFinishModalOpen(false);
+        setTripToFinish(null);
+        const tripName = allTrips.find(t => t.id === tripId)?.name || 'Viagem';
         toast({
-            variant: "destructive",
-            title: "Exclusão não permitida",
-            description: "Não é possível excluir a viagem pois existem visitas, despesas ou abastecimentos associados.",
-            duration: 7000,
+          title: `Viagem "${tripName}" finalizada.`,
+          description: `Distância percorrida: ${formatKm(totalDistance)}`,
         });
-        return;
+    } catch (error) {
+         console.error("Error finishing trip:", error);
+         toast({ variant: "destructive", title: "Erro", description: "Não foi possível finalizar a viagem." });
+    } finally {
+        setIsSaving(false);
     }
-
-    const index = initialTrips.findIndex(t => t.id === tripId);
-    if (index !== -1) {
-      initialTrips.splice(index, 1); // Remove from source mock array
-    }
-    // Update the master list state, triggering the filtering useEffect
-    setAllTrips(prevAllTrips => prevAllTrips.filter(trip => trip.id !== tripId));
-
-    if (expandedTripId === tripId) {
-      setExpandedTripId(null);
-    }
-    toast({ title: 'Viagem excluída.' });
   };
 
-  const openEditModal = (trip: Trip, event: React.MouseEvent) => {
+    const openDeleteConfirmation = (trip: Trip, event: React.MouseEvent<HTMLButtonElement>) => {
+        event.stopPropagation();
+        setTripToDelete(trip);
+    };
+
+    const closeDeleteConfirmation = () => {
+        setTripToDelete(null);
+    };
+
+  const confirmDeleteTrip = async () => {
+    if (!tripToDelete) return;
+
+    // Optional: Add stricter checks using fetched counts
+     const visitCount = visitCounts[tripToDelete.id] ?? 0;
+     const expenseCount = expenseCounts[tripToDelete.id] ?? 0;
+     const fuelingCount = fuelingCounts[tripToDelete.id] ?? 0;
+
+     if (visitCount > 0 || expenseCount > 0 || fuelingCount > 0) {
+         toast({
+             variant: "destructive",
+             title: "Exclusão não permitida",
+             description: "Não é possível excluir a viagem pois existem visitas, despesas ou abastecimentos associados.",
+             duration: 7000,
+         });
+         closeDeleteConfirmation();
+         return;
+     }
+
+    setIsDeleting(true);
+    try {
+        await deleteTripAndRelatedData(tripToDelete.id); // Use service for potential batch delete
+
+         // Re-fetch trips to update the list
+        const filters: TripFilter = isAdmin ? {} : { userId: user.id };
+        if (filterDriver) filters.userId = filterDriver;
+        if (filterDateRange?.from) filters.startDate = startOfDay(filterDateRange.from).toISOString();
+        if (filterDateRange?.to) filters.endDate = endOfDay(filterDateRange.to).toISOString();
+        const tripsData = await getTrips(filters);
+        setAllTrips(tripsData);
+
+
+        if (expandedTripId === tripToDelete.id) {
+          setExpandedTripId(null);
+        }
+        toast({ title: 'Viagem excluída com sucesso.' });
+        closeDeleteConfirmation();
+    } catch (error) {
+        console.error("Error deleting trip:", error);
+        toast({ variant: "destructive", title: "Erro", description: "Não foi possível excluir a viagem." });
+    } finally {
+        setIsDeleting(false);
+    }
+  };
+
+  const openEditModal = (trip: Trip, event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     setCurrentTrip(trip);
-    setTripName(trip.name);
+    // Trip name is not editable anymore
+    // setTripName(trip.name);
     setSelectedVehicleId(trip.vehicleId);
     setIsEditModalOpen(true);
   };
 
   const resetForm = () => {
-    setTripName('');
+    // setTripName(''); // No longer needed
     setSelectedVehicleId('');
   };
 
@@ -327,27 +422,11 @@ export const Trips: React.FC = () => {
                </span>
            )}
         </h2>
-        <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
-           {isAdmin && ( // Filter options for Admin
-                <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
-                     {/* Removed Base Filter Select */}
-                     <Select value={filterDriver} onValueChange={(value) => setFilterDriver(value === 'all' ? '' : value)}>
-                        <SelectTrigger className="w-full sm:w-[180px] h-9">
-                            <SelectValue placeholder="Filtrar por Motorista" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">Todos os Motoristas</SelectItem>
-                             {/* Show all drivers */}
-                            {drivers.map(driver => (
-                                <SelectItem key={driver.id} value={driver.id}>{driver.name} ({driver.base})</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                </div>
-            )}
+        <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center w-full sm:w-auto">
+           {/* Filters Section - Moved to a Card before the list */}
           <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
             <DialogTrigger asChild>
-              <Button onClick={() => { resetForm(); setIsCreateModalOpen(true); }} className="bg-primary hover:bg-primary/90 text-primary-foreground h-9">
+              <Button onClick={() => { resetForm(); setIsCreateModalOpen(true); }} className="bg-primary hover:bg-primary/90 text-primary-foreground h-9 w-full sm:w-auto" disabled={loading || isSaving}>
                 <PlusCircle className="mr-2 h-4 w-4" /> Criar Nova Viagem
               </Button>
             </DialogTrigger>
@@ -358,12 +437,18 @@ export const Trips: React.FC = () => {
               <form onSubmit={handleCreateTrip} className="grid gap-4 py-4">
                 <div className="space-y-2">
                   <Label htmlFor="vehicleId">Veículo*</Label>
-                  <Select value={selectedVehicleId} onValueChange={setSelectedVehicleId} required>
+                  <Select value={selectedVehicleId} onValueChange={setSelectedVehicleId} required disabled={loading || isSaving}>
                     <SelectTrigger id="vehicleId">
-                      <SelectValue placeholder="Selecione um veículo" />
+                      <SelectValue placeholder={loading ? "Carregando..." : "Selecione um veículo"} />
                     </SelectTrigger>
                     <SelectContent>
-                      {vehicles.length > 0 ? (
+                       {loading ? (
+                           <SelectItem value="loading" disabled>
+                               <div className="flex items-center justify-center py-2">
+                                   <LoadingSpinner className="h-4 w-4" />
+                               </div>
+                           </SelectItem>
+                       ) : vehicles.length > 0 ? (
                         vehicles.map((vehicle) => (
                           <SelectItem key={vehicle.id} value={vehicle.id}>
                             {vehicle.model} ({vehicle.licensePlate})
@@ -392,9 +477,12 @@ export const Trips: React.FC = () => {
                 </div>
                 <DialogFooter>
                   <DialogClose asChild>
-                    <Button type="button" variant="outline" onClick={closeCreateModal}>Cancelar</Button>
+                    <Button type="button" variant="outline" onClick={closeCreateModal} disabled={isSaving}>Cancelar</Button>
                   </DialogClose>
-                  <Button type="submit" disabled={!user?.base} className="bg-primary hover:bg-primary/90">Salvar Viagem</Button>
+                  <Button type="submit" disabled={!user?.base || loading || isSaving} className="bg-primary hover:bg-primary/90">
+                     {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                     {isSaving ? 'Salvando...' : 'Salvar Viagem'}
+                  </Button>
                 </DialogFooter>
               </form>
             </DialogContent>
@@ -402,12 +490,58 @@ export const Trips: React.FC = () => {
         </div>
       </div>
 
-      {displayedTrips.length === 0 ? (
+       {/* Filters Card - Only for Admin */}
+        {isAdmin && (
+             <Card className="mb-6 shadow-md">
+               <CardHeader>
+                 <CardTitle className="text-lg flex items-center gap-2">
+                    <Filter className="h-5 w-5" /> Filtros de Viagens
+                 </CardTitle>
+               </CardHeader>
+               <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+                   <div className="space-y-1.5">
+                       <Label htmlFor="driverFilter">Filtrar por Motorista</Label>
+                       <Select value={filterDriver} onValueChange={(value) => setFilterDriver(value === 'all' ? '' : value)} disabled={loading}>
+                           <SelectTrigger id="driverFilter">
+                               <SelectValue placeholder={loading ? "Carregando..." : "Todos os Motoristas"} />
+                           </SelectTrigger>
+                           <SelectContent>
+                                {loading ? (
+                                    <SelectItem value="loading" disabled>
+                                        <div className="flex items-center justify-center py-2">
+                                            <LoadingSpinner className="h-4 w-4" />
+                                        </div>
+                                    </SelectItem>
+                                ) : (
+                                    <>
+                                       <SelectItem value="all">Todos os Motoristas</SelectItem>
+                                       {drivers.map(driver => (
+                                           <SelectItem key={driver.id} value={driver.id}>{driver.name} ({driver.base})</SelectItem>
+                                       ))}
+                                   </>
+                                )}
+                           </SelectContent>
+                       </Select>
+                   </div>
+                   <div className="space-y-1.5">
+                       <Label>Filtrar por Data de Criação</Label>
+                       <DateRangePicker date={filterDateRange} onDateChange={setFilterDateRange} />
+                   </div>
+               </CardContent>
+           </Card>
+        )}
+
+
+      {loading ? (
+          <div className="flex justify-center items-center h-40">
+             <LoadingSpinner />
+          </div>
+       ) : allTrips.length === 0 ? (
         <Card className="text-center py-10 bg-card border border-border">
           <CardContent>
             <p className="text-muted-foreground">
-                {isAdmin && filterDriver
-                    ? 'Nenhuma viagem encontrada para o motorista selecionado.'
+                {isAdmin && (filterDriver || filterDateRange)
+                    ? 'Nenhuma viagem encontrada para os filtros selecionados.'
                     : isAdmin
                     ? 'Nenhuma viagem cadastrada no sistema ainda.'
                     : 'Você ainda não cadastrou nenhuma viagem.'}
@@ -421,19 +555,18 @@ export const Trips: React.FC = () => {
         </Card>
       ) : (
         <Accordion type="single" collapsible className="w-full space-y-4" value={expandedTripId ?? undefined} onValueChange={setExpandedTripId}>
-          {displayedTrips.map((trip) => {
-            const visitCount = getVisitCount(trip.id);
-            const expenseCount = getExpenseCount(trip.id);
-            const fuelingCount = getFuelingCount(trip.id);
+          {allTrips.map((trip) => {
+            const visitCount = visitCounts[trip.id] ?? 0;
+            const expenseCount = expenseCounts[trip.id] ?? 0;
+            const fuelingCount = fuelingCounts[trip.id] ?? 0;
             return (
               <AccordionItem key={trip.id} value={trip.id} className="border bg-card rounded-lg shadow-sm overflow-hidden">
-                 {/* Use a div for the header area to allow flex layout */}
                  <div className="flex justify-between items-center p-4 hover:bg-accent/50 w-full text-left data-[state=open]:border-b">
                      <AccordionTrigger className="flex-1 p-0 hover:no-underline">
                           <div className="flex-1 mr-4 space-y-1">
                             <div className="flex items-center gap-2 flex-wrap">
                               <CardTitle className="text-lg">{trip.name}</CardTitle>
-                              <Badge variant={trip.status === 'Andamento' ? 'default' : 'secondary'} className={`h-5 px-2 text-xs whitespace-nowrap ${trip.status === 'Andamento' ? 'bg-emerald-500 hover:bg-emerald-500/80 dark:bg-emerald-600 dark:hover:bg-emerald-600/80 text-white' : ''}`}>
+                              <Badge variant={trip.status === 'Andamento' ? 'default' : 'secondary'} className={cn('h-5 px-2 text-xs whitespace-nowrap', trip.status === 'Andamento' ? 'bg-emerald-500 hover:bg-emerald-500/80 dark:bg-emerald-600 dark:hover:bg-emerald-600/80 text-white' : '')}>
                                 {trip.status === 'Andamento' ? <PlayCircle className="h-3 w-3 mr-1" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
                                 {trip.status}
                               </Badge>
@@ -463,7 +596,6 @@ export const Trips: React.FC = () => {
                             </div>
                           </div>
                      </AccordionTrigger>
-                     {/* Action buttons moved outside the trigger but within the header flex container */}
                      <div className="flex items-center gap-1 flex-shrink-0 ml-2">
                         {trip.status === 'Andamento' && (isAdmin || trip.userId === user?.id) && (
                            <Button
@@ -471,16 +603,17 @@ export const Trips: React.FC = () => {
                               size="sm"
                               onClick={(e) => openFinishModal(trip, e)}
                               className="h-8 px-2 sm:px-3 text-emerald-600 border-emerald-600/50 hover:bg-emerald-50 hover:text-emerald-700"
+                              disabled={isSaving || isDeleting}
                            >
-                              <CheckCircle2 className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">Finalizar</span>
+                               {isSaving && tripToFinish?.id === trip.id ? <Loader2 className="h-4 w-4 animate-spin sm:mr-1" /> : <CheckCircle2 className="h-4 w-4 sm:mr-1" /> }
+                              <span className="hidden sm:inline">{isSaving && tripToFinish?.id === trip.id ? 'Finalizando...': 'Finalizar'}</span>
                            </Button>
                         )}
                         {(isAdmin || trip.userId === user?.id) && (
                            <>
-                                <Dialog open={isEditModalOpen && currentTrip?.id === trip.id} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); else openEditModal(trip, { stopPropagation: () => {} } as React.MouseEvent); }}>
+                                <Dialog open={isEditModalOpen && currentTrip?.id === trip.id} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); }}>
                                   <DialogTrigger asChild>
-                                    {/* Use a simple button for the trigger */}
-                                     <Button variant="ghost" size="icon" onClick={(e) => openEditModal(trip, e)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8">
+                                     <Button variant="ghost" size="icon" onClick={(e) => openEditModal(trip, e)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving || isDeleting}>
                                        <Edit className="h-4 w-4" />
                                        <span className="sr-only">Editar Viagem</span>
                                      </Button>
@@ -490,21 +623,28 @@ export const Trips: React.FC = () => {
                                       <DialogTitle>Editar Viagem</DialogTitle>
                                     </DialogHeader>
                                     <form onSubmit={handleEditTrip} className="grid gap-4 py-4">
-                                      <div className="space-y-2">
-                                        <Label htmlFor="editTripName">Nome da Viagem*</Label>
-                                        <Input id="editTripName" value={tripName} onChange={(e) => setTripName(e.target.value)} required />
-                                      </div>
+                                      {/* Trip Name is now generated and not editable by user */}
+                                       <div className="space-y-2">
+                                         <Label>Nome da Viagem</Label>
+                                         <p className="text-sm text-muted-foreground">{currentTrip?.name}</p>
+                                       </div>
                                       <div className="space-y-2">
                                         <Label htmlFor="editVehicleId">Veículo*</Label>
-                                        <Select value={selectedVehicleId} onValueChange={setSelectedVehicleId} required>
+                                        <Select value={selectedVehicleId} onValueChange={setSelectedVehicleId} required disabled={isSaving || loading}>
                                           <SelectTrigger id="editVehicleId">
-                                            <SelectValue />
+                                            <SelectValue placeholder={loading ? "Carregando..." : "Selecione"} />
                                           </SelectTrigger>
                                           <SelectContent>
-                                            {vehicles.map((vehicle) => (
-                                              <SelectItem key={vehicle.id} value={vehicle.id}>
-                                                {vehicle.model} ({vehicle.licensePlate})
-                                              </SelectItem>
+                                            {loading ? (
+                                                <SelectItem value="loading" disabled>
+                                                   <div className="flex items-center justify-center py-2">
+                                                       <LoadingSpinner className="h-4 w-4" />
+                                                   </div>
+                                                </SelectItem>
+                                            ) : vehicles.map((vehicle) => (
+                                                <SelectItem key={vehicle.id} value={vehicle.id}>
+                                                    {vehicle.model} ({vehicle.licensePlate})
+                                                </SelectItem>
                                             ))}
                                           </SelectContent>
                                         </Select>
@@ -523,39 +663,46 @@ export const Trips: React.FC = () => {
                                       </div>
                                       <DialogFooter>
                                         <DialogClose asChild>
-                                          <Button type="button" variant="outline" onClick={closeEditModal}>Cancelar</Button>
+                                          <Button type="button" variant="outline" onClick={closeEditModal} disabled={isSaving}>Cancelar</Button>
                                         </DialogClose>
-                                        <Button type="submit" className="bg-primary hover:bg-primary/90">Salvar Alterações</Button>
+                                        <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isSaving}>
+                                           {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                           {isSaving ? 'Salvando...' : 'Salvar Alterações'}
+                                        </Button>
                                       </DialogFooter>
                                     </form>
                                   </DialogContent>
                                 </Dialog>
 
-                                <AlertDialog>
-                                  <AlertDialogTrigger asChild>
-                                    {/* Use a simple button for the trigger */}
-                                    <Button variant="ghost" size="icon" onClick={(e) => e.stopPropagation()} className="text-muted-foreground hover:text-destructive h-8 w-8">
-                                      <Trash2 className="h-4 w-4" />
-                                      <span className="sr-only">Excluir Viagem</span>
-                                    </Button>
-                                  </AlertDialogTrigger>
-                                  <AlertDialogContent>
-                                    <AlertDialogHeader>
-                                      <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
-                                      <AlertDialogDescription>
-                                       Tem certeza que deseja excluir a viagem "{trip.name}"? Esta ação não pode ser desfeita. Certifique-se de que não há visitas, despesas ou abastecimentos associados antes de excluir.
-                                      </AlertDialogDescription>
-                                    </AlertDialogHeader>
-                                    <AlertDialogFooter>
-                                      <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                                      <AlertDialogAction
-                                        onClick={() => handleDeleteTrip(trip.id)}
-                                        className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
-                                      >
-                                        Excluir
-                                      </AlertDialogAction>
-                                    </AlertDialogFooter>
-                                  </AlertDialogContent>
+                                <AlertDialog open={!!tripToDelete && tripToDelete.id === trip.id} onOpenChange={(isOpen) => !isOpen && closeDeleteConfirmation()}>
+                                    <AlertDialogTrigger asChild>
+                                        <Button variant="ghost" size="icon" onClick={(e) => openDeleteConfirmation(trip, e)} className="text-muted-foreground hover:text-destructive h-8 w-8" disabled={isSaving || isDeleting}>
+                                            <Trash2 className="h-4 w-4" />
+                                            <span className="sr-only">Excluir Viagem</span>
+                                        </Button>
+                                    </AlertDialogTrigger>
+                                    <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                            <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
+                                            <AlertDialogDescription>
+                                                Tem certeza que deseja excluir a viagem "{tripToDelete?.name}"? Esta ação não pode ser desfeita.
+                                                {(visitCounts[tripToDelete?.id ?? ''] ?? 0) > 0 || (expenseCounts[tripToDelete?.id ?? ''] ?? 0) > 0 || (fuelingCounts[tripToDelete?.id ?? ''] ?? 0) > 0 ?
+                                                    <strong className="text-destructive block mt-2"> Atenção: Esta viagem possui visitas, despesas ou abastecimentos associados. A exclusão não será permitida.</strong>
+                                                    : ''}
+                                            </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                            <AlertDialogCancel onClick={closeDeleteConfirmation} disabled={isDeleting}>Cancelar</AlertDialogCancel>
+                                            <AlertDialogAction
+                                                onClick={confirmDeleteTrip}
+                                                className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                                                disabled={isDeleting || (visitCounts[tripToDelete?.id ?? ''] ?? 0) > 0 || (expenseCounts[tripToDelete?.id ?? ''] ?? 0) > 0 || (fuelingCounts[tripToDelete?.id ?? ''] ?? 0) > 0} // Disable if related items exist
+                                            >
+                                                {isDeleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                                {isDeleting ? 'Excluindo...' : 'Excluir'}
+                                            </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                    </AlertDialogContent>
                                 </AlertDialog>
                             </>
                          )}
@@ -564,7 +711,7 @@ export const Trips: React.FC = () => {
 
                 <AccordionContent className="p-4 pt-0 bg-secondary/30">
                   <div className="space-y-6">
-                    {/* Pass isAdmin prop to child components if they need role-based logic */}
+                     {/* Pass tripId and tripName. Components now fetch their own data */}
                     <section>
                       <Visits tripId={trip.id} tripName={trip.name} />
                     </section>
@@ -590,7 +737,7 @@ export const Trips: React.FC = () => {
            isOpen={isFinishModalOpen}
            onClose={() => { setIsFinishModalOpen(false); setTripToFinish(null); }}
            onConfirm={confirmFinishTrip}
-           initialVisitsData={initialVisits}
+           initialVisitsData={visitsDataForFinish.filter(v => v.tripId === tripToFinish.id)} // Pass only relevant visits
          />
        )}
     </div>

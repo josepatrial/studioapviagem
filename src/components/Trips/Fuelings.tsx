@@ -1,10 +1,9 @@
-
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Edit, Trash2, Droplet, Loader, Paperclip, Camera, Upload, Check, X, Eye } from 'lucide-react';
+import { PlusCircle, Edit, Trash2, Droplet, Loader, Paperclip, Camera, Upload, Check, X, Eye, Loader2 } from 'lucide-react'; // Added Loader2
 import {
   AlertDialog,
   AlertDialogAction,
@@ -20,44 +19,45 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"; // Import Alert components
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from '@/hooks/use-toast';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
+import { getFuelings, addFueling, updateFueling, deleteFueling } from '@/services/firestoreService'; // Import Firestore functions
+import { uploadReceipt, deleteReceipt } from '@/services/storageService'; // Import Storage functions
 
 export interface Fueling {
   id: string;
   tripId: string;
-  vehicleId: string;
-  date: string;
+  vehicleId: string; // Should ideally be linked dynamically
+  date: string; // ISO String
   liters: number;
   pricePerLiter: number;
   totalCost: number;
   location: string;
   comments?: string;
-  receiptUrl?: string; // URL or identifier for the attached receipt (PDF/Image)
-  receiptFilename?: string; // Original filename or identifier
+  receiptUrl?: string;
+  receiptPath?: string; // Store storage path for deletion
+  receiptFilename?: string;
 }
 
-const initialFuelings: Fueling[] = [
-  { id: 'f1', tripId: '1', vehicleId: 'v1', date: new Date(2024, 6, 21).toISOString(), liters: 100, pricePerLiter: 5.8, totalCost: 580, location: 'Posto Exemplo, 123', receiptUrl: 'mock/fuel1.jpg', receiptFilename: 'fuel1.jpg' },
-  { id: 'f2', tripId: '1', vehicleId: 'v1', date: new Date(2024, 6, 23).toISOString(), liters: 110, pricePerLiter: 5.9, totalCost: 649, location: 'Posto Principal, 456' },
-  { id: 'f3', tripId: '2', vehicleId: 'v2', date: new Date(2024, 6, 25).toISOString(), liters: 120, pricePerLiter: 6.0, totalCost: 720, location: 'Posto Bandeirantes, km 30' },
-];
-
-export { initialFuelings };
+// Remove initialFuelings - data will be fetched
+// const initialFuelings: Fueling[] = [...];
+export { getFuelings as initialFuelings } from '@/services/firestoreService'; // Export function for legacy imports if needed
 
 interface FuelingsProps {
-  tripId?: string;
+  tripId: string; // TripId is required
   tripName?: string;
 }
 
 export const Fuelings: React.FC<FuelingsProps> = ({ tripId, tripName }) => {
   const [fuelings, setFuelings] = useState<Fueling[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false); // Saving/Deleting state
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [currentFueling, setCurrentFueling] = useState<Fueling | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
+  const [fuelingToDelete, setFuelingToDelete] = useState<Fueling | null>(null); // State for fueling to delete
   const { toast } = useToast();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -70,27 +70,39 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId, tripName }) => {
   const [comments, setComments] = useState('');
 
   // --- Attachment State ---
-  const [attachment, setAttachment] = useState<File | string | null>(null); // Can be File object (PDF) or data URI (Image)
+  const [attachment, setAttachment] = useState<File | string | null>(null);
   const [attachmentFilename, setAttachmentFilename] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false); // Uploading state
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
 
-
-  useEffect(() => {
-    const filtered = tripId ? initialFuelings.filter(f => f.tripId === tripId) : initialFuelings;
-    setFuelings(filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
-  }, [tripId]);
+   // Fetch fuelings for the specific tripId
+   useEffect(() => {
+    const fetchFuelingsData = async () => {
+        if (!tripId) return;
+        setLoading(true);
+        try {
+            const fetchedFuelings = await getFuelings(tripId);
+            setFuelings(fetchedFuelings); // Already sorted by service
+        } catch (error) {
+            console.error(`Error fetching fuelings for trip ${tripId}:`, error);
+            toast({ variant: "destructive", title: "Erro", description: "Não foi possível carregar os abastecimentos." });
+        } finally {
+            setLoading(false);
+        }
+    };
+    fetchFuelingsData();
+  }, [tripId, toast]);
 
    // Camera Permission Effect
     useEffect(() => {
         if (!isCameraOpen) {
-            // Stop camera stream when modal closes
             if (videoRef.current && videoRef.current.srcObject) {
                 const stream = videoRef.current.srcObject as MediaStream;
                 stream.getTracks().forEach(track => track.stop());
                 videoRef.current.srcObject = null;
             }
-             setHasCameraPermission(null); // Reset permission state
+             setHasCameraPermission(null);
             return;
         }
 
@@ -98,7 +110,6 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId, tripName }) => {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: true });
                 setHasCameraPermission(true);
-
                 if (videoRef.current) {
                     videoRef.current.srcObject = stream;
                 }
@@ -107,16 +118,13 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId, tripName }) => {
                 setHasCameraPermission(false);
                 toast({
                     variant: 'destructive',
-                    title: 'Camera Access Denied',
-                    description: 'Please enable camera permissions in your browser settings to scan receipts.',
+                    title: 'Acesso à Câmera Negado',
+                    description: 'Por favor, habilite as permissões de câmera nas configurações do seu navegador.',
                 });
-                // setIsCameraOpen(false); // Optionally close
             }
         };
-
         getCameraPermission();
 
-        // Cleanup function
         return () => {
             if (videoRef.current && videoRef.current.srcObject) {
                 const stream = videoRef.current.srcObject as MediaStream;
@@ -128,17 +136,24 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId, tripName }) => {
 
   // --- Helpers ---
   const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-  const formatDate = (dateString: string) => new Date(dateString).toLocaleDateString('pt-BR');
+   const formatDate = (dateString: string) => {
+       try {
+            return new Date(dateString).toLocaleDateString('pt-BR');
+       } catch {
+           return 'Data inválida';
+       }
+   };
+
    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (file) {
-            if (file.type === 'application/pdf') {
+            if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
                 setAttachment(file);
                 setAttachmentFilename(file.name);
-                setIsCameraOpen(false); // Close camera if a file is selected
+                setIsCameraOpen(false);
             } else {
-                toast({ variant: "destructive", title: "Tipo de arquivo inválido", description: "Por favor, selecione um arquivo PDF." });
-                event.target.value = ''; // Reset input
+                toast({ variant: "destructive", title: "Tipo de arquivo inválido", description: "Por favor, selecione um PDF ou imagem (JPG, PNG, GIF)." });
+                event.target.value = '';
             }
         }
     };
@@ -164,158 +179,207 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId, tripName }) => {
     const clearAttachment = () => {
         setAttachment(null);
         setAttachmentFilename(null);
-        const fileInput = document.getElementById('receiptPdf') as HTMLInputElement | null;
+        const fileInput = document.getElementById('createReceiptPdf') as HTMLInputElement | null;
         if (fileInput) fileInput.value = '';
         const editFileInput = document.getElementById('editReceiptPdf') as HTMLInputElement | null;
         if (editFileInput) editFileInput.value = '';
     };
 
-    const simulateUpload = async (fileOrDataUrl: File | string): Promise<{ url: string, filename: string }> => {
-        await new Promise(resolve => setTimeout(resolve, 500));
-        let filename = '';
-         if (typeof fileOrDataUrl === 'string') {
-             filename = attachmentFilename || `upload_${Date.now()}.png`;
-             console.log("Simulating upload for image data URI...");
-         } else {
-             filename = fileOrDataUrl.name;
-             console.log(`Simulating upload for PDF: ${filename}`);
-         }
-        return { url: `simulated/path/${filename}`, filename: filename };
-     };
+    const handleUpload = async (): Promise<{ url?: string; path?: string; filename?: string }> => {
+        if (!attachment) return {};
 
+        setIsUploading(true);
+        try {
+            const { url, path } = await uploadReceipt(attachment, 'fuelings'); // Use 'fuelings' folder
+            return { url, path, filename: attachmentFilename || (attachment instanceof File ? attachment.name : `upload_${Date.now()}`) };
+        } catch (error) {
+            console.error("Upload failed:", error);
+            toast({ variant: "destructive", title: "Falha no Upload", description: "Não foi possível anexar o comprovante." });
+            return {};
+        } finally {
+            setIsUploading(false);
+        }
+    };
 
   // --- Handlers ---
   const handleCreateFueling = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
-    if (!tripId) {
-      toast({ variant: 'destructive', title: 'Erro', description: 'ID da viagem não encontrado para associar o abastecimento.' });
-      setIsLoading(false);
-      return;
-    }
     if (!date || liters === '' || pricePerLiter === '' || !location) {
       toast({ variant: 'destructive', title: 'Erro', description: 'Data, litros, preço/L e local são obrigatórios.' });
-      setIsLoading(false);
       return;
     }
-
-     // Simulate upload if attachment exists
-     let receiptDetails: { url?: string; filename?: string } = {};
-     if (attachment) {
-         try {
-             const { url, filename } = await simulateUpload(attachment);
-             receiptDetails = { url: url, filename: filename };
-         } catch (error) {
-             console.error("Simulated upload failed:", error);
-             toast({ variant: "destructive", title: "Falha no Upload", description: "Não foi possível anexar o comprovante. Abastecimento será salvo sem anexo." });
-             // Continue saving without attachment
-         }
+    const litersNum = Number(liters);
+    const priceNum = Number(pricePerLiter);
+     if (litersNum <= 0 || priceNum <= 0) {
+        toast({ variant: 'destructive', title: 'Erro', description: 'Litros e Preço/Litro devem ser maiores que zero.' });
+        return;
      }
 
-    const newFueling: Fueling = {
-      id: String(Date.now()),
+
+     setIsSaving(true);
+     let receiptDetails: { url?: string; path?: string; filename?: string } = {};
+
+     if (attachment) {
+         receiptDetails = await handleUpload();
+          if (!receiptDetails.url) { // Handle upload failure
+              setIsSaving(false);
+              return;
+          }
+     }
+
+    const newFuelingData: Omit<Fueling, 'id'> = {
       tripId,
-      vehicleId: 'v1', // Replace with actual vehicle ID from trip context if available
-      date,
-      liters: Number(liters),
-      pricePerLiter: Number(pricePerLiter),
-      totalCost: Number(liters) * Number(pricePerLiter),
+      vehicleId: 'v1', // TODO: Get vehicleId dynamically from trip context
+      date: new Date(date).toISOString(), // Ensure ISO string format
+      liters: litersNum,
+      pricePerLiter: priceNum,
+      totalCost: litersNum * priceNum,
       location,
       comments,
       receiptUrl: receiptDetails.url,
+      receiptPath: receiptDetails.path,
       receiptFilename: receiptDetails.filename
     };
-    initialFuelings.push(newFueling);
-    setFuelings(prevFuelings => [newFueling, ...prevFuelings].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
-    resetForm();
-    setIsCreateModalOpen(false);
-    setIsLoading(false);
-    toast({ title: 'Abastecimento criado com sucesso!' });
+
+     try {
+         const newFuelingId = await addFueling(newFuelingData);
+         const savedFueling = { ...newFuelingData, id: newFuelingId };
+         setFuelings(prevFuelings => [savedFueling, ...prevFuelings].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+         resetForm();
+         setIsCreateModalOpen(false);
+         toast({ title: 'Abastecimento criado com sucesso!' });
+     } catch (error) {
+         console.error("Error adding fueling:", error);
+         toast({ variant: "destructive", title: "Erro", description: "Não foi possível salvar o abastecimento." });
+          // Delete uploaded file if save fails
+          if (receiptDetails.path) {
+              await deleteReceipt(receiptDetails.path).catch(delErr => console.error("Failed to delete uploaded receipt after save error:", delErr));
+          }
+     } finally {
+         setIsSaving(false);
+     }
   };
 
   const handleEditFueling = async (e: React.FormEvent) => {
     e.preventDefault();
-     setIsLoading(true);
-    if (!currentFueling) {
-        setIsLoading(false);
-        return;
-    }
+    if (!currentFueling) return;
+
     if (!date || liters === '' || pricePerLiter === '' || !location) {
       toast({ variant: 'destructive', title: 'Erro', description: 'Data, litros, preço/L e local são obrigatórios.' });
-      setIsLoading(false);
       return;
     }
+     const litersNum = Number(liters);
+     const priceNum = Number(pricePerLiter);
+      if (litersNum <= 0 || priceNum <= 0) {
+         toast({ variant: 'destructive', title: 'Erro', description: 'Litros e Preço/Litro devem ser maiores que zero.' });
+         return;
+      }
 
-     // Simulate upload if attachment has changed or is new
-     let receiptDetails: { url?: string; filename?: string } = {
+     setIsSaving(true);
+     let receiptDetails: { url?: string; path?: string; filename?: string } = {
          url: currentFueling.receiptUrl,
+         path: currentFueling.receiptPath,
          filename: currentFueling.receiptFilename,
      };
-     if (attachment && (attachment instanceof File || attachment !== currentFueling.receiptUrl)) {
-         try {
-             const { url, filename } = await simulateUpload(attachment);
-             receiptDetails = { url: url, filename: filename };
-         } catch (error) {
-             console.error("Simulated upload failed:", error);
-             toast({ variant: "destructive", title: "Falha no Upload", description: "Não foi possível atualizar o comprovante." });
-              // Continue saving without updating attachment
+     let oldReceiptPathToDelete: string | undefined = undefined;
+
+     const attachmentChanged = attachment && (attachment instanceof File || typeof attachment === 'string' && attachment !== currentFueling.receiptUrl);
+     const attachmentRemoved = !attachment && currentFueling.receiptPath;
+
+     if (attachmentChanged) {
+         const uploadResult = await handleUpload();
+         if (!uploadResult.url) {
+             setIsSaving(false);
+             return;
          }
-     } else if (!attachment && currentFueling.receiptUrl) {
-         receiptDetails = { url: undefined, filename: undefined };
-         console.log("Simulating deletion of old attachment:", currentFueling.receiptUrl);
+         receiptDetails = uploadResult;
+         if (currentFueling.receiptPath) {
+             oldReceiptPathToDelete = currentFueling.receiptPath;
+         }
+     } else if (attachmentRemoved) {
+         oldReceiptPathToDelete = currentFueling.receiptPath;
+         receiptDetails = { url: undefined, path: undefined, filename: undefined };
      }
 
-
-    const updatedFueling: Fueling = {
-      ...currentFueling,
-      date,
-      liters: Number(liters),
-      pricePerLiter: Number(pricePerLiter),
-      totalCost: Number(liters) * Number(pricePerLiter),
+    const dataToUpdate: Partial<Fueling> = {
+      date: new Date(date).toISOString(),
+      liters: litersNum,
+      pricePerLiter: priceNum,
+      totalCost: litersNum * priceNum,
       location,
       comments,
       receiptUrl: receiptDetails.url,
+      receiptPath: receiptDetails.path,
       receiptFilename: receiptDetails.filename,
     };
-    const index = initialFuelings.findIndex(f => f.id === currentFueling.id);
-    if (index !== -1) {
-      initialFuelings[index] = updatedFueling;
+
+    try {
+        await updateFueling(currentFueling.id, dataToUpdate);
+        const updatedFueling = { ...currentFueling, ...dataToUpdate };
+        setFuelings(prevFuelings => prevFuelings.map(f => f.id === currentFueling.id ? updatedFueling : f).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
+
+        if (oldReceiptPathToDelete) {
+            await deleteReceipt(oldReceiptPathToDelete).catch(delErr => console.error("Failed to delete old receipt:", delErr));
+        }
+
+        resetForm();
+        setIsEditModalOpen(false);
+        setCurrentFueling(null);
+        toast({ title: 'Abastecimento atualizado com sucesso!' });
+    } catch (error) {
+        console.error("Error updating fueling:", error);
+        toast({ variant: "destructive", title: "Erro", description: "Não foi possível atualizar o abastecimento." });
+         if (attachmentChanged && receiptDetails.path && receiptDetails.path !== oldReceiptPathToDelete) {
+             await deleteReceipt(receiptDetails.path).catch(delErr => console.error("Failed to delete newly uploaded receipt after update error:", delErr));
+         }
+    } finally {
+         setIsSaving(false);
     }
-    setFuelings(prevFuelings => prevFuelings.map(f => f.id === currentFueling.id ? updatedFueling : f).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
-    resetForm();
-    setIsEditModalOpen(false);
-    setCurrentFueling(null);
-    setIsLoading(false);
-    toast({ title: 'Abastecimento atualizado com sucesso!' });
   };
 
-  const handleDeleteFueling = (fuelingId: string) => {
-     const fuelingToDelete = initialFuelings.find(f => f.id === fuelingId);
-    const index = initialFuelings.findIndex(f => f.id === fuelingId);
-    if (index !== -1) {
-      initialFuelings.splice(index, 1);
+   const openDeleteConfirmation = (fueling: Fueling) => {
+        setFuelingToDelete(fueling);
+        setIsDeleteModalOpen(true);
+    };
+
+    const closeDeleteConfirmation = () => {
+        setFuelingToDelete(null);
+        setIsDeleteModalOpen(false);
+      };
+
+  const confirmDeleteFueling = async () => {
+     if (!fuelingToDelete) return;
+
+    setIsSaving(true);
+    const receiptPathToDelete = fuelingToDelete.receiptPath;
+
+    try {
+        await deleteFueling(fuelingToDelete.id);
+        setFuelings(fuelings.filter(f => f.id !== fuelingToDelete.id));
+
+        if (receiptPathToDelete) {
+            await deleteReceipt(receiptPathToDelete).catch(delErr => console.error("Failed to delete receipt file:", delErr));
+        }
+
+        toast({ title: 'Abastecimento excluído.' });
+        closeDeleteConfirmation();
+    } catch (error) {
+        console.error("Error deleting fueling:", error);
+        toast({ variant: "destructive", title: "Erro", description: "Não foi possível excluir o abastecimento." });
+    } finally {
+        setIsSaving(false);
     }
-    setFuelings(fuelings.filter(f => f.id !== fuelingId));
-
-     if (fuelingToDelete?.receiptUrl) {
-         console.log("Simulating deletion of attachment:", fuelingToDelete.receiptUrl);
-         // Call storage deletion function here
-     }
-
-    toast({ title: 'Abastecimento excluído.' });
-    closeDeleteModal(); // Close the confirmation modal
   };
 
   const openEditModal = (fueling: Fueling) => {
     setCurrentFueling(fueling);
-    setDate(fueling.date.split('T')[0]); // Set date in YYYY-MM-DD format for input type="date"
+    setDate(fueling.date.split('T')[0]);
     setLiters(fueling.liters);
     setPricePerLiter(fueling.pricePerLiter);
     setLocation(fueling.location);
     setComments(fueling.comments || '');
-     // Set attachment state based on existing fueling data
     if (fueling.receiptUrl) {
-        setAttachment(fueling.receiptUrl); // Store URL/identifier
+        setAttachment(fueling.receiptUrl);
         setAttachmentFilename(fueling.receiptFilename || 'Arquivo Anexado');
     } else {
         setAttachment(null);
@@ -331,13 +395,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId, tripName }) => {
     setPricePerLiter('');
     setLocation('');
     setComments('');
-    setAttachment(null);
-    setAttachmentFilename(null);
-    setIsCameraOpen(false);
-     const fileInput = document.getElementById('receiptPdf') as HTMLInputElement | null;
-    if (fileInput) fileInput.value = '';
-    const editFileInput = document.getElementById('editReceiptPdf') as HTMLInputElement | null;
-    if (editFileInput) editFileInput.value = '';
+    clearAttachment(); // Use helper
   };
 
   const closeCreateModal = () => {
@@ -350,12 +408,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId, tripName }) => {
     setIsEditModalOpen(false);
     setCurrentFueling(null);
   };
-    const closeDeleteModal = () => {
-        setIsDeleteModalOpen(false);
-        setCurrentFueling(null);
-      };
 
-    // --- Render Attachment Input ---
     const renderAttachmentInput = (idPrefix: string) => (
         <div className="space-y-2">
             <Label htmlFor={`${idPrefix}Receipt`}>Anexar Comprovante (PDF ou Imagem)</Label>
@@ -365,7 +418,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId, tripName }) => {
                          <Paperclip className="h-4 w-4 flex-shrink-0" />
                          <span className="text-sm truncate" title={attachmentFilename}>{attachmentFilename}</span>
                      </div>
-                     <Button type="button" variant="ghost" size="icon" onClick={clearAttachment} className="h-6 w-6 text-muted-foreground hover:text-destructive">
+                     <Button type="button" variant="ghost" size="icon" onClick={clearAttachment} className="h-6 w-6 text-muted-foreground hover:text-destructive" disabled={isSaving || isUploading}>
                          <X className="h-4 w-4" />
                          <span className="sr-only">Remover Anexo</span>
                      </Button>
@@ -373,19 +426,26 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId, tripName }) => {
              )}
             {!attachmentFilename && (
                 <div className="flex flex-col sm:flex-row gap-2">
-                    <Button type="button" variant="outline" onClick={() => document.getElementById(`${idPrefix}ReceiptPdf`)?.click()} className="flex-1">
-                        <Upload className="mr-2 h-4 w-4" /> Anexar PDF
+                    <Button type="button" variant="outline" onClick={() => document.getElementById(`${idPrefix}ReceiptPdf`)?.click()} className="flex-1" disabled={isSaving || isUploading}>
+                        <Upload className="mr-2 h-4 w-4" /> Anexar PDF/Imagem
                     </Button>
                     <Input
                         type="file"
                         id={`${idPrefix}ReceiptPdf`}
-                        accept="application/pdf"
+                        accept="application/pdf,image/*"
                         onChange={handleFileChange}
                         className="hidden"
+                         disabled={isSaving || isUploading}
                     />
-                    <Button type="button" variant="outline" onClick={() => setIsCameraOpen(true)} className="flex-1">
+                    <Button type="button" variant="outline" onClick={() => setIsCameraOpen(true)} className="flex-1" disabled={isSaving || isUploading}>
                         <Camera className="mr-2 h-4 w-4" /> Usar Câmera
                     </Button>
+                </div>
+            )}
+             {isUploading && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground mt-1">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Enviando anexo...</span>
                 </div>
             )}
         </div>
@@ -393,8 +453,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId, tripName }) => {
 
 
   return (
-    <> {/* Use Fragment */}
-     {/* Hidden Canvas for Image Capture */}
+    <>
     <canvas ref={canvasRef} style={{ display: 'none' }} />
 
     <div className="space-y-6">
@@ -402,10 +461,9 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId, tripName }) => {
         <h3 className="text-xl font-semibold">
           {tripName ? `Abastecimentos da Viagem: ${tripName}` : 'Abastecimentos'}
         </h3>
-        {tripId && (
           <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
             <DialogTrigger asChild>
-              <Button onClick={() => { resetForm(); setDate(new Date().toISOString().split('T')[0]); setIsCreateModalOpen(true); }} className="bg-accent hover:bg-accent/90 text-accent-foreground">
+              <Button onClick={() => { resetForm(); setDate(new Date().toISOString().split('T')[0]); setIsCreateModalOpen(true); }} className="bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isSaving}>
                 <PlusCircle className="mr-2 h-4 w-4" /> Registrar Abastecimento
               </Button>
             </DialogTrigger>
@@ -416,16 +474,16 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId, tripName }) => {
               <form onSubmit={handleCreateFueling} className="grid gap-4 py-4">
                 <div className="space-y-2">
                   <Label htmlFor="date">Data do Abastecimento*</Label>
-                  <Input id="date" type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+                  <Input id="date" type="date" value={date} onChange={(e) => setDate(e.target.value)} required disabled={isSaving}/>
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                         <Label htmlFor="liters">Litros*</Label>
-                        <Input id="liters" type="number" value={liters} onChange={(e) => setLiters(Number(e.target.value) >= 0 ? Number(e.target.value) : '')} required placeholder="Litros" min="0" step="0.01" />
+                        <Input id="liters" type="number" value={liters} onChange={(e) => setLiters(Number(e.target.value) >= 0 ? Number(e.target.value) : '')} required placeholder="Litros" min="0" step="0.01" disabled={isSaving}/>
                     </div>
                     <div className="space-y-2">
                         <Label htmlFor="pricePerLiter">Preço/Litro (R$)*</Label>
-                        <Input id="pricePerLiter" type="number" value={pricePerLiter} onChange={(e) => setPricePerLiter(Number(e.target.value) >= 0 ? Number(e.target.value) : '')} required placeholder="Preço/L" min="0" step="0.01"/>
+                        <Input id="pricePerLiter" type="number" value={pricePerLiter} onChange={(e) => setPricePerLiter(Number(e.target.value) >= 0 ? Number(e.target.value) : '')} required placeholder="Preço/L" min="0" step="0.01" disabled={isSaving}/>
                     </div>
                 </div>
                  <div className="space-y-1">
@@ -436,28 +494,25 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId, tripName }) => {
                  </div>
                 <div className="space-y-2">
                   <Label htmlFor="location">Local*</Label>
-                  <Input id="location" value={location} onChange={(e) => setLocation(e.target.value)} required placeholder="Nome ou Endereço do Posto" />
+                  <Input id="location" value={location} onChange={(e) => setLocation(e.target.value)} required placeholder="Nome ou Endereço do Posto" disabled={isSaving}/>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="comments">Observações</Label>
-                  <Textarea id="comments" value={comments} onChange={(e) => setComments(e.target.value)} placeholder="Detalhes adicionais (ex: Km no odômetro)" />
+                  <Textarea id="comments" value={comments} onChange={(e) => setComments(e.target.value)} placeholder="Detalhes adicionais (ex: Km no odômetro)" disabled={isSaving}/>
                 </div>
-
-                 {/* Attachment Input */}
                  {renderAttachmentInput('create')}
-
                 <DialogFooter>
                   <DialogClose asChild>
-                    <Button type="button" variant="outline" onClick={closeCreateModal}>Cancelar</Button>
+                    <Button type="button" variant="outline" onClick={closeCreateModal} disabled={isSaving || isUploading}>Cancelar</Button>
                   </DialogClose>
-                  <Button type="submit" disabled={isLoading} className="bg-primary hover:bg-primary/90">
-                    {isLoading ? <Loader className="mr-2 h-4 w-4 animate-spin" /> : null} Salvar Abastecimento
+                  <Button type="submit" disabled={isSaving || isUploading} className="bg-primary hover:bg-primary/90">
+                    {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                    {isSaving ? 'Salvando...' : 'Salvar Abastecimento'}
                   </Button>
                 </DialogFooter>
               </form>
             </DialogContent>
           </Dialog>
-        )}
       </div>
 
        {/* Camera Modal */}
@@ -474,7 +529,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId, tripName }) => {
                              <Alert variant="destructive" className="max-w-sm">
                                  <AlertTitle>Acesso à Câmera Negado</AlertTitle>
                                  <AlertDescription>
-                                     Por favor, permita o acesso à câmera nas configurações do seu navegador para usar esta funcionalidade.
+                                     Por favor, permita o acesso à câmera nas configurações do seu navegador.
                                  </AlertDescription>
                              </Alert>
                          </div>
@@ -485,7 +540,6 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId, tripName }) => {
                            </div>
                       )}
                    </div>
-
                    {hasCameraPermission && (
                        <Button onClick={handleCaptureImage} className="w-full bg-primary hover:bg-primary/90">
                            <Check className="mr-2 h-4 w-4" /> Capturar Imagem
@@ -498,16 +552,37 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId, tripName }) => {
            </DialogContent>
        </Dialog>
 
+        {/* Delete Confirmation Dialog */}
+        <AlertDialog open={isDeleteModalOpen} onOpenChange={closeDeleteConfirmation}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        Tem certeza que deseja excluir este abastecimento de {fuelingToDelete ? formatDate(fuelingToDelete.date) : 'N/A'}? O comprovante anexado (se houver) também será excluído. Esta ação não pode ser desfeita.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel onClick={closeDeleteConfirmation} disabled={isSaving}>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction onClick={confirmDeleteFueling} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground" disabled={isSaving}>
+                        {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        {isSaving ? 'Excluindo...' : 'Excluir'}
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
 
-      {fuelings.length === 0 ? (
+
+      {loading ? (
+           <div className="flex justify-center items-center h-20">
+               <LoadingSpinner />
+           </div>
+       ) : fuelings.length === 0 ? (
         <Card className="text-center py-10 bg-card border border-border shadow-sm rounded-lg">
           <CardContent>
-            <p className="text-muted-foreground">Nenhum abastecimento registrado {tripId ? 'para esta viagem' : ''}.</p>
-            {tripId && (
+            <p className="text-muted-foreground">Nenhum abastecimento registrado para esta viagem.</p>
               <Button variant="link" onClick={() => { resetForm(); setDate(new Date().toISOString().split('T')[0]); setIsCreateModalOpen(true); }} className="mt-2 text-primary">
                 Registrar o primeiro abastecimento
               </Button>
-            )}
           </CardContent>
         </Card>
       ) : (
@@ -523,7 +598,6 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId, tripName }) => {
                     </CardDescription>
                   </div>
                   <div className="flex gap-1">
-                   {/* View/Details Button */}
                     <Dialog>
                        <DialogTrigger asChild>
                            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary h-8 w-8">
@@ -556,10 +630,9 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId, tripName }) => {
                            </DialogFooter>
                        </DialogContent>
                    </Dialog>
-
                     <Dialog open={isEditModalOpen && currentFueling?.id === fueling.id} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); else openEditModal(fueling); }}>
                       <DialogTrigger asChild>
-                        <Button variant="ghost" size="icon" onClick={() => openEditModal(fueling)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8">
+                        <Button variant="ghost" size="icon" onClick={() => openEditModal(fueling)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving}>
                           <Edit className="h-4 w-4" />
                           <span className="sr-only">Editar</span>
                         </Button>
@@ -571,16 +644,16 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId, tripName }) => {
                         <form onSubmit={handleEditFueling} className="grid gap-4 py-4">
                           <div className="space-y-2">
                             <Label htmlFor="editDate">Data do Abastecimento*</Label>
-                            <Input id="editDate" type="date" value={date} onChange={(e) => setDate(e.target.value)} required />
+                            <Input id="editDate" type="date" value={date} onChange={(e) => setDate(e.target.value)} required disabled={isSaving}/>
                           </div>
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-2">
                                     <Label htmlFor="editLiters">Litros*</Label>
-                                    <Input id="editLiters" type="number" value={liters} onChange={(e) => setLiters(Number(e.target.value) >= 0 ? Number(e.target.value) : '')} required placeholder="Litros" min="0" step="0.01" />
+                                    <Input id="editLiters" type="number" value={liters} onChange={(e) => setLiters(Number(e.target.value) >= 0 ? Number(e.target.value) : '')} required placeholder="Litros" min="0" step="0.01" disabled={isSaving}/>
                                 </div>
                                 <div className="space-y-2">
                                     <Label htmlFor="editPricePerLiter">Preço/Litro (R$)*</Label>
-                                    <Input id="editPricePerLiter" type="number" value={pricePerLiter} onChange={(e) => setPricePerLiter(Number(e.target.value) >= 0 ? Number(e.target.value) : '')} required placeholder="Preço/L" min="0" step="0.01"/>
+                                    <Input id="editPricePerLiter" type="number" value={pricePerLiter} onChange={(e) => setPricePerLiter(Number(e.target.value) >= 0 ? Number(e.target.value) : '')} required placeholder="Preço/L" min="0" step="0.01" disabled={isSaving}/>
                                 </div>
                             </div>
                              <div className="space-y-1">
@@ -591,51 +664,31 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId, tripName }) => {
                              </div>
                           <div className="space-y-2">
                             <Label htmlFor="editLocation">Local*</Label>
-                            <Input id="editLocation" value={location} onChange={(e) => setLocation(e.target.value)} required placeholder="Nome ou Endereço do Posto" />
+                            <Input id="editLocation" value={location} onChange={(e) => setLocation(e.target.value)} required placeholder="Nome ou Endereço do Posto" disabled={isSaving}/>
                           </div>
                           <div className="space-y-2">
                             <Label htmlFor="editComments">Observações</Label>
-                            <Textarea id="editComments" value={comments} onChange={(e) => setComments(e.target.value)} placeholder="Detalhes adicionais" />
+                            <Textarea id="editComments" value={comments} onChange={(e) => setComments(e.target.value)} placeholder="Detalhes adicionais" disabled={isSaving}/>
                           </div>
-
-                          {/* Edit Attachment Input */}
                           {renderAttachmentInput('edit')}
-
-
                           <DialogFooter>
                             <DialogClose asChild>
-                              <Button type="button" variant="outline" onClick={closeEditModal}>Cancelar</Button>
+                              <Button type="button" variant="outline" onClick={closeEditModal} disabled={isSaving || isUploading}>Cancelar</Button>
                             </DialogClose>
-                            <Button type="submit" disabled={isLoading} className="bg-primary hover:bg-primary/90">
-                               {isLoading ? <Loader className="mr-2 h-4 w-4 animate-spin" /> : null} Salvar Alterações
+                            <Button type="submit" disabled={isSaving || isUploading} className="bg-primary hover:bg-primary/90">
+                               {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                               {isSaving ? 'Salvando...' : 'Salvar Alterações'}
                             </Button>
                           </DialogFooter>
                         </form>
                       </DialogContent>
                     </Dialog>
-                      <AlertDialog open={isDeleteModalOpen && currentFueling?.id === fueling.id} onOpenChange={(isOpen) => !isOpen && closeDeleteModal()}>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => {
-                              setCurrentFueling(fueling);
-                              setIsDeleteModalOpen(true);
-                            }}>
+                      <AlertDialogTrigger asChild>
+                          <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => openDeleteConfirmation(fueling)} disabled={isSaving}>
                             <Trash2 className="h-4 w-4" />
                             <span className="sr-only">Excluir</span>
                           </Button>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Tem certeza que deseja excluir este abastecimento de {formatDate(fueling.date)}? Esta ação não pode ser desfeita.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel onClick={closeDeleteModal}>Cancelar</AlertDialogCancel>
-                            <AlertDialogAction onClick={() => handleDeleteFueling(fueling.id)} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground">Excluir</AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                    </AlertDialog>
+                      </AlertDialogTrigger>
                   </div>
                 </div>
               </CardHeader>
@@ -652,7 +705,6 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId, tripName }) => {
                      <span className="font-medium flex-shrink-0">Obs:</span> {fueling.comments}
                   </div>
                 )}
-                 {/* Attachment Link */}
                  {fueling.receiptFilename && (
                       <div className="flex items-center gap-2">
                          <Paperclip className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
@@ -667,6 +719,6 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId, tripName }) => {
         </div>
       )}
     </div>
-    </> // Close Fragment
+    </>
   );
 };

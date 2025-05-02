@@ -15,15 +15,16 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
-import type { Trip } from './Trips'; // Assuming Trip interface is exported from Trips.tsx
-import type { Visit } from './Visits'; // Assuming Visit interface is exported
+import type { Trip } from './Trips';
+import type { Visit } from './Visits';
 
 interface FinishTripDialogProps {
   trip: Trip | null;
   isOpen: boolean;
   onClose: () => void;
   onConfirm: (tripId: string, finalKm: number, totalDistance: number) => void;
-  initialVisitsData: Visit[]; // Pass the visits data for calculation
+  // Use passed visits data instead of importing mock data
+  visitsData: Visit[];
 }
 
 export const FinishTripDialog: React.FC<FinishTripDialogProps> = ({
@@ -31,7 +32,7 @@ export const FinishTripDialog: React.FC<FinishTripDialogProps> = ({
   isOpen,
   onClose,
   onConfirm,
-  initialVisitsData,
+  visitsData, // Use the prop
 }) => {
   const [finalKm, setFinalKm] = useState<number | ''>('');
   const [firstVisitKm, setFirstVisitKm] = useState<number | null>(null);
@@ -40,17 +41,17 @@ export const FinishTripDialog: React.FC<FinishTripDialogProps> = ({
 
   useEffect(() => {
     if (trip && isOpen) {
-      // Find the first and last visits for the current trip based on timestamp
-      const tripVisits = initialVisitsData
+      // Use the passed visitsData prop
+      const tripVisits = visitsData
         .filter(v => v.tripId === trip.id)
-        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()); // Sort ascending by time
+        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
       if (tripVisits.length > 0) {
         setFirstVisitKm(tripVisits[0].initialKm);
-        setLastVisitKm(tripVisits[tripVisits.length - 1].initialKm); // Use the KM from the chronologically last visit
+        setLastVisitKm(tripVisits[tripVisits.length - 1].initialKm);
       } else {
         setFirstVisitKm(null);
-        setLastVisitKm(null); // Reset if no visits
+        setLastVisitKm(null);
         toast({
             variant: 'destructive',
             title: 'Aviso',
@@ -58,9 +59,9 @@ export const FinishTripDialog: React.FC<FinishTripDialogProps> = ({
             duration: 7000,
         })
       }
-      setFinalKm(''); // Reset final KM input when dialog opens
+      setFinalKm('');
     }
-  }, [trip, isOpen, initialVisitsData, toast]);
+  }, [trip, isOpen, visitsData, toast]); // Depend on visitsData prop
 
   const handleConfirm = () => {
     if (!trip) return;
@@ -72,7 +73,6 @@ export const FinishTripDialog: React.FC<FinishTripDialogProps> = ({
       return;
     }
 
-    // Validate final KM against the last recorded visit KM
     if (lastVisitKm !== null && kmValue < lastVisitKm) {
          toast({
              variant: "destructive",
@@ -83,23 +83,17 @@ export const FinishTripDialog: React.FC<FinishTripDialogProps> = ({
          return;
      }
 
-
-    // Calculate total distance
     let totalDistance = 0;
     if (firstVisitKm !== null) {
       totalDistance = kmValue - firstVisitKm;
       if (totalDistance < 0) {
-          // This case should ideally be prevented by the validation above, but good to double-check.
           toast({ variant: 'destructive', title: 'Erro de Cálculo', description: 'Distância total resultou em valor negativo. Verifique os KMs.' });
           return;
       }
     } else {
-        // Handle case where there are no visits (distance cannot be calculated based on visits)
-        // You might set distance to 0 or handle it differently based on requirements
-        totalDistance = 0; // Or potentially based on vehicle's initial KM if tracked separately
+        totalDistance = 0;
         console.warn("Não foi possível calcular a distância total: Nenhuma visita encontrada.");
     }
-
 
     onConfirm(trip.id, kmValue, totalDistance);
   };
@@ -130,7 +124,7 @@ export const FinishTripDialog: React.FC<FinishTripDialogProps> = ({
             onChange={(e) => setFinalKm(Number(e.target.value) >= 0 ? Number(e.target.value) : '')}
             required
             placeholder="Km atual do veículo"
-            min={lastVisitKm ?? 0} // Set min based on last visit if available
+            min={lastVisitKm ?? 0}
           />
            {finalKm !== '' && firstVisitKm !== null && Number(finalKm) >= firstVisitKm && (
              <p className="text-sm text-muted-foreground mt-1">
