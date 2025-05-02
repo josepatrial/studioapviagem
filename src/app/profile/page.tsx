@@ -7,11 +7,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator'; // Import Separator
-import { ArrowLeft, Loader2 } from 'lucide-react'; // Import an icon
+import { Separator } from '@/components/ui/separator';
+import { ArrowLeft, Loader2, User, Mail, Lock } from 'lucide-react'; // Import icons for sections
 import { useAuth } from '@/contexts/AuthContext';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { useToast } from '@/hooks/use-toast';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"; // Import Tabs
 
 const ProfilePage: React.FC = () => {
   const { user, loading, updateEmail, updatePassword, updateProfileName } = useAuth();
@@ -29,6 +30,8 @@ const ProfilePage: React.FC = () => {
   const [isUpdatingName, setIsUpdatingName] = useState(false);
   const [isUpdatingEmail, setIsUpdatingEmail] = useState(false);
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+
+  const [activeTab, setActiveTab] = useState('name'); // State for active tab
 
   if (loading || !user) {
     return (
@@ -51,9 +54,9 @@ const ProfilePage: React.FC = () => {
       setIsUpdatingName(true);
       const success = await updateProfileName(newName);
       if (success) {
-          // toast({ title: "Sucesso", description: "Nome atualizado." }); already handled in context
+          // toast is handled in context
       } else {
-          // toast({ variant: "destructive", title: "Falha", description: "Não foi possível atualizar o nome." }); already handled in context
+          // toast is handled in context
           setNewName(user.name || ''); // Reset on failure
       }
       setIsUpdatingName(false);
@@ -75,7 +78,7 @@ const ProfilePage: React.FC = () => {
        // toast is handled in context
        setCurrentPasswordForEmail(''); // Clear password field
      } else {
-        // toast is handled in context
+       // toast is handled in context
        setNewEmail(user.email || ''); // Reset email on failure
      }
      setIsUpdatingEmail(false);
@@ -128,111 +131,132 @@ const ProfilePage: React.FC = () => {
           <div className="space-y-2">
              <Label htmlFor="userId">ID do Usuário</Label>
              <Input id="userId" value={user.id} readOnly className="bg-muted/50 cursor-not-allowed" />
+             <Label htmlFor="currentEmailDisplay">E-mail Atual</Label>
+             <Input id="currentEmailDisplay" value={user.email} readOnly className="bg-muted/50 cursor-not-allowed" />
+             <Label htmlFor="currentNameDisplay">Nome Atual</Label>
+             <Input id="currentNameDisplay" value={user.name || 'Não definido'} readOnly className="bg-muted/50 cursor-not-allowed" />
           </div>
 
           <Separator />
 
-          {/* Update Name Section */}
-          <form onSubmit={handleUpdateName} className="space-y-4">
-            <h3 className="text-lg font-semibold">Alterar Nome</h3>
-             <div className="space-y-2">
-               <Label htmlFor="name">Nome</Label>
-               <Input
-                 id="name"
-                 value={newName}
-                 onChange={(e) => setNewName(e.target.value)}
-                 placeholder="Seu nome de exibição"
-                 disabled={isUpdatingName}
-               />
-             </div>
-             <Button type="submit" disabled={isUpdatingName || newName === user.name} className="bg-primary hover:bg-primary/90">
-                {isUpdatingName && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {isUpdatingName ? 'Atualizando...' : 'Salvar Nome'}
-             </Button>
-          </form>
+           {/* Tabs for Update Sections */}
+           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+             <TabsList className="grid w-full grid-cols-3">
+               <TabsTrigger value="name">
+                  <User className="mr-2 h-4 w-4" /> Alterar Nome
+               </TabsTrigger>
+               <TabsTrigger value="email">
+                  <Mail className="mr-2 h-4 w-4" /> Alterar E-mail
+               </TabsTrigger>
+               <TabsTrigger value="password">
+                  <Lock className="mr-2 h-4 w-4" /> Alterar Senha
+               </TabsTrigger>
+             </TabsList>
 
-          <Separator />
+             {/* Update Name Section */}
+             <TabsContent value="name" className="mt-6">
+                <form onSubmit={handleUpdateName} className="space-y-4">
+                  <h3 className="text-lg font-semibold">Alterar Nome de Exibição</h3>
+                  <div className="space-y-2">
+                    <Label htmlFor="name">Novo Nome</Label>
+                    <Input
+                      id="name"
+                      value={newName}
+                      onChange={(e) => setNewName(e.target.value)}
+                      placeholder="Seu nome de exibição"
+                      disabled={isUpdatingName}
+                    />
+                  </div>
+                  <Button type="submit" disabled={isUpdatingName || !newName || newName === user.name} className="bg-primary hover:bg-primary/90">
+                     {isUpdatingName && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                     {isUpdatingName ? 'Atualizando...' : 'Salvar Nome'}
+                  </Button>
+                </form>
+             </TabsContent>
 
-           {/* Update Email Section */}
-           <form onSubmit={handleUpdateEmail} className="space-y-4">
-             <h3 className="text-lg font-semibold">Alterar E-mail</h3>
-             <div className="space-y-2">
-               <Label htmlFor="email">Novo E-mail</Label>
-               <Input
-                 id="email"
-                 type="email"
-                 value={newEmail}
-                 onChange={(e) => setNewEmail(e.target.value)}
-                 placeholder="seu.novo@email.com"
-                 required
-                 disabled={isUpdatingEmail}
-               />
-             </div>
-             <div className="space-y-2">
-               <Label htmlFor="currentPasswordForEmail">Senha Atual</Label>
-               <Input
-                 id="currentPasswordForEmail"
-                 type="password"
-                 value={currentPasswordForEmail}
-                 onChange={(e) => setCurrentPasswordForEmail(e.target.value)}
-                 placeholder="Digite sua senha atual"
-                 required
-                 disabled={isUpdatingEmail}
-               />
-                 <p className="text-xs text-muted-foreground">Necessário para confirmar a alteração do e-mail.</p>
-             </div>
-             <Button type="submit" disabled={isUpdatingEmail || !currentPasswordForEmail || newEmail === user.email} className="bg-primary hover:bg-primary/90">
-               {isUpdatingEmail && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-               {isUpdatingEmail ? 'Atualizando...' : 'Salvar E-mail'}
-             </Button>
-           </form>
+             {/* Update Email Section */}
+             <TabsContent value="email" className="mt-6">
+                <form onSubmit={handleUpdateEmail} className="space-y-4">
+                  <h3 className="text-lg font-semibold">Alterar Endereço de E-mail</h3>
+                  <div className="space-y-2">
+                    <Label htmlFor="email">Novo E-mail</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      value={newEmail}
+                      onChange={(e) => setNewEmail(e.target.value)}
+                      placeholder="seu.novo@email.com"
+                      required
+                      disabled={isUpdatingEmail}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="currentPasswordForEmail">Senha Atual</Label>
+                    <Input
+                      id="currentPasswordForEmail"
+                      type="password"
+                      value={currentPasswordForEmail}
+                      onChange={(e) => setCurrentPasswordForEmail(e.target.value)}
+                      placeholder="Digite sua senha atual"
+                      required
+                      disabled={isUpdatingEmail}
+                    />
+                    <p className="text-xs text-muted-foreground">Necessário para confirmar a alteração do e-mail.</p>
+                  </div>
+                  <Button type="submit" disabled={isUpdatingEmail || !currentPasswordForEmail || !newEmail || newEmail === user.email} className="bg-primary hover:bg-primary/90">
+                    {isUpdatingEmail && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                    {isUpdatingEmail ? 'Atualizando...' : 'Salvar E-mail'}
+                  </Button>
+                </form>
+             </TabsContent>
 
-          <Separator />
-
-           {/* Update Password Section */}
-           <form onSubmit={handleUpdatePassword} className="space-y-4">
-             <h3 className="text-lg font-semibold">Alterar Senha</h3>
-             <div className="space-y-2">
-               <Label htmlFor="currentPassword">Senha Atual</Label>
-               <Input
-                 id="currentPassword"
-                 type="password"
-                 value={currentPassword}
-                 onChange={(e) => setCurrentPassword(e.target.value)}
-                 placeholder="Sua senha atual"
-                 required
-                 disabled={isUpdatingPassword}
-               />
-             </div>
-             <div className="space-y-2">
-               <Label htmlFor="newPassword">Nova Senha</Label>
-               <Input
-                 id="newPassword"
-                 type="password"
-                 value={newPassword}
-                 onChange={(e) => setNewPassword(e.target.value)}
-                 placeholder="Mínimo 6 caracteres"
-                 required
-                 disabled={isUpdatingPassword}
-               />
-             </div>
-             <div className="space-y-2">
-               <Label htmlFor="confirmNewPassword">Confirmar Nova Senha</Label>
-               <Input
-                 id="confirmNewPassword"
-                 type="password"
-                 value={confirmNewPassword}
-                 onChange={(e) => setConfirmNewPassword(e.target.value)}
-                 placeholder="Repita a nova senha"
-                 required
-                 disabled={isUpdatingPassword}
-               />
-             </div>
-             <Button type="submit" disabled={isUpdatingPassword || !currentPassword || !newPassword || !confirmNewPassword || newPassword !== confirmNewPassword} className="bg-primary hover:bg-primary/90">
-                {isUpdatingPassword && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                {isUpdatingPassword ? 'Atualizando...' : 'Salvar Senha'}
-             </Button>
-           </form>
+             {/* Update Password Section */}
+             <TabsContent value="password" className="mt-6">
+                <form onSubmit={handleUpdatePassword} className="space-y-4">
+                  <h3 className="text-lg font-semibold">Alterar Senha</h3>
+                  <div className="space-y-2">
+                    <Label htmlFor="currentPassword">Senha Atual</Label>
+                    <Input
+                      id="currentPassword"
+                      type="password"
+                      value={currentPassword}
+                      onChange={(e) => setCurrentPassword(e.target.value)}
+                      placeholder="Sua senha atual"
+                      required
+                      disabled={isUpdatingPassword}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="newPassword">Nova Senha</Label>
+                    <Input
+                      id="newPassword"
+                      type="password"
+                      value={newPassword}
+                      onChange={(e) => setNewPassword(e.target.value)}
+                      placeholder="Mínimo 6 caracteres"
+                      required
+                      disabled={isUpdatingPassword}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="confirmNewPassword">Confirmar Nova Senha</Label>
+                    <Input
+                      id="confirmNewPassword"
+                      type="password"
+                      value={confirmNewPassword}
+                      onChange={(e) => setConfirmNewPassword(e.target.value)}
+                      placeholder="Repita a nova senha"
+                      required
+                      disabled={isUpdatingPassword}
+                    />
+                  </div>
+                  <Button type="submit" disabled={isUpdatingPassword || !currentPassword || !newPassword || !confirmNewPassword || newPassword !== confirmNewPassword} className="bg-primary hover:bg-primary/90">
+                     {isUpdatingPassword && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                     {isUpdatingPassword ? 'Atualizando...' : 'Salvar Senha'}
+                  </Button>
+                </form>
+             </TabsContent>
+           </Tabs>
 
         </CardContent>
       </Card>
