@@ -11,11 +11,14 @@ import { Label } from "@/components/ui/label";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
-    addLocalVehicle, // Import the newly added function
-    updateLocalVehicle, // Import the newly added function
-    deleteLocalVehicle, // Import the newly added function
+    addLocalVehicle,
+    updateLocalVehicle,
+    deleteLocalVehicle,
     getLocalVehicles,
     LocalVehicle, // Import LocalVehicle type
+    addLocalRecord, // Needed for saving fetched online data
+    updateLocalRecord, // Needed for updating fetched online data
+    STORE_VEHICLES, // Needed for DB store name
 } from '@/services/localDbService'; // Adjust imports
 import { getVehicles as fetchOnlineVehicles } from '@/services/firestoreService'; // Import getVehicles from firestoreService
 import { LoadingSpinner } from './LoadingSpinner'; // Import LoadingSpinner
@@ -58,7 +61,7 @@ export const Vehicle: React.FC = () => {
                     const savePromises = onlineVehicles.map(v => {
                         const localId = `local_vehicle_${uuidv4()}`; // Generate local ID for potentially new vehicles
                         const localVehicleData: LocalVehicle = {
-                            ...v,
+                            ...(v as Omit<VehicleInfo, 'id'>), // Cast to base type first
                             localId: localId, // Assign local ID
                             firebaseId: v.id, // Store original Firebase ID
                             id: v.id, // Use Firebase ID as the primary ID for VehicleInfo
@@ -84,7 +87,7 @@ export const Vehicle: React.FC = () => {
                    await Promise.all(savePromises);
                    localVehicles = await getLocalVehicles(); // Re-fetch after saving
 
-               } catch (fetchError) => {
+               } catch (fetchError: any) { // Correct catch syntax
                    console.error("Error fetching/saving online vehicles:", fetchError);
                    toast({ variant: "destructive", title: "Erro Online", description: "Não foi possível buscar ou salvar veículos online." });
                }
