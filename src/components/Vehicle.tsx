@@ -4,7 +4,7 @@
 import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Edit, Trash2, Car, Wrench, CalendarDays, Gauge } from 'lucide-react';
+import { PlusCircle, Edit, Trash2, Car, Wrench, CalendarDays, Gauge, Fuel, Milestone, Users } from 'lucide-react'; // Added Fuel, Milestone, Users
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -97,6 +97,7 @@ export const Vehicle: React.FC = () => {
 
    const handleDeleteVehicle = (vehicleId: string) => {
       // In a real app, call backend to delete before updating state
+      // Add check: Prevent deletion if vehicle is linked to active trips?
       const index = initialVehicles.findIndex(v => v.id === vehicleId);
        if (index !== -1) {
          initialVehicles.splice(index, 1); // Remove from global mock data
@@ -133,10 +134,10 @@ export const Vehicle: React.FC = () => {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-semibold">Meus Veículos</h2>
-        <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
+        <h2 className="text-2xl font-semibold">Gerenciar Veículos</h2>
+        <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
           <DialogTrigger asChild>
-            <Button onClick={() => setIsCreateModalOpen(true)} className="bg-primary hover:bg-primary/90 text-primary-foreground">
+             <Button onClick={() => { resetForm(); setIsCreateModalOpen(true); }} className="bg-primary hover:bg-primary/90 text-primary-foreground">
               <PlusCircle className="mr-2 h-4 w-4" /> Cadastrar Veículo
             </Button>
           </DialogTrigger>
@@ -194,7 +195,7 @@ export const Vehicle: React.FC = () => {
                 </div>
                  <div className="flex gap-1">
                      {/* Edit Button */}
-                     <Dialog open={isEditModalOpen && currentVehicle?.id === vehicle.id} onOpenChange={(isOpen) => !isOpen && closeEditModal()}>
+                     <Dialog open={isEditModalOpen && currentVehicle?.id === vehicle.id} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); else openEditModal(vehicle); }}>
                        <DialogTrigger asChild>
                          <Button variant="ghost" size="icon" onClick={() => openEditModal(vehicle)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8">
                            <Edit className="h-4 w-4" />
@@ -256,11 +257,13 @@ export const Vehicle: React.FC = () => {
                       </AlertDialog>
                  </div>
               </CardHeader>
-              <CardContent>
-                {/* Placeholder for other vehicle info or actions */}
-                 <Button variant="outline" size="sm" className="mt-2">
-                    <Wrench className="mr-2 h-4 w-4" /> Ver Manutenções
-                 </Button>
+              <CardContent className="space-y-2 text-sm text-muted-foreground pt-2">
+                 {/* Updated details */}
+                 <p className="flex items-center gap-1"><Fuel className="h-3 w-3" /> Histórico de Abastecimentos</p>
+                 <p className="flex items-center gap-1"><Milestone className="h-3 w-3" /> Km Percorridos & Performance</p>
+                 <p className="flex items-center gap-1"><Users className="h-3 w-3" /> Motoristas que utilizaram</p>
+                 <p className="flex items-center gap-1"><Wrench className="h-3 w-3" /> Manutenções</p>
+                 <Button variant="link" size="sm" className="p-0 h-auto text-primary">Ver Histórico Completo</Button> {/* Example link/button */}
               </CardContent>
               {/* <CardFooter>
                   Optional Footer Content
