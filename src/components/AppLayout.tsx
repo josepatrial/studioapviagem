@@ -3,23 +3,25 @@
 
 import React, { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useAuth } from '@/contexts/AuthContext';
 import { Dashboard } from '@/components/Dashboard';
-import { Trips } from '@/components/Trips';
+import { Trips } from './Trips/Trips';
 import { Vehicle } from '@/components/Vehicle'; // Import Vehicle component
 import { LogOut, User as UserIcon, LayoutDashboard, Plane, Car } from 'lucide-react'; // Added Car icon
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
+  DropdownMenuShortcut,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
 const AppLayout: React.FC = () => {
+  const router = useRouter();
   const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
 
@@ -51,20 +53,27 @@ const AppLayout: React.FC = () => {
                </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-56" align="end" forceMount>
-              <DropdownMenuLabel className="font-normal">
-                <div className="flex flex-col space-y-1">
-                  <p className="text-sm font-medium leading-none">Motorista</p>
-                  <p className="text-xs leading-none text-muted-foreground">
-                    {user.email}
-                  </p>
-                </div>
-              </DropdownMenuLabel>
+             <div className="flex flex-col px-4 py-2">
+                <p className="text-sm font-medium leading-none">Motorista</p>
+                <p className="text-xs leading-none text-muted-foreground">{user.email}</p>
+             </div>
               <DropdownMenuSeparator />
-              <DropdownMenuItem>
+              <DropdownMenuItem onClick={() => router.push('/profile')}>
+
                 <UserIcon className="mr-2 h-4 w-4" />
-                <span>Perfil</span> {/* Placeholder for Profile link */}
+                <span>My Profile</span> 
+                
               </DropdownMenuItem>
-              <DropdownMenuSeparator />
+              <DropdownMenuItem>
+                <span>Alterar Nome</span> <DropdownMenuShortcut>Ctrl+N</DropdownMenuShortcut>
+              </DropdownMenuItem>
+              <DropdownMenuItem>
+                <span>Alterar E-mail</span><DropdownMenuShortcut>Ctrl+E</DropdownMenuShortcut>
+              </DropdownMenuItem>
+              <DropdownMenuItem>
+                <span>Alterar Senha</span><DropdownMenuShortcut>Ctrl+S</DropdownMenuShortcut>
+              </DropdownMenuItem>
+
               <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:bg-destructive/10 focus:text-destructive">
                 <LogOut className="mr-2 h-4 w-4" />
                 <span>Sair</span>

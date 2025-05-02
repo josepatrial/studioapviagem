@@ -1,5 +1,6 @@
-// src/components/Visits.tsx
+
 'use client';
+
 
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
@@ -27,7 +28,7 @@ export interface Visit { // Export interface
 }
 
 // Mock data - Now includes tripId
-const initialVisits: Visit[] = [
+export const initialVisits: Visit[] = [
   { id: 'v1', tripId: '1', clientName: 'Cliente Alpha', location: 'Rua Exemplo, 123', latitude: -23.5505, longitude: -46.6333, initialKm: 15000, reason: 'Entrega de material', timestamp: new Date(2024, 6, 21, 10, 30).toISOString() },
   { id: 'v2', tripId: '1', clientName: 'Empresa Beta', location: 'Avenida Principal, 456', latitude: -23.5610, longitude: -46.6400, initialKm: 15150, reason: 'Reunião de Vendas', timestamp: new Date(2024, 6, 21, 14, 0).toISOString() },
   { id: 'v3', tripId: '2', clientName: 'Fornecedor Gama', location: 'Rodovia dos Bandeirantes, km 30', latitude: -23.35, longitude: -46.85, initialKm: 16000, reason: 'Coleta de insumos', timestamp: new Date(2024, 8, 2, 9, 0).toISOString() },
