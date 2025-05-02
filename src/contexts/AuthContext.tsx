@@ -4,10 +4,15 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useToast } from '@/hooks/use-toast'; // Import useToast
 
+// Define user roles
+export type UserRole = 'driver' | 'admin';
+
 interface User {
   id: string;
   email: string;
-  name?: string; // Add optional name
+  name?: string;
+  role: UserRole; // Add role property
+  base?: string; // Add optional base for drivers
   // Add other user properties as needed
 }
 
@@ -23,6 +28,10 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Mock admin user credentials
+const ADMIN_EMAIL = 'admin@example.com';
+const ADMIN_PASSWORD = 'adminpassword'; // Use a more secure method in production
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -34,10 +43,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     const storedUser = localStorage.getItem('rotaCertaUser');
     if (storedUser) {
         try {
-            const parsedUser = JSON.parse(storedUser);
+            const parsedUser: User = JSON.parse(storedUser);
              // Add default name if missing
              if (!parsedUser.name && parsedUser.email) {
                parsedUser.name = parsedUser.email.split('@')[0];
+             }
+             // Ensure role exists, default to 'driver' if missing (for backward compatibility)
+             if (!parsedUser.role) {
+                 parsedUser.role = 'driver';
              }
             setUser(parsedUser);
         } catch (e) {
@@ -54,10 +67,33 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     // Simulate API call
     return new Promise((resolve) => {
       setTimeout(() => {
-        // Basic validation simulation
-        if (email && pass) {
+        let simulatedUser: User | null = null;
+
+        // Check for admin login
+        if (email === ADMIN_EMAIL && pass === ADMIN_PASSWORD) {
+          simulatedUser = {
+              id: 'admin001',
+              email: ADMIN_EMAIL,
+              name: 'Administrador',
+              role: 'admin'
+          };
+        }
+        // Simulate regular driver login (replace with actual driver lookup)
+        else if (email && pass) {
            const name = email.split('@')[0]; // Default name from email
-          const simulatedUser: User = { id: '1', email, name };
+           // Find driver in mock data (replace with real auth)
+           const driver = initialDrivers.find(d => d.email === email); // Assuming initialDrivers exists globally or is accessible
+           simulatedUser = {
+               id: driver?.id || String(Date.now()), // Use driver ID or generate one
+               email,
+               name: driver?.name || name,
+               role: 'driver',
+               base: driver?.base || 'DefaultBase' // Use driver base or default
+            };
+        }
+
+
+        if (simulatedUser) {
           setUser(simulatedUser);
           localStorage.setItem('rotaCertaUser', JSON.stringify(simulatedUser));
           setLoading(false);
@@ -154,3 +190,17 @@ export const useAuth = (): AuthContextType => {
   }
   return context;
 };
+
+// Mock drivers data (needed for login simulation) - Consider moving this to a separate file
+interface Driver {
+    id: string;
+    name: string;
+    username: string;
+    email: string;
+    base: string;
+}
+
+export const initialDrivers: Driver[] = [
+  { id: 'driver1', name: 'João Silva', username: 'joao.silva', email: 'joao@example.com', base: 'Base SP' },
+  { id: 'driver2', name: 'Maria Souza', username: 'maria.souza', email: 'maria@example.com', base: 'Base RJ' },
+];

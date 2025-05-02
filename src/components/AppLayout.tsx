@@ -9,8 +9,9 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useAuth } from '@/contexts/AuthContext';
 import { Dashboard } from '@/components/Dashboard';
 import { Trips } from './Trips/Trips';
-import { Vehicle } from '@/components/Vehicle'; // Import Vehicle component
-import { LogOut, User as UserIcon, LayoutDashboard, Plane, Car } from 'lucide-react'; // Added Car icon
+import { Vehicle } from '@/components/Vehicle';
+import { Drivers } from './Drivers/Drivers'; // Import Drivers component
+import { LogOut, User as UserIcon, LayoutDashboard, Plane, Car, UserCog } from 'lucide-react'; // Added Car and UserCog icons
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,6 +24,9 @@ const AppLayout: React.FC = () => {
   const router = useRouter();
   const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
+
+  const isAdmin = user?.role === 'admin';
+  const numberOfTabs = isAdmin ? 4 : 3; // Adjust grid columns based on role
 
   const getInitials = (name: string | undefined, email: string | undefined) => {
     if (name) {
@@ -62,15 +66,15 @@ const AppLayout: React.FC = () => {
             </DropdownMenuTrigger>
             <DropdownMenuContent className="w-56" align="end" forceMount>
              <div className="flex flex-col px-4 py-2">
-                <p className="text-sm font-medium leading-none">{user.name || 'Motorista'}</p> {/* Use name if available */}
+                <p className="text-sm font-medium leading-none">{user.name || 'Usuário'}</p> {/* Use name if available */}
                 <p className="text-xs leading-none text-muted-foreground">{user.email}</p>
+                {isAdmin && <p className="text-xs leading-none text-blue-500 mt-1">(Admin)</p>}
              </div>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => router.push('/profile')}>
                 <UserIcon className="mr-2 h-4 w-4" />
-                <span>Perfil</span> {/* Changed from My Profile */}
+                <span>Perfil</span>
               </DropdownMenuItem>
-              {/* Removed Alterar Nome, E-mail, Senha options - User can do this in Profile page */}
               <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive focus:bg-destructive/10 focus:text-destructive">
                 <LogOut className="mr-2 h-4 w-4" />
                 <span>Sair</span>
@@ -83,8 +87,8 @@ const AppLayout: React.FC = () => {
       {/* Main Content Area with Tabs */}
        <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-1 flex-col overflow-hidden">
           <div className="overflow-x-auto border-b bg-background">
-             {/* Updated grid-cols-3 */}
-             <TabsList className="grid w-full grid-cols-3 rounded-none bg-transparent p-0 sm:w-auto sm:inline-flex">
+             {/* Updated grid columns dynamically */}
+             <TabsList className={`grid w-full grid-cols-${numberOfTabs} rounded-none bg-transparent p-0 sm:w-auto sm:inline-flex`}>
                  <TabsTrigger value="dashboard" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
                    <LayoutDashboard className="mr-2 h-4 w-4 sm:hidden md:inline-block" /> Dashboard
                  </TabsTrigger>
@@ -94,15 +98,23 @@ const AppLayout: React.FC = () => {
                  <TabsTrigger value="vehicle" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
                     <Car className="mr-2 h-4 w-4 sm:hidden md:inline-block" /> Veículo
                  </TabsTrigger>
-                 {/* Removed Visits, Expenses, Fuelings Triggers */}
+                 {/* Conditionally render Drivers tab */}
+                 {isAdmin && (
+                    <TabsTrigger value="drivers" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
+                        <UserCog className="mr-2 h-4 w-4 sm:hidden md:inline-block" /> Motoristas
+                    </TabsTrigger>
+                 )}
              </TabsList>
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 md:p-6">
             <TabsContent value="dashboard"><Dashboard /></TabsContent>
             <TabsContent value="trips"><Trips /></TabsContent>
-            <TabsContent value="vehicle"><Vehicle /></TabsContent> {/* Added Vehicle Content */}
-            {/* Removed Visits, Expenses, Fuelings Content */}
+            <TabsContent value="vehicle"><Vehicle /></TabsContent>
+             {/* Conditionally render Drivers content */}
+            {isAdmin && (
+                <TabsContent value="drivers"><Drivers /></TabsContent>
+            )}
           </div>
        </Tabs>
     </div>

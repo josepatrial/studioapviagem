@@ -1,9 +1,10 @@
+// src/components/Trips/Trips.tsx
 'use client';
 
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Edit, Trash2, ChevronDown, ChevronUp, Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone } from 'lucide-react'; // Added Milestone
+import { PlusCircle, Edit, Trash2, ChevronDown, ChevronUp, Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Filter } from 'lucide-react'; // Added Milestone, Filter
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,83 +19,132 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea'; // Keep Textarea import if needed elsewhere, though not used in this specific change
+import { Textarea } from '@/components/ui/textarea';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Visits, initialVisits } from './Visits'; // Import initialVisits
-import { Expenses, initialExpenses } from './Expenses'; // Import initialExpenses
-import { Fuelings, initialFuelings } from './Fuelings'; // Import initialFuelings
+import { Visits, initialVisits } from './Visits';
+import { Expenses, initialExpenses } from './Expenses';
+import { Fuelings, initialFuelings } from './Fuelings';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAuth, initialDrivers } from '@/contexts/AuthContext'; // Import initialDrivers as well
 import { initialVehicles, type VehicleInfo } from '../Vehicle';
 import { Badge } from '@/components/ui/badge';
-import { FinishTripDialog } from './FinishTripDialog'; // Import the new dialog
-import type { Visit } from './Visits'; // Keep Visit type import
-import type { Expense } from './Expenses'; // Keep Expense type import
-import type { Fueling } from './Fuelings'; // Keep Fueling type import
+import { FinishTripDialog } from './FinishTripDialog';
+import type { Visit } from './Visits';
+import type { Expense } from './Expenses';
+import type { Fueling } from './Fuelings';
 
-// Updated Trip interface
+// Define Trip interface
 export interface Trip {
   id: string;
   name: string;
   vehicleId: string;
-  userId: string;
+  userId: string; // ID of the driver who owns the trip
   status: 'Andamento' | 'Finalizado';
   createdAt: string;
   updatedAt: string;
   visitCount?: number;
   expenseCount?: number;
   fuelingCount?: number;
-  finalKm?: number; // Added optional final KM
-  totalDistance?: number; // Added optional total distance
+  finalKm?: number;
+  totalDistance?: number;
+  base?: string; // Add base information to the trip
 }
 
-// Updated initialTrips with optional finalKm and totalDistance for finished trips
-const initialTrips: Trip[] = [
-  { id: '1', name: 'Viagem Scania R450 (BRA2E19) - 23/07/2024', vehicleId: 'v1', userId: '1', status: 'Andamento', createdAt: new Date(2024, 6, 20).toISOString(), updatedAt: new Date(2024, 6, 21).toISOString() },
-  { id: '2', name: 'Viagem Volvo FH540 (MER1C01) - 22/07/2024', vehicleId: 'v2', userId: '1', status: 'Finalizado', createdAt: new Date(2024, 6, 15).toISOString(), updatedAt: new Date(2024, 6, 22).toISOString(), finalKm: 16500, totalDistance: 500 }, // Example finished trip data
-];
+// Mock data - Updated to include userId and base
+// Find driver IDs from initialDrivers to associate trips
+const driver1Id = initialDrivers.find(d => d.username === 'joao.silva')?.id || 'driver1';
+const driver2Id = initialDrivers.find(d => d.username === 'maria.souza')?.id || 'driver2';
 
+const initialTrips: Trip[] = [
+  { id: '1', name: 'Viagem Scania R450 (BRA2E19) - 23/07/2024', vehicleId: 'v1', userId: driver1Id, status: 'Andamento', createdAt: new Date(2024, 6, 20).toISOString(), updatedAt: new Date(2024, 6, 21).toISOString(), base: 'Base SP' },
+  { id: '2', name: 'Viagem Volvo FH540 (MER1C01) - 22/07/2024', vehicleId: 'v2', userId: driver2Id, status: 'Finalizado', createdAt: new Date(2024, 6, 15).toISOString(), updatedAt: new Date(2024, 6, 22).toISOString(), finalKm: 16500, totalDistance: 500, base: 'Base RJ' },
+  // Add more trips for different drivers/bases if needed
+  { id: '3', name: 'Viagem Scania R450 (BRA2E19) - 25/07/2024', vehicleId: 'v1', userId: driver1Id, status: 'Finalizado', createdAt: new Date(2024, 6, 24).toISOString(), updatedAt: new Date(2024, 6, 25).toISOString(), finalKm: 15800, totalDistance: 650, base: 'Base SP' },
+];
+export { initialTrips }; // Export for Dashboard
 
 export const Trips: React.FC = () => {
   const { user } = useAuth();
-  const [trips, setTrips] = useState<Trip[]>([]);
-  const [vehicles, setVehicles] = useState<VehicleInfo[]>([]);
+  const isAdmin = user?.role === 'admin';
+  const [allTrips, setAllTrips] = useState<Trip[]>(initialTrips); // Store all trips from source
+  const [displayedTrips, setDisplayedTrips] = useState<Trip[]>([]); // Trips shown based on role/filter
+  const [vehicles, setVehicles] = useState<VehicleInfo[]>(initialVehicles);
+  const [drivers, setDrivers] = useState(initialDrivers); // Keep track of drivers for display/filtering
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [isFinishModalOpen, setIsFinishModalOpen] = useState(false); // State for finish dialog
+  const [isFinishModalOpen, setIsFinishModalOpen] = useState(false);
   const [currentTrip, setCurrentTrip] = useState<Trip | null>(null);
-  const [tripToFinish, setTripToFinish] = useState<Trip | null>(null); // State for trip being finished
+  const [tripToFinish, setTripToFinish] = useState<Trip | null>(null);
   const [expandedTripId, setExpandedTripId] = useState<string | null>(null);
   const { toast } = useToast();
 
   const [tripName, setTripName] = useState('');
   const [selectedVehicleId, setSelectedVehicleId] = useState('');
+  // Add state for filtering (Admin only)
+  const [filterBase, setFilterBase] = useState<string>('');
+  const [filterDriver, setFilterDriver] = useState<string>('');
+
+
+  // Function to get unique bases from trips
+  const getUniqueBases = (tripsData: Trip[]): string[] => {
+      const bases = tripsData.map(trip => trip.base).filter((base): base is string => !!base);
+      return Array.from(new Set(bases)).sort();
+  };
+
 
   useEffect(() => {
-    setVehicles(initialVehicles);
-    const sortedTrips = [...initialTrips].sort((a, b) => {
-      if (a.status === 'Andamento' && b.status === 'Finalizado') return -1;
-      if (a.status === 'Finalizado' && b.status === 'Andamento') return 1;
-      // Sort primarily by status, then by creation date descending for trips with the same status
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    });
-    setTrips(sortedTrips);
+      // Initial load and sorting
+      const sortedTrips = [...initialTrips].sort((a, b) => {
+          if (a.status === 'Andamento' && b.status === 'Finalizado') return -1;
+          if (a.status === 'Finalizado' && b.status === 'Andamento') return 1;
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+      setAllTrips(sortedTrips); // Update the master list
   }, []);
+
+
+  useEffect(() => {
+    // Filter and display logic based on role and filters
+    let filtered = [...allTrips]; // Start with all sorted trips
+
+    if (isAdmin) {
+        // Admin: Apply filters if set
+        if (filterBase) {
+            filtered = filtered.filter(trip => trip.base === filterBase);
+        }
+        if (filterDriver) {
+            filtered = filtered.filter(trip => trip.userId === filterDriver);
+        }
+    } else {
+        // Driver: Only show their own trips
+        filtered = filtered.filter(trip => trip.userId === user?.id);
+    }
+    setDisplayedTrips(filtered);
+
+  }, [user, allTrips, isAdmin, filterBase, filterDriver]); // Re-run when user, master list, or filters change
 
   const getVehicleDisplay = (vehicleId: string) => {
     const vehicle = vehicles.find(v => v.id === vehicleId);
     return vehicle ? `${vehicle.model} (${vehicle.licensePlate})` : 'Veículo Desconhecido';
   };
 
-  const getTripDescription = (trip: Trip): string => {
-    const vehicle = vehicles.find(v => v.id === trip.vehicleId);
-    return vehicle ? `${vehicle.model} (${vehicle.licensePlate})` : 'Veículo Desconhecido';
+  const getDriverName = (driverId: string) => {
+      const driver = drivers.find(d => d.id === driverId);
+      return driver ? driver.name : 'Motorista Desconhecido';
   };
+
+  const getTripDescription = (trip: Trip): string => {
+      const vehicle = vehicles.find(v => v.id === trip.vehicleId);
+      const driverName = isAdmin ? ` - ${getDriverName(trip.userId)}` : ''; // Show driver name for admin
+      const baseInfo = trip.base ? ` (Base: ${trip.base})` : '';
+      const vehicleInfo = vehicle ? `${vehicle.model} (${vehicle.licensePlate})` : 'Veículo Desconhecido';
+      return `${vehicleInfo}${driverName}${baseInfo}`;
+  };
+
 
   const formatKm = (km?: number): string => km ? km.toLocaleString('pt-BR') + ' Km' : 'N/A';
 
-  // Fetch counts directly from imported mock data arrays
   const getVisitCount = (tripId: string): number => initialVisits.filter(v => v.tripId === tripId).length;
   const getExpenseCount = (tripId: string): number => initialExpenses.filter(e => e.tripId === tripId).length;
   const getFuelingCount = (tripId: string): number => initialFuelings.filter(f => f.tripId === tripId).length;
@@ -113,6 +163,8 @@ export const Trips: React.FC = () => {
     const vehicleDisplay = getVehicleDisplay(selectedVehicleId);
     const dateStr = new Date().toLocaleDateString('pt-BR');
     const generatedTripName = `Viagem ${vehicleDisplay} - ${dateStr}`;
+    // Determine base - for admin, maybe allow selection, for driver use their base
+    const base = isAdmin ? 'AdminBase' : (user as any)?.base || 'DefaultBase'; // Adjust base logic as needed
 
     const newTrip: Trip = {
       id: String(Date.now()),
@@ -122,13 +174,15 @@ export const Trips: React.FC = () => {
       status: 'Andamento',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      base: base,
     };
-    initialTrips.push(newTrip);
-    setTrips(prevTrips => [newTrip, ...prevTrips].sort((a, b) => {
-      if (a.status === 'Andamento' && b.status === 'Finalizado') return -1;
-      if (a.status === 'Finalizado' && b.status === 'Andamento') return 1;
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    }));
+    initialTrips.push(newTrip); // Add to the source mock array
+    // Update the master list state, triggering the filtering useEffect
+     setAllTrips(prevAllTrips => [newTrip, ...prevAllTrips].sort((a, b) => {
+       if (a.status === 'Andamento' && b.status === 'Finalizado') return -1;
+       if (a.status === 'Finalizado' && b.status === 'Andamento') return 1;
+       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+     }));
     resetForm();
     setIsCreateModalOpen(false);
     toast({ title: 'Viagem criada com sucesso!' });
@@ -146,17 +200,16 @@ export const Trips: React.FC = () => {
       ...currentTrip,
       name: tripName,
       vehicleId: selectedVehicleId,
-      // userId should remain the same
-      // status should remain the same unless specifically changed
       updatedAt: new Date().toISOString(),
     };
 
     const index = initialTrips.findIndex(t => t.id === currentTrip.id);
     if (index !== -1) {
-      initialTrips[index] = updatedTrip;
+      initialTrips[index] = updatedTrip; // Update source mock array
     }
 
-    setTrips(prevTrips => prevTrips.map(trip => trip.id === currentTrip.id ? updatedTrip : trip)
+    // Update the master list state, triggering the filtering useEffect
+    setAllTrips(prevAllTrips => prevAllTrips.map(trip => trip.id === currentTrip.id ? updatedTrip : trip)
       .sort((a, b) => {
         if (a.status === 'Andamento' && b.status === 'Finalizado') return -1;
         if (a.status === 'Finalizado' && b.status === 'Andamento') return 1;
@@ -168,7 +221,6 @@ export const Trips: React.FC = () => {
     toast({ title: 'Viagem atualizada com sucesso!' });
   };
 
-  // --- Finish Trip Logic ---
   const openFinishModal = (trip: Trip, event: React.MouseEvent) => {
     event.stopPropagation();
     setTripToFinish(trip);
@@ -186,9 +238,10 @@ export const Trips: React.FC = () => {
       finalKm: finalKm,
       totalDistance: totalDistance,
     };
-    initialTrips[index] = updatedTrip;
+    initialTrips[index] = updatedTrip; // Update source mock array
 
-    setTrips(prevTrips => [...prevTrips].map(trip => trip.id === tripId ? updatedTrip : trip)
+    // Update the master list state, triggering the filtering useEffect
+    setAllTrips(prevAllTrips => [...prevAllTrips].map(trip => trip.id === tripId ? updatedTrip : trip)
       .sort((a, b) => {
         if (a.status === 'Andamento' && b.status === 'Finalizado') return -1;
         if (a.status === 'Finalizado' && b.status === 'Andamento') return 1;
@@ -202,10 +255,8 @@ export const Trips: React.FC = () => {
       description: `Distância percorrida: ${formatKm(totalDistance)}`,
     });
   };
-  // --- End Finish Trip Logic ---
 
   const handleDeleteTrip = (tripId: string) => {
-    // Add checks: Cannot delete if related items exist (Visits, Expenses, Fuelings) - For real app
     const hasRelatedItems =
       initialVisits.some(v => v.tripId === tripId) ||
       initialExpenses.some(e => e.tripId === tripId) ||
@@ -218,18 +269,20 @@ export const Trips: React.FC = () => {
             description: "Não é possível excluir a viagem pois existem visitas, despesas ou abastecimentos associados.",
             duration: 7000,
         });
-        return; // Stop deletion
+        return;
     }
 
     const index = initialTrips.findIndex(t => t.id === tripId);
     if (index !== -1) {
-      initialTrips.splice(index, 1);
+      initialTrips.splice(index, 1); // Remove from source mock array
     }
-    setTrips(trips.filter(trip => trip.id !== tripId));
+    // Update the master list state, triggering the filtering useEffect
+    setAllTrips(prevAllTrips => prevAllTrips.filter(trip => trip.id !== tripId));
+
     if (expandedTripId === tripId) {
       setExpandedTripId(null);
     }
-    toast({ title: 'Viagem excluída.' }); // Removed complex description for simplicity
+    toast({ title: 'Viagem excluída.' });
   };
 
   const openEditModal = (trip: Trip, event: React.MouseEvent) => {
@@ -259,71 +312,109 @@ export const Trips: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-semibold">Minhas Viagens</h2>
-        <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
-          <DialogTrigger asChild>
-            <Button onClick={() => { resetForm(); setIsCreateModalOpen(true); }} className="bg-primary hover:bg-primary/90 text-primary-foreground">
-              <PlusCircle className="mr-2 h-4 w-4" /> Criar Nova Viagem
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[425px]">
-            <DialogHeader>
-              <DialogTitle>Criar Nova Viagem</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleCreateTrip} className="grid gap-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="vehicleId">Veículo*</Label>
-                <Select value={selectedVehicleId} onValueChange={setSelectedVehicleId} required>
-                  <SelectTrigger id="vehicleId">
-                    <SelectValue placeholder="Selecione um veículo" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {vehicles.length > 0 ? (
-                      vehicles.map((vehicle) => (
-                        <SelectItem key={vehicle.id} value={vehicle.id}>
-                          {vehicle.model} ({vehicle.licensePlate})
-                        </SelectItem>
-                      ))
-                    ) : (
-                      <SelectItem value="no-vehicles" disabled>Nenhum veículo cadastrado</SelectItem>
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Motorista</Label>
-                <p className="text-sm text-muted-foreground">{user?.email || 'Não identificado'}</p>
-              </div>
-              <div className="space-y-2">
-                <Label>Status</Label>
-                <p className="text-sm font-medium text-emerald-600 flex items-center gap-1">
-                  <PlayCircle className="h-4 w-4" /> Andamento (Automático)
-                </p>
-              </div>
-              <DialogFooter>
-                <DialogClose asChild>
-                  <Button type="button" variant="outline" onClick={closeCreateModal}>Cancelar</Button>
-                </DialogClose>
-                <Button type="submit" className="bg-primary hover:bg-primary/90">Salvar Viagem</Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <h2 className="text-2xl font-semibold">
+          {isAdmin ? 'Todas as Viagens' : 'Minhas Viagens'}
+        </h2>
+        <div className="flex gap-2">
+           {isAdmin && ( // Filter options for Admin
+                <div className="flex gap-2 items-center">
+                     <Select value={filterBase} onValueChange={setFilterBase}>
+                        <SelectTrigger className="w-full sm:w-[180px] h-9">
+                            <SelectValue placeholder="Filtrar por Base" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="">Todas as Bases</SelectItem>
+                            {getUniqueBases(allTrips).map(base => (
+                                <SelectItem key={base} value={base}>{base}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                     <Select value={filterDriver} onValueChange={setFilterDriver}>
+                        <SelectTrigger className="w-full sm:w-[180px] h-9">
+                            <SelectValue placeholder="Filtrar por Motorista" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="">Todos os Motoristas</SelectItem>
+                            {drivers.map(driver => (
+                                <SelectItem key={driver.id} value={driver.id}>{driver.name}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
+            )}
+          <Dialog open={isCreateModalOpen} onOpenChange={setIsCreateModalOpen}>
+            <DialogTrigger asChild>
+              <Button onClick={() => { resetForm(); setIsCreateModalOpen(true); }} className="bg-primary hover:bg-primary/90 text-primary-foreground h-9">
+                <PlusCircle className="mr-2 h-4 w-4" /> Criar Nova Viagem
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="sm:max-w-[425px]">
+              <DialogHeader>
+                <DialogTitle>Criar Nova Viagem</DialogTitle>
+              </DialogHeader>
+              <form onSubmit={handleCreateTrip} className="grid gap-4 py-4">
+                <div className="space-y-2">
+                  <Label htmlFor="vehicleId">Veículo*</Label>
+                  <Select value={selectedVehicleId} onValueChange={setSelectedVehicleId} required>
+                    <SelectTrigger id="vehicleId">
+                      <SelectValue placeholder="Selecione um veículo" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {vehicles.length > 0 ? (
+                        vehicles.map((vehicle) => (
+                          <SelectItem key={vehicle.id} value={vehicle.id}>
+                            {vehicle.model} ({vehicle.licensePlate})
+                          </SelectItem>
+                        ))
+                      ) : (
+                        <SelectItem value="no-vehicles" disabled>Nenhum veículo cadastrado</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <Label>Motorista</Label>
+                  <p className="text-sm text-muted-foreground">{user?.name || user?.email || 'Não identificado'}</p>
+                </div>
+                <div className="space-y-2">
+                  <Label>Status</Label>
+                  <p className="text-sm font-medium text-emerald-600 flex items-center gap-1">
+                    <PlayCircle className="h-4 w-4" /> Andamento (Automático)
+                  </p>
+                </div>
+                <DialogFooter>
+                  <DialogClose asChild>
+                    <Button type="button" variant="outline" onClick={closeCreateModal}>Cancelar</Button>
+                  </DialogClose>
+                  <Button type="submit" className="bg-primary hover:bg-primary/90">Salvar Viagem</Button>
+                </DialogFooter>
+              </form>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
-      {trips.length === 0 ? (
+      {displayedTrips.length === 0 ? (
         <Card className="text-center py-10 bg-card border border-border">
           <CardContent>
-            <p className="text-muted-foreground">Nenhuma viagem cadastrada ainda.</p>
-            <Button variant="link" onClick={() => setIsCreateModalOpen(true)} className="mt-2 text-primary">
-              Criar sua primeira viagem
-            </Button>
+            <p className="text-muted-foreground">
+                {isAdmin && (filterBase || filterDriver)
+                    ? 'Nenhuma viagem encontrada para os filtros selecionados.'
+                    : isAdmin
+                    ? 'Nenhuma viagem cadastrada no sistema ainda.'
+                    : 'Você ainda não cadastrou nenhuma viagem.'}
+            </p>
+            {!isAdmin && (
+              <Button variant="link" onClick={() => setIsCreateModalOpen(true)} className="mt-2 text-primary">
+                Criar sua primeira viagem
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : (
         <Accordion type="single" collapsible className="w-full space-y-4" value={expandedTripId ?? undefined} onValueChange={setExpandedTripId}>
-          {trips.map((trip) => {
+          {displayedTrips.map((trip) => {
             const visitCount = getVisitCount(trip.id);
             const expenseCount = getExpenseCount(trip.id);
             const fuelingCount = getFuelingCount(trip.id);
@@ -349,7 +440,7 @@ export const Trips: React.FC = () => {
                         <Wallet className="h-3 w-3 inline-block mr-1" /> {expenseCount} {expenseCount === 1 ? 'Despesa' : 'Despesas'}
                       </span>
                       <span>
-                        <Fuel className="h-3 w-3 inline-block mr-1" /> {fuelingCount} {fuelingCount === 1 ? 'Abastec.' : 'Abastec.'} {/* Abbreviated */}
+                        <Fuel className="h-3 w-3 inline-block mr-1" /> {fuelingCount} {fuelingCount === 1 ? 'Abastec.' : 'Abastec.'}
                       </span>
                      {trip.status === 'Finalizado' && trip.totalDistance !== undefined && (
                         <span className="text-emerald-600 font-medium">
@@ -363,95 +454,101 @@ export const Trips: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
-                     {trip.status === 'Andamento' && (
+                     {trip.status === 'Andamento' && (isAdmin || trip.userId === user?.id) && ( // Allow finish only for owner or admin
                          <Button
                             variant="outline"
                             size="sm"
-                            onClick={(e) => openFinishModal(trip, e)} // Use specific handler
+                            onClick={(e) => openFinishModal(trip, e)}
                             className="h-8 px-2 sm:px-3 text-emerald-600 border-emerald-600/50 hover:bg-emerald-50 hover:text-emerald-700"
                          >
                            <CheckCircle2 className="h-4 w-4 sm:mr-1" /> <span className="hidden sm:inline">Finalizar</span>
                          </Button>
                      )}
-                    <Dialog open={isEditModalOpen && currentTrip?.id === trip.id} onOpenChange={(isOpen) => !isOpen && closeEditModal()}>
-                      <DialogTrigger asChild>
-                        <Button variant="ghost" size="icon" onClick={(e) => openEditModal(trip, e)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8">
-                          <Edit className="h-4 w-4" />
-                          <span className="sr-only">Editar Viagem</span>
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="sm:max-w-[425px]">
-                        <DialogHeader>
-                          <DialogTitle>Editar Viagem</DialogTitle>
-                        </DialogHeader>
-                        <form onSubmit={handleEditTrip} className="grid gap-4 py-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="editTripName">Nome da Viagem*</Label>
-                            <Input id="editTripName" value={tripName} onChange={(e) => setTripName(e.target.value)} required />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="editVehicleId">Veículo*</Label>
-                            <Select value={selectedVehicleId} onValueChange={setSelectedVehicleId} required>
-                              <SelectTrigger id="editVehicleId">
-                                <SelectValue />
-                              </SelectTrigger>
-                              <SelectContent>
-                                {vehicles.map((vehicle) => (
-                                  <SelectItem key={vehicle.id} value={vehicle.id}>
-                                    {vehicle.model} ({vehicle.licensePlate})
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                          </div>
-                          <div className="space-y-2">
-                            <Label>Motorista</Label>
-                            <p className="text-sm text-muted-foreground">{user?.email || 'Não identificado'}</p>
-                          </div>
-                          <div className="space-y-2">
-                            <Label>Status</Label>
-                            <p className="text-sm font-medium">{currentTrip?.status}</p>
-                          </div>
-                          <DialogFooter>
-                            <DialogClose asChild>
-                              <Button type="button" variant="outline" onClick={closeEditModal}>Cancelar</Button>
-                            </DialogClose>
-                            <Button type="submit" className="bg-primary hover:bg-primary/90">Salvar Alterações</Button>
-                          </DialogFooter>
-                        </form>
-                      </DialogContent>
-                    </Dialog>
+                     {/* Edit and Delete only allowed for owner or admin */}
+                    {(isAdmin || trip.userId === user?.id) && (
+                       <>
+                            <Dialog open={isEditModalOpen && currentTrip?.id === trip.id} onOpenChange={(isOpen) => !isOpen && closeEditModal()}>
+                              <DialogTrigger asChild>
+                                <Button variant="ghost" size="icon" onClick={(e) => openEditModal(trip, e)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8">
+                                  <Edit className="h-4 w-4" />
+                                  <span className="sr-only">Editar Viagem</span>
+                                </Button>
+                              </DialogTrigger>
+                              <DialogContent className="sm:max-w-[425px]">
+                                <DialogHeader>
+                                  <DialogTitle>Editar Viagem</DialogTitle>
+                                </DialogHeader>
+                                <form onSubmit={handleEditTrip} className="grid gap-4 py-4">
+                                  <div className="space-y-2">
+                                    <Label htmlFor="editTripName">Nome da Viagem*</Label>
+                                    <Input id="editTripName" value={tripName} onChange={(e) => setTripName(e.target.value)} required />
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label htmlFor="editVehicleId">Veículo*</Label>
+                                    <Select value={selectedVehicleId} onValueChange={setSelectedVehicleId} required>
+                                      <SelectTrigger id="editVehicleId">
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {vehicles.map((vehicle) => (
+                                          <SelectItem key={vehicle.id} value={vehicle.id}>
+                                            {vehicle.model} ({vehicle.licensePlate})
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label>Motorista</Label>
+                                    <p className="text-sm text-muted-foreground">{getDriverName(trip.userId)}</p>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <Label>Status</Label>
+                                    <p className="text-sm font-medium">{currentTrip?.status}</p>
+                                  </div>
+                                  <DialogFooter>
+                                    <DialogClose asChild>
+                                      <Button type="button" variant="outline" onClick={closeEditModal}>Cancelar</Button>
+                                    </DialogClose>
+                                    <Button type="submit" className="bg-primary hover:bg-primary/90">Salvar Alterações</Button>
+                                  </DialogFooter>
+                                </form>
+                              </DialogContent>
+                            </Dialog>
 
-                    <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                        <Button variant="ghost" size="icon" onClick={(e) => e.stopPropagation()} className="text-muted-foreground hover:text-destructive h-8 w-8">
-                          <Trash2 className="h-4 w-4" />
-                          <span className="sr-only">Excluir Viagem</span>
-                        </Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
-                          <AlertDialogDescription>
-                           Tem certeza que deseja excluir a viagem "{trip.name}"? Esta ação não pode ser desfeita. Certifique-se de que não há visitas, despesas ou abastecimentos associados antes de excluir.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                          <AlertDialogAction
-                            onClick={() => handleDeleteTrip(trip.id)}
-                            className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
-                          >
-                            Excluir
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button variant="ghost" size="icon" onClick={(e) => e.stopPropagation()} className="text-muted-foreground hover:text-destructive h-8 w-8">
+                                  <Trash2 className="h-4 w-4" />
+                                  <span className="sr-only">Excluir Viagem</span>
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                   Tem certeza que deseja excluir a viagem "{trip.name}"? Esta ação não pode ser desfeita. Certifique-se de que não há visitas, despesas ou abastecimentos associados antes de excluir.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={() => handleDeleteTrip(trip.id)}
+                                    className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                                  >
+                                    Excluir
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                        </>
+                     )}
                     <ChevronDown className="h-5 w-5 transition-transform duration-200 group-data-[state=open]:rotate-180 flex-shrink-0 ml-1 sm:ml-2" />
                   </div>
                 </AccordionTrigger>
                 <AccordionContent className="p-4 pt-0 bg-secondary/30">
                   <div className="space-y-6">
+                    {/* Pass isAdmin prop to child components if they need role-based logic */}
                     <section>
                       <Visits tripId={trip.id} tripName={trip.name} />
                     </section>
@@ -471,14 +568,13 @@ export const Trips: React.FC = () => {
         </Accordion>
       )}
 
-       {/* Finish Trip Dialog */}
        {tripToFinish && (
          <FinishTripDialog
            trip={tripToFinish}
            isOpen={isFinishModalOpen}
            onClose={() => { setIsFinishModalOpen(false); setTripToFinish(null); }}
            onConfirm={confirmFinishTrip}
-           initialVisitsData={initialVisits} // Pass mock visits data
+           initialVisitsData={initialVisits}
          />
        )}
     </div>
