@@ -31,13 +31,16 @@ export default function LoginPage() {
         description: "Redirecionando para o painel...",
       });
       router.push('/'); // Redirect to dashboard on successful login
-    } else {
-      toast({
-        variant: "destructive",
-        title: "Falha no Login",
-        description: "Verifique seu e-mail e senha.",
-      });
     }
+    // Removed the else block that showed the redundant toast.
+    // The login function in AuthContext already shows a toast on failure.
+    // else {
+    //   toast({
+    //     variant: "destructive",
+    //     title: "Falha no Login",
+    //     description: "Verifique seu e-mail e senha.",
+    //   });
+    // }
   };
 
   return (
