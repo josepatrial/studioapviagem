@@ -20,8 +20,12 @@ const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style:
 // Helper function to format distance
 const formatKm = (km?: number): string => km ? km.toLocaleString('pt-BR') + ' Km' : '0 Km';
 
+// Define props for Dashboard component
+interface DashboardProps {
+    setActiveTab: (tab: string) => void;
+}
 
-export const Dashboard: React.FC = () => {
+export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
   const [filterDriverId, setFilterDriverId] = useState<string>(''); // State for driver filter
@@ -57,15 +61,16 @@ export const Dashboard: React.FC = () => {
          filteredTrips = filteredTrips.filter(t => t.userId === filterDriverId);
          // Re-filter visits, expenses, fuelings based on the selected driver's trips *within the date range*
          const tripIdsForDriver = filteredTrips.map(t => t.id);
-         filteredVisits = initialVisits.filter(v => tripIdsForDriver.includes(v.tripId || ''));
-         filteredExpenses = initialExpenses.filter(e => tripIdsForDriver.includes(e.tripId || ''));
-         filteredFuelings = initialFuelings.filter(f => tripIdsForDriver.includes(f.tripId || ''));
+         // Ensure related items are filtered based on *both* driver and potential date range
+         filteredVisits = initialVisits.filter(v => tripIdsForDriver.includes(v.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(v.timestamp), { start: dateRange.from, end: dateRange.to })));
+         filteredExpenses = initialExpenses.filter(e => tripIdsForDriver.includes(e.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(e.expenseDate), { start: dateRange.from, end: dateRange.to })));
+         filteredFuelings = initialFuelings.filter(f => tripIdsForDriver.includes(f.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(f.date), { start: dateRange.from, end: dateRange.to })));
       } else {
           // If no driver filter, ensure visits/expenses/fuelings are related to the date-filtered trips
           const tripIds = filteredTrips.map(t => t.id);
-          filteredVisits = filteredVisits.filter(v => tripIds.includes(v.tripId || ''));
-          filteredExpenses = filteredExpenses.filter(e => tripIds.includes(e.tripId || ''));
-          filteredFuelings = filteredFuelings.filter(f => tripIds.includes(f.tripId || ''));
+          filteredVisits = initialVisits.filter(v => tripIds.includes(v.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(v.timestamp), { start: dateRange.from, end: dateRange.to })));
+          filteredExpenses = initialExpenses.filter(e => tripIds.includes(e.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(e.expenseDate), { start: dateRange.from, end: dateRange.to })));
+          filteredFuelings = initialFuelings.filter(f => tripIds.includes(f.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(f.date), { start: dateRange.from, end: dateRange.to })));
       }
 
 
@@ -105,7 +110,7 @@ export const Dashboard: React.FC = () => {
       // Filter related items based on driver's trips AND date range
        filteredVisits = initialVisits.filter(v => driverTripIds.includes(v.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(v.timestamp), { start: dateRange.from, end: dateRange.to })));
        filteredExpenses = initialExpenses.filter(e => driverTripIds.includes(e.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(e.expenseDate), { start: dateRange.from, end: dateRange.to })));
-       filteredFuelings = initialFuelings.filter(f => driverTripIds.includes(e.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(f.date), { start: dateRange.from, end: dateRange.to })));
+       filteredFuelings = initialFuelings.filter(f => driverTripIds.includes(f.tripId || '') && (!dateRange?.from || !dateRange?.to || isWithinInterval(parseISO(f.date), { start: dateRange.from, end: dateRange.to })));
 
 
       return {
@@ -168,8 +173,8 @@ export const Dashboard: React.FC = () => {
           <Card className="shadow-md transition-shadow hover:shadow-lg">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Viagens Ativas</CardTitle>
-               {/* Make icon visually clickable */}
-               <Plane className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => console.log("Navigate to Active Trips")} />
+               {/* Make icon visually clickable - Change active tab */}
+               <Plane className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => setActiveTab('trips')} />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-primary">{summaryData.activeTrips}</div>
@@ -183,7 +188,8 @@ export const Dashboard: React.FC = () => {
           <Card className="shadow-md transition-shadow hover:shadow-lg">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total de Visitas</CardTitle>
-              <Map className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => console.log("Navigate to Visits")} />
+              {/* Make icon visually clickable - Change active tab */}
+              <Map className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => setActiveTab('trips')} />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-accent-foreground">{summaryData.totalVisits}</div>
@@ -197,7 +203,8 @@ export const Dashboard: React.FC = () => {
           <Card className="shadow-md transition-shadow hover:shadow-lg">
              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                <CardTitle className="text-sm font-medium">Distância Percorrida</CardTitle>
-               <Milestone className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => console.log("Show Distance Details")} />
+                {/* Make icon visually clickable - Change active tab */}
+               <Milestone className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => setActiveTab('trips')} />
              </CardHeader>
              <CardContent>
                <div className="text-2xl font-bold">{formatKm(summaryData.totalDistance)}</div>
@@ -211,7 +218,8 @@ export const Dashboard: React.FC = () => {
            <Card className="shadow-md transition-shadow hover:shadow-lg">
              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                <CardTitle className="text-sm font-medium">Valor Total Despesas</CardTitle>
-               <Wallet className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => console.log("Navigate to Expenses")} />
+                {/* Make icon visually clickable - Change active tab */}
+               <Wallet className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => setActiveTab('trips')} />
              </CardHeader>
              <CardContent>
                <div className="text-2xl font-bold">{formatCurrency(summaryData.totalExpensesValue)}</div>
@@ -225,7 +233,8 @@ export const Dashboard: React.FC = () => {
           <Card className="shadow-md transition-shadow hover:shadow-lg">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Custo Total Abastecimento</CardTitle>
-              <Fuel className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => console.log("Navigate to Fuelings")} />
+               {/* Make icon visually clickable - Change active tab */}
+              <Fuel className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => setActiveTab('trips')} />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{formatCurrency(summaryData.totalFuelingsCost)}</div>
@@ -241,7 +250,8 @@ export const Dashboard: React.FC = () => {
                <Card className="shadow-md transition-shadow hover:shadow-lg">
                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                    <CardTitle className="text-sm font-medium">Motoristas</CardTitle>
-                    <Users className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => console.log("Navigate to Drivers")} />
+                    {/* Make icon visually clickable - Change active tab */}
+                    <Users className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => setActiveTab('drivers')} />
                  </CardHeader>
                  <CardContent>
                    <div className="text-2xl font-bold">{summaryData.totalDrivers}</div>
@@ -254,7 +264,8 @@ export const Dashboard: React.FC = () => {
                <Card className="shadow-md transition-shadow hover:shadow-lg">
                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                    <CardTitle className="text-sm font-medium">Veículos</CardTitle>
-                    <Truck className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => console.log("Navigate to Vehicles")} />
+                    {/* Make icon visually clickable - Change active tab */}
+                    <Truck className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => setActiveTab('vehicle')} />
                  </CardHeader>
                  <CardContent>
                    <div className="text-2xl font-bold">{summaryData.totalVehicles}</div>

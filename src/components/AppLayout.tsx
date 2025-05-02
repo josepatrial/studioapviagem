@@ -113,7 +113,8 @@ const AppLayout: React.FC = () => {
           </div>
 
           <div className="flex-1 overflow-y-auto p-4 md:p-6">
-            <TabsContent value="dashboard"><Dashboard /></TabsContent>
+             {/* Pass setActiveTab to Dashboard */}
+            <TabsContent value="dashboard"><Dashboard setActiveTab={setActiveTab} /></TabsContent>
             <TabsContent value="trips"><Trips /></TabsContent>
             <TabsContent value="vehicle"><Vehicle /></TabsContent>
              {/* Conditionally render Drivers content */}
