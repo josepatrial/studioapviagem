@@ -40,9 +40,8 @@ export interface Fueling {
   receiptFilename?: string;
 }
 
-// Remove initialFuelings - data will be fetched
-// const initialFuelings: Fueling[] = [...];
-export { getFuelings as initialFuelings } from '@/services/firestoreService'; // Export function for legacy imports if needed
+// Export getFuelings as initialFuelings for legacy compatibility
+export { getFuelings as initialFuelings } from '@/services/firestoreService';
 
 interface FuelingsProps {
   tripId: string; // TripId is required

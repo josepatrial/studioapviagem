@@ -22,8 +22,7 @@ export interface VehicleInfo {
 }
 
 // Remove initialVehicles - will fetch from Firestore
-// export const initialVehicles: VehicleInfo[] = [...];
-export { getVehicles as initialVehicles } from '@/services/firestoreService'; // Exporting function for legacy imports if needed
+// export { getVehicles as initialVehicles } from '@/services/firestoreService'; // Removed legacy export
 
 export const Vehicle: React.FC = () => {
   const [vehicles, setVehicles] = useState<VehicleInfo[]>([]);
@@ -332,7 +331,6 @@ export const Vehicle: React.FC = () => {
                  <p className="flex items-center gap-1"><Fuel className="h-3 w-3" /> Histórico de Abastecimentos</p>
                  <p className="flex items-center gap-1"><Milestone className="h-3 w-3" /> Km Percorridos & Performance</p>
                  <p className="flex items-center gap-1"><Users className="h-3 w-3" /> Motoristas que utilizaram</p>
-                 <p className="flex items-center gap-1"><Wrench className="h-3 w-3" /> Manutenções</p>
                  {/* Example link/button - Add onClick handler for actual functionality */}
                  <Button variant="link" size="sm" className="p-0 h-auto text-primary" onClick={() => toast({title: 'Funcionalidade em breve', description: 'Detalhes do histórico do veículo serão implementados.'})}>
                     Ver Histórico Completo

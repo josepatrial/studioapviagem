@@ -21,13 +21,14 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-// Mock data imports - keep for counts until replaced
+// Fetch data functions and types
 import { Visits, getVisits as fetchVisits, type Visit } from './Visits';
 import { Expenses, getExpenses as fetchExpenses, type Expense } from './Expenses';
-import { Fuelings, getFuelings as fetchFuelings, type Fueling } from './Fuelings';
+import { Fuelings, type Fueling } from './Fuelings'; // Removed fetchFuelings import from here
 import { useToast } from '@/hooks/use-toast';
 import { useAuth, User } from '@/contexts/AuthContext';
-import { getVehicles as fetchVehicles, type VehicleInfo } from '../Vehicle';
+import { type VehicleInfo } from '../Vehicle'; // Import type VehicleInfo
+import { getVehicles as fetchVehicles, getFuelings as fetchFuelings } from '@/services/firestoreService'; // Import fetch function from service
 import { Badge } from '@/components/ui/badge';
 import { FinishTripDialog } from './FinishTripDialog';
 import { cn } from '@/lib/utils';
@@ -90,7 +91,7 @@ export const Trips: React.FC = () => {
         setLoading(true); // Start loading before fetching anything
         try {
             const [vehiclesData, driversData] = await Promise.all([
-                fetchVehicles(),
+                fetchVehicles(), // Use fetch function from service
                 isAdmin ? getDrivers() : Promise.resolve([]),
             ]);
             setVehicles(vehiclesData);
@@ -290,7 +291,7 @@ export const Trips: React.FC = () => {
     }
   };
 
-  const openFinishModal = (trip: Trip, event: React.MouseEvent<HTMLButtonElement>) => {
+  const openFinishModal = (trip: Trip, event: React.MouseEvent) => {
     event.stopPropagation();
     setTripToFinish(trip);
     setIsFinishModalOpen(true);
@@ -331,7 +332,7 @@ export const Trips: React.FC = () => {
     }
   };
 
-    const openDeleteConfirmation = (trip: Trip, event: React.MouseEvent<HTMLButtonElement>) => {
+    const openDeleteConfirmation = (trip: Trip, event: React.MouseEvent) => {
         event.stopPropagation();
         setTripToDelete(trip);
     };
@@ -385,7 +386,7 @@ export const Trips: React.FC = () => {
     }
   };
 
-  const openEditModal = (trip: Trip, event: React.MouseEvent<HTMLButtonElement>) => {
+  const openEditModal = (trip: Trip, event: React.MouseEvent) => {
     event.stopPropagation();
     setCurrentTrip(trip);
     // Trip name is not editable anymore
@@ -560,42 +561,41 @@ export const Trips: React.FC = () => {
             const expenseCount = expenseCounts[trip.id] ?? 0;
             const fuelingCount = fuelingCounts[trip.id] ?? 0;
             return (
-              <AccordionItem key={trip.id} value={trip.id} className="border bg-card rounded-lg shadow-sm overflow-hidden">
-                 <div className="flex justify-between items-center p-4 hover:bg-accent/50 w-full text-left data-[state=open]:border-b">
-                     <AccordionTrigger className="flex-1 p-0 hover:no-underline">
-                          <div className="flex-1 mr-4 space-y-1">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <CardTitle className="text-lg">{trip.name}</CardTitle>
-                              <Badge variant={trip.status === 'Andamento' ? 'default' : 'secondary'} className={cn('h-5 px-2 text-xs whitespace-nowrap', trip.status === 'Andamento' ? 'bg-emerald-500 hover:bg-emerald-500/80 dark:bg-emerald-600 dark:hover:bg-emerald-600/80 text-white' : '')}>
-                                {trip.status === 'Andamento' ? <PlayCircle className="h-3 w-3 mr-1" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
-                                {trip.status}
-                              </Badge>
-                            </div>
-                            <CardDescription className="text-sm flex items-center gap-1">
-                              <Car className="h-4 w-4 text-muted-foreground" /> {getTripDescription(trip)}
-                            </CardDescription>
-                            <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                              <span className="inline-flex items-center gap-1">
-                                <MapPin className="h-3 w-3" /> {visitCount} {visitCount === 1 ? 'Visita' : 'Visitas'}
-                              </span>
-                              <span className="inline-flex items-center gap-1">
-                                <Wallet className="h-3 w-3" /> {expenseCount} {expenseCount === 1 ? 'Despesa' : 'Despesas'}
-                              </span>
-                              <span className="inline-flex items-center gap-1">
-                                <Fuel className="h-3 w-3" /> {fuelingCount} {fuelingCount === 1 ? 'Abastec.' : 'Abastec.'}
-                              </span>
-                             {trip.status === 'Finalizado' && trip.totalDistance !== undefined && (
-                                <span className="text-emerald-600 font-medium inline-flex items-center gap-1">
-                                  <Milestone className="h-3 w-3" /> {formatKm(trip.totalDistance)} Percorridos
-                                </span>
-                             )}
-                            </div>
-                            <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                              <span>Início: {new Date(trip.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
-                              <span>Atualizado: {new Date(trip.updatedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
-                            </div>
-                          </div>
-                     </AccordionTrigger>
+              <AccordionItem key={trip.id} value={trip.id} className="border bg-card rounded-lg shadow-sm overflow-hidden group/item">
+                 <AccordionTrigger className="flex justify-between items-center p-4 hover:bg-accent/50 w-full text-left data-[state=open]:border-b hover:no-underline">
+                      <div className="flex-1 mr-4 space-y-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <CardTitle className="text-lg">{trip.name}</CardTitle>
+                          <Badge variant={trip.status === 'Andamento' ? 'default' : 'secondary'} className={cn('h-5 px-2 text-xs whitespace-nowrap', trip.status === 'Andamento' ? 'bg-emerald-500 hover:bg-emerald-500/80 dark:bg-emerald-600 dark:hover:bg-emerald-600/80 text-white' : '')}>
+                            {trip.status === 'Andamento' ? <PlayCircle className="h-3 w-3 mr-1" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
+                            {trip.status}
+                          </Badge>
+                        </div>
+                        <CardDescription className="text-sm flex items-center gap-1">
+                          <Car className="h-4 w-4 text-muted-foreground" /> {getTripDescription(trip)}
+                        </CardDescription>
+                        <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                          <span className="inline-flex items-center gap-1">
+                            <MapPin className="h-3 w-3" /> {visitCount} {visitCount === 1 ? 'Visita' : 'Visitas'}
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <Wallet className="h-3 w-3" /> {expenseCount} {expenseCount === 1 ? 'Despesa' : 'Despesas'}
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <Fuel className="h-3 w-3" /> {fuelingCount} {fuelingCount === 1 ? 'Abastec.' : 'Abastec.'}
+                          </span>
+                         {trip.status === 'Finalizado' && trip.totalDistance !== undefined && (
+                            <span className="text-emerald-600 font-medium inline-flex items-center gap-1">
+                              <Milestone className="h-3 w-3" /> {formatKm(trip.totalDistance)} Percorridos
+                            </span>
+                         )}
+                        </div>
+                        <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                          <span>Início: {new Date(trip.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                          <span>Atualizado: {new Date(trip.updatedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                        </div>
+                      </div>
+
                      <div className="flex items-center gap-1 flex-shrink-0 ml-2">
                         {trip.status === 'Andamento' && (isAdmin || trip.userId === user?.id) && (
                            <Button
@@ -706,8 +706,9 @@ export const Trips: React.FC = () => {
                                 </AlertDialog>
                             </>
                          )}
+                         {/* Chevron is part of AccordionTrigger now */}
                      </div>
-                 </div>
+                 </AccordionTrigger>
 
                 <AccordionContent className="p-4 pt-0 bg-secondary/30">
                   <div className="space-y-6">
@@ -737,9 +738,12 @@ export const Trips: React.FC = () => {
            isOpen={isFinishModalOpen}
            onClose={() => { setIsFinishModalOpen(false); setTripToFinish(null); }}
            onConfirm={confirmFinishTrip}
-           initialVisitsData={visitsDataForFinish.filter(v => v.tripId === tripToFinish.id)} // Pass only relevant visits
+           visitsData={visitsDataForFinish.filter(v => v.tripId === tripToFinish.id)} // Pass only relevant visits
          />
        )}
     </div>
   );
 };
+
+
+```
