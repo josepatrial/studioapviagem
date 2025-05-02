@@ -19,9 +19,6 @@ const firebaseConfig = {
 
 // Basic validation removed as Firebase SDK handles invalid config errors effectively.
 // The console error was just confirming the SDK's error.
-// if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "YOUR_API_KEY") {
-//     console.error("Firebase API Key is missing or is still the placeholder value. Please check your .env file and ensure NEXT_PUBLIC_FIREBASE_API_KEY is set correctly.");
-// }
 
 // Initialize Firebase
 let app;
