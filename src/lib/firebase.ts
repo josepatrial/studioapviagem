@@ -64,7 +64,7 @@ let app: FirebaseApp | null = null;
 let auth: ReturnType<typeof getAuth> | null = null;
 let db: ReturnType<typeof getFirestore> | null = null;
 let storage: ReturnType<typeof getStorage> | null = null;
-let persistenceEnabled = false; // Flag to track if persistence has been enabled
+let persistenceEnabledPromise: Promise<void> | null = null; // Promise to track persistence enabling
 
 try {
   console.log("Attempting Firebase initialization...");
@@ -102,30 +102,32 @@ try {
         console.log("Firebase services initialized successfully.");
 
         // Enable Firestore offline persistence
-        // Use a flag to prevent multiple calls in HMR scenarios
-        if (!persistenceEnabled && db) {
-          enableMultiTabIndexedDbPersistence(db) // Use multi-tab persistence
-            .then(() => {
-              persistenceEnabled = true;
-              console.log("Firestore multi-tab offline persistence enabled.");
-            })
-            .catch((err) => {
-              if (err.code === 'failed-precondition') {
-                // Multiple tabs open, persistence can only be enabled in one tab at a time.
-                console.warn("Firestore persistence failed: Multiple tabs open. Persistence might be enabled in another tab.");
-                persistenceEnabled = true; // Assume it's enabled elsewhere
-              } else if (err.code === 'unimplemented') {
-                // The current browser does not support all of the
-                // features required to enable persistence
-                console.error("Firestore persistence failed: Browser does not support required features.");
-              } else {
-                console.error("Firestore persistence failed with error:", err);
-              }
-            });
-        } else if (persistenceEnabled) {
-             console.log("Firestore persistence already enabled or attempted.");
+        // Use a promise to ensure persistence is attempted only once and can be awaited
+        if (!persistenceEnabledPromise && db) {
+            console.log("Attempting to enable Firestore multi-tab persistence...");
+            persistenceEnabledPromise = enableMultiTabIndexedDbPersistence(db)
+              .then(() => {
+                console.log("Firestore multi-tab offline persistence enabled successfully.");
+              })
+              .catch((err) => {
+                // Handle specific errors for persistence
+                if (err.code === 'failed-precondition') {
+                  console.warn("Firestore persistence failed (failed-precondition): Multiple tabs open or persistence already enabled in another tab.");
+                  // Treat as enabled since another tab might have it
+                } else if (err.code === 'unimplemented') {
+                  console.error("Firestore persistence failed (unimplemented): Browser does not support required features.");
+                } else {
+                  console.error("Firestore persistence failed with unexpected error:", err);
+                }
+                // Even if it fails, resolve the promise so dependent code doesn't hang indefinitely
+                // The app will work online, but offline capabilities might be limited
+              });
+        } else if (persistenceEnabledPromise) {
+             console.log("Firestore persistence enabling already in progress or completed.");
         } else {
              console.error("Firestore instance (db) is null, cannot enable persistence.");
+             // Create a rejected promise to indicate failure if db is null
+             persistenceEnabledPromise = Promise.reject(new Error("Firestore DB instance is null"));
         }
 
     } catch (serviceError: any) {
@@ -134,10 +136,12 @@ try {
         auth = null;
         db = null;
         storage = null;
+        persistenceEnabledPromise = Promise.reject(serviceError); // Indicate failure
         throw new Error(`Failed to initialize Firebase services: ${serviceError.message}`); // Re-throw specific service error
     }
   } else {
       // This case should ideally not be reached if validation passes, but good for safety
+      persistenceEnabledPromise = Promise.reject(new Error("Firebase app object is null")); // Indicate failure
       throw new Error("Firebase app object is null after initialization attempt.");
   }
 
@@ -151,10 +155,11 @@ try {
   auth = null;
   db = null;
   storage = null;
+  persistenceEnabledPromise = Promise.reject(error); // Indicate failure
   // It's often better to let the error propagate and crash the server during startup
   // for configuration errors, rather than trying to continue in a broken state.
   // throw new Error(detailedError); // Uncomment if you want startup to fail hard on config errors
 }
 
 
-export { app, auth, db, storage };
+export { app, auth, db, storage, persistenceEnabledPromise }; // Export the promise

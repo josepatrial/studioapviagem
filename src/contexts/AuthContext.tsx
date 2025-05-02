@@ -15,10 +15,10 @@ import {
   updateProfile,
   createUserWithEmailAndPassword // Import createUserWithEmailAndPassword
 } from 'firebase/auth';
-import { auth, db } from '@/lib/firebase'; // Import Firebase auth and db
+import { auth, db, persistenceEnabledPromise } from '@/lib/firebase'; // Import Firebase auth, db, and persistence promise
 import { useToast } from '@/hooks/use-toast';
 import { getUserData, setUserData } from '@/services/firestoreService'; // Import Firestore service
-import { doc, setDoc, getDoc } from 'firebase/firestore'; // Import doc, setDoc, and getDoc
+import { doc, setDoc, getDoc, FirestoreError } from 'firebase/firestore'; // Import FirestoreError type
 
 // Define user roles
 export type UserRole = 'driver' | 'admin';
@@ -120,6 +120,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       if (fbUser) {
         console.log(`[AuthProvider onAuthStateChanged ${startTime}] Firebase Auth user found: ${fbUser.uid}, Email: ${fbUser.email}. Fetching Firestore data...`);
         try {
+            // Wait for persistence enabling to complete (or fail) before fetching data
+            if (persistenceEnabledPromise) {
+                 const persistenceStartTime = performance.now();
+                 console.log(`[AuthProvider ${startTime}] Waiting for persistence promise...`);
+                 await persistenceEnabledPromise;
+                 const persistenceEndTime = performance.now();
+                 console.log(`[AuthProvider ${startTime}] Persistence promise resolved/rejected in ${persistenceEndTime - persistenceStartTime} ms.`);
+            } else {
+                 console.warn(`[AuthProvider ${startTime}] Persistence promise not found. Proceeding without waiting.`);
+            }
+
             if (!db) {
                 throw new Error('Firestore DB instance is not available. Cannot fetch user data.');
             }
@@ -195,14 +206,29 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 setLoading(false);
                 return;
              }
-             console.error(`[AuthProvider ${startTime}] Error fetching or processing user data for ${fbUser.uid}:`, error.message);
-              setUser({
-                  id: fbUser.uid,
-                  email: fbUser.email || 'error@example.com',
-                  name: fbUser.displayName || 'Erro ao Carregar',
-                  role: 'driver',
-              });
-              toast({ variant: "destructive", title: "Erro de Dados", description: "Não foi possível carregar os dados completos do usuário." });
+             console.error(`[AuthProvider ${startTime}] Error fetching or processing user data for ${fbUser.uid}:`, error.message, error.code);
+
+              // Check specifically for Firestore offline error
+             if (error instanceof FirestoreError && error.code === 'unavailable') {
+                   console.warn(`[AuthProvider ${startTime}] Firestore unavailable (likely offline). Using basic Auth data.`);
+                   setUser({
+                       id: fbUser.uid,
+                       email: fbUser.email || 'offline@example.com',
+                       name: fbUser.displayName || 'Usuário Offline',
+                       role: 'driver', // Assume default role when offline and no data
+                       // Base and username might be undefined
+                   });
+                   toast({ variant: "default", title: "Modo Offline", description: "Não foi possível carregar dados completos. Verifique sua conexão.", duration: 5000 });
+              } else {
+                  // Handle other errors
+                  setUser({
+                      id: fbUser.uid,
+                      email: fbUser.email || 'error@example.com',
+                      name: fbUser.displayName || 'Erro ao Carregar',
+                      role: 'driver',
+                  });
+                  toast({ variant: "destructive", title: "Erro de Dados", description: `Não foi possível carregar os dados completos do usuário. (${error.code || 'Unknown'})` });
+              }
         } finally {
            if (isMounted) {
              const endTime = performance.now();
@@ -246,18 +272,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
        toast({ variant: "destructive", title: "Erro de Configuração", description: "Autenticação não inicializada.", duration: 9000 });
        return false;
     }
-    // Don't set loading here, the onAuthStateChanged listener handles it
+    setLoading(true); // Set loading true at the start of login attempt
     try {
       const userCredential = await signInWithEmailAndPassword(auth, email, pass);
       const loginEndTime = performance.now();
       console.log(`[AuthProvider Login ${loginStartTime}] signInWithEmailAndPassword successful for ${userCredential.user.email}. Time: ${loginEndTime - loginStartTime} ms. Waiting for onAuthStateChanged...`);
       // **Crucially, we return true here, but the UI update depends on the listener**
+      // The listener will set loading to false after processing the new auth state
       return true;
     } catch (error: any) {
        const loginEndTime = performance.now();
        console.error(`[AuthProvider Login ${loginStartTime}] Login failed for ${email}. Time: ${loginEndTime - loginStartTime} ms. Error:`, error);
        let errorMessage = 'Falha no Login. Verifique seu e-mail e senha.';
-       // ... (keep existing error message handling) ...
         if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
             errorMessage = 'E-mail ou senha inválidos.';
         } else if (error.code === 'auth/invalid-email') {
@@ -316,20 +342,17 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
        console.log(`[AuthProvider Signup ${signupStartTime}] Signing out user ${userId} after signup...`);
        await signOut(auth);
-       setUser(null);
-       setFirebaseUser(null);
-       console.log(`[AuthProvider Signup ${signupStartTime}] User signed out successfully.`);
+       // The listener will handle setting user to null and loading to false
+       console.log(`[AuthProvider Signup ${signupStartTime}] User signed out successfully. Waiting for listener...`);
 
        const signupEndTime = performance.now();
        console.log(`[AuthProvider Signup ${signupStartTime}] Signup process completed successfully in ${signupEndTime - signupStartTime} ms.`);
-       // **Set loading false after successful signup and signout**
-       setLoading(false);
+       // Do NOT set loading false here - listener will handle it after sign out completes
        return true;
      } catch (error: any) {
        const signupEndTime = performance.now();
        console.error(`[AuthProvider Signup ${signupStartTime}] Signup failed after ${signupEndTime - signupStartTime} ms. Error:`, error);
        let description = "Ocorreu um erro ao cadastrar.";
-       // ... (keep existing error handling) ...
        if (error.code === 'auth/email-already-in-use') {
          description = "Este e-mail já está em uso por outra conta.";
        } else if (error.code === 'auth/invalid-email') {
@@ -368,10 +391,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
        toast({ variant: "destructive", title: "Erro de Configuração", description: "Autenticação não inicializada." });
        return;
     }
-    // Don't set loading here, listener handles it
+    // Set loading true at start of logout process
+    setLoading(true);
     try {
       await signOut(auth);
-      // User state clearing is handled by the listener
+      // User state clearing and loading=false is handled by the listener
       const logoutEndTime = performance.now();
       console.log(`[AuthProvider Logout ${logoutStartTime}] signOut successful. Time: ${logoutEndTime - logoutStartTime} ms. Waiting for onAuthStateChanged...`);
     } catch (error) {
@@ -452,7 +476,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           const updateEmailEndTime = performance.now();
           console.error(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Email update failed after ${updateEmailEndTime - updateEmailStartTime} ms. Error:`, error);
           let desc = "Não foi possível atualizar o e-mail.";
-          // ... (keep existing error handling) ...
           if (error.code === 'auth/email-already-in-use') {
               desc = "Este e-mail já está em uso por outra conta.";
           } else if (error.code === 'auth/invalid-email') {
@@ -497,7 +520,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           const updatePassEndTime = performance.now();
            console.error(`[AuthProvider UpdatePassword ${updatePassStartTime}] Password update failed after ${updatePassEndTime - updatePassStartTime} ms. Error:`, error);
            let desc = "Não foi possível atualizar a senha.";
-           // ... (keep existing error handling) ...
            if (error.code === 'auth/weak-password') {
                desc = "A nova senha é muito fraca. Use pelo menos 6 caracteres.";
            } else if (error.code === 'auth/requires-recent-login') {
@@ -545,7 +567,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
            const updateNameEndTime = performance.now();
            console.error(`[AuthProvider UpdateName ${updateNameStartTime}] Name update failed after ${updateNameEndTime - updateNameStartTime} ms. Error:`, error);
            let desc = "Não foi possível atualizar o nome.";
-           // ... (keep existing error handling) ...
            if (error.code === 'auth/requires-recent-login') {
               desc = 'Esta operação requer login recente. Faça logout e login novamente.';
            } else if (error.message?.includes('Firestore DB instance is not available')) {
