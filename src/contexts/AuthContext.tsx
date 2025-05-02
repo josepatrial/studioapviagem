@@ -12,10 +12,10 @@ import {
   updatePassword as firebaseUpdatePassword,
   reauthenticateWithCredential,
   EmailAuthProvider,
-  updateProfile
+  updateProfile,
+  createUserWithEmailAndPassword // Import createUserWithEmailAndPassword
 } from 'firebase/auth';
-import { auth, db } from '@/lib/firebase'; // Import Firebase auth and db
-import { doc, getDoc, setDoc } from 'firebase/firestore'; // Import Firestore functions
+import { auth } from '@/lib/firebase'; // Import Firebase auth
 import { useToast } from '@/hooks/use-toast';
 import { getUserData, setUserData } from '@/services/firestoreService'; // Import Firestore service
 
@@ -30,6 +30,7 @@ export interface User {
   name?: string;
   role: UserRole;
   base?: string;
+  username?: string; // Added username field
 }
 
 // Separate DriverInfo for component usage (might be redundant if User covers all needs)
@@ -44,6 +45,7 @@ interface AuthContextType {
   firebaseUser: FirebaseUser | null; // Keep Firebase user object if needed
   loading: boolean;
   login: (email: string, pass: string) => Promise<boolean>;
+  signup: (email: string, pass: string, name: string, username?: string) => Promise<boolean>; // Added signup function
   logout: () => void;
   updateEmail: (currentPassword: string, newEmail: string) => Promise<boolean>;
   updatePassword: (currentPassword: string, newPassword: string) => Promise<boolean>;
@@ -51,9 +53,6 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-// Remove mock data related to users/drivers as it's now in Firestore
-// export const initialDrivers: DriverInfo[] = [...]; // REMOVED
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<User | null>(null); // App's user state (combined Auth + Firestore)
@@ -67,31 +66,46 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       setFirebaseUser(fbUser); // Store the raw Firebase user
       if (fbUser) {
         console.log("Firebase Auth user found:", fbUser.uid);
-        // Fetch additional user data (role, base) from Firestore
-        const userData = await getUserData(fbUser.uid);
-        if (userData) {
-          console.log("Firestore user data found:", userData);
-           // Combine Auth info (email might be more up-to-date) and Firestore data
-          setUser({
-              id: fbUser.uid,
-              email: fbUser.email || userData.email, // Prefer Auth email if available
-              name: fbUser.displayName || userData.name, // Prefer Auth name if available
-              role: userData.role,
-              base: userData.base,
-          });
-        } else {
-            console.warn("Firestore user data not found for UID:", fbUser.uid);
-            // Optionally handle this case: maybe sign out, or create a Firestore entry
-            // For now, set basic user info from Auth, assuming default role 'driver' if needed
-             setUser({
-                 id: fbUser.uid,
-                 email: fbUser.email || 'unknown@example.com',
-                 name: fbUser.displayName || fbUser.email?.split('@')[0],
-                 role: 'driver', // Default role if Firestore data is missing
-                 // base: undefined - base comes from Firestore
-             });
-             // Attempt to create a basic user doc if it's missing? Risky without role context.
-             // await setUserData(fbUser.uid, { email: fbUser.email || '', role: 'driver' });
+        try {
+            const userData = await getUserData(fbUser.uid);
+            if (userData) {
+              console.log("Firestore user data found:", userData);
+              setUser({
+                  id: fbUser.uid,
+                  email: fbUser.email || userData.email || 'N/A', // Prioritize Auth email, then Firestore, then fallback
+                  name: fbUser.displayName || userData.name,
+                  role: userData.role || 'driver', // Default to driver if role missing
+                  base: userData.base,
+                  username: userData.username, // Include username from Firestore
+              });
+            } else {
+                console.warn("Firestore user data not found for UID:", fbUser.uid);
+                // If Firestore doc is missing, create a basic one assuming 'driver' role
+                const basicUserData = {
+                    id: fbUser.uid,
+                    email: fbUser.email || 'unknown@example.com',
+                    name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Novo Usuário',
+                    role: 'driver' as UserRole, // Assign default role
+                    // Base and username might be missing here
+                };
+                setUser(basicUserData);
+                // Attempt to create the Firestore document
+                await setUserData(fbUser.uid, {
+                    email: basicUserData.email,
+                    name: basicUserData.name,
+                    role: basicUserData.role
+                });
+                 console.log("Created basic Firestore document for new/missing user:", fbUser.uid);
+            }
+        } catch (error) {
+             console.error("Error fetching or creating Firestore user data:", error);
+             // Fallback to basic user info from Auth if Firestore interaction fails
+              setUser({
+                  id: fbUser.uid,
+                  email: fbUser.email || 'error@example.com',
+                  name: fbUser.displayName || 'Erro ao Carregar',
+                  role: 'driver', // Default role on error
+              });
         }
 
       } else {
@@ -111,8 +125,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const userCredential = await signInWithEmailAndPassword(auth, email, pass);
       // User state will be updated by onAuthStateChanged listener
       console.log('Login successful for:', userCredential.user.email);
-      // No need to manually set user here, listener handles it
-      // setLoading(false); // Listener sets loading to false
       return true;
     } catch (error: any) {
       console.error('Login failed:', error);
@@ -131,6 +143,52 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return false;
     }
   };
+
+   // Firebase Signup
+   const signup = async (email: string, pass: string, name: string, username?: string): Promise<boolean> => {
+     setLoading(true);
+     try {
+       // 1. Create user in Firebase Authentication
+       const userCredential = await createUserWithEmailAndPassword(auth, email, pass);
+       const userId = userCredential.user.uid;
+
+       // 2. Update Firebase Auth profile (display name)
+       await updateProfile(userCredential.user, { displayName: name });
+
+       // 3. Create user document in Firestore with 'driver' role (default for self-signup)
+       const userData: Partial<Omit<User, 'id'>> = {
+         name,
+         email,
+         username: username || '', // Store username if provided
+         role: 'driver', // Default role for new signups
+         // Base might be set later or through an admin panel
+       };
+       await setUserData(userId, userData);
+
+       console.log('Signup successful and Firestore document created for:', email);
+       // Sign the user out immediately after signup, requiring them to log in
+       await signOut(auth);
+       setUser(null);
+       setFirebaseUser(null);
+
+       setLoading(false);
+       return true;
+     } catch (error: any) {
+       console.error('Signup failed:', error);
+       let description = "Ocorreu um erro ao cadastrar.";
+       if (error.code === 'auth/email-already-in-use') {
+         description = "Este e-mail já está em uso por outra conta.";
+       } else if (error.code === 'auth/invalid-email') {
+         description = "O formato do e-mail é inválido.";
+       } else if (error.code === 'auth/weak-password') {
+         description = "A senha é muito fraca (mínimo 6 caracteres).";
+       }
+       toast({ variant: "destructive", title: "Falha no Cadastro", description });
+       setLoading(false);
+       return false;
+     }
+   };
+
 
   // Firebase Logout
   const logout = async () => {
@@ -271,7 +329,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, firebaseUser, loading, login, logout, updateEmail, updatePassword, updateProfileName }}>
+    <AuthContext.Provider value={{ user, firebaseUser, loading, login, signup, logout, updateEmail, updatePassword, updateProfileName }}>
       {children}
     </AuthContext.Provider>
   );
@@ -284,6 +342,3 @@ export const useAuth = (): AuthContextType => {
   }
   return context;
 };
-
-// Export initialDrivers is no longer needed as it's replaced by Firestore
-// export { initialDrivers };

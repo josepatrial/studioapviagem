@@ -83,7 +83,7 @@ export default function LoginPage() {
         </CardContent>
          <CardFooter className="flex flex-col items-center space-y-2 pt-4">
            <p className="text-sm text-muted-foreground">Não tem uma conta?</p>
-           <Link href="/signup" passHref> {/* Link to the future signup page */}
+           <Link href="/signup" passHref> {/* Link to the signup page */}
               <Button variant="outline" className="w-full">
                  <UserPlus className="mr-2 h-4 w-4" /> Cadastrar
               </Button>
