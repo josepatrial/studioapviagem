@@ -27,12 +27,12 @@ import { initialVisits, type Visit, Visits } from './Visits';
 // Import initialExpenses and initialFuelings directly
 import { Expenses, initialExpenses, Expense } from './Expenses';
 import { Fuelings, initialFuelings, Fueling } from './Fuelings';
-// import { Visits } from './Visits'; // Import the Visits component
 import { useToast } from '@/hooks/use-toast';
 import { useAuth, initialDrivers, User } from '@/contexts/AuthContext'; // Import initialDrivers as well
 import { initialVehicles, type VehicleInfo } from '../Vehicle';
 import { Badge } from '@/components/ui/badge';
 import { FinishTripDialog } from './FinishTripDialog';
+import { cn } from '@/lib/utils';
 
 // Define Trip interface
 export interface Trip {
@@ -86,16 +86,7 @@ export const Trips: React.FC = () => {
   const [tripName, setTripName] = useState('');
   const [selectedVehicleId, setSelectedVehicleId] = useState('');
   // Add state for filtering (Admin only)
-  const [filterBase, setFilterBase] = useState<string>('');
-  const [filterDriver, setFilterDriver] = useState<string>('');
-
-
-  // Function to get unique bases from trips
-  const getUniqueBases = (tripsData: Trip[]): string[] => {
-      const bases = tripsData.map(trip => trip.base).filter((base): base is string => !!base);
-      return Array.from(new Set(bases)).sort();
-  };
-
+  const [filterDriver, setFilterDriver] = useState<string>(''); // Only driver filter remains
 
   useEffect(() => {
       // Initial load and sorting
@@ -113,21 +104,13 @@ export const Trips: React.FC = () => {
     let filtered = [...allTrips]; // Start with all sorted trips
 
     if (isAdmin) {
-        // Admin: Apply filters if set
-        if (filterBase) {
-            filtered = filtered.filter(trip => trip.base === filterBase);
-        }
+        // Admin: Apply driver filter if set
         if (filterDriver) {
             filtered = filtered.filter(trip => trip.userId === filterDriver);
         }
     } else {
-        // Driver: Only show their own trips (and their specific base)
-        // Ensure user and user.base exist before filtering
-        if (user && user.base) {
-            filtered = filtered.filter(trip => trip.userId === user?.id && trip.base === user.base);
-        } else if (user) {
-             // Driver logged in but no base assigned? Show only their trips without base filtering.
-             console.warn("Driver user has no base assigned. Filtering only by userId.");
+        // Driver: Only show their own trips
+        if (user) {
              filtered = filtered.filter(trip => trip.userId === user.id);
         } else {
             // Not admin and not logged in? Show nothing.
@@ -136,7 +119,8 @@ export const Trips: React.FC = () => {
     }
     setDisplayedTrips(filtered);
 
-  }, [user, allTrips, isAdmin, filterBase, filterDriver]); // Re-run when user, master list, or filters change
+  }, [user, allTrips, isAdmin, filterDriver]); // Removed filterBase dependency
+
 
   const getVehicleDisplay = (vehicleId: string) => {
     const vehicle = vehicles.find(v => v.id === vehicleId);
@@ -337,36 +321,24 @@ export const Trips: React.FC = () => {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h2 className="text-2xl font-semibold">
           {isAdmin ? 'Todas as Viagens' : 'Minhas Viagens'}
-           {isAdmin && (filterDriver || filterBase) && (
+           {isAdmin && filterDriver && (
                <span className="text-base font-normal text-muted-foreground ml-2">
-                   ({filterDriver ? `Motorista: ${getDriverName(filterDriver)}` : filterBase ? `Base: ${filterBase}` : ''})
+                   (Motorista: {getDriverName(filterDriver)})
                </span>
            )}
         </h2>
         <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
            {isAdmin && ( // Filter options for Admin
                 <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
-                     <Select value={filterBase} onValueChange={(value) => { setFilterBase(value === 'all' ? '' : value); setFilterDriver(''); /* Clear driver if base changes */ }}>
-                        <SelectTrigger className="w-full sm:w-[180px] h-9">
-                            <SelectValue placeholder="Filtrar por Base" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">Todas as Bases</SelectItem>
-                            {getUniqueBases(allTrips).map(base => (
-                                <SelectItem key={base} value={base}>{base}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
+                     {/* Removed Base Filter Select */}
                      <Select value={filterDriver} onValueChange={(value) => setFilterDriver(value === 'all' ? '' : value)}>
                         <SelectTrigger className="w-full sm:w-[180px] h-9">
                             <SelectValue placeholder="Filtrar por Motorista" />
                         </SelectTrigger>
                         <SelectContent>
                             <SelectItem value="all">Todos os Motoristas</SelectItem>
-                             {/* Filter drivers based on selected base, or show all if no base filter */}
-                            {drivers
-                                .filter(driver => !filterBase || driver.base === filterBase)
-                                .map(driver => (
+                             {/* Show all drivers */}
+                            {drivers.map(driver => (
                                 <SelectItem key={driver.id} value={driver.id}>{driver.name} ({driver.base})</SelectItem>
                             ))}
                         </SelectContent>
@@ -434,8 +406,8 @@ export const Trips: React.FC = () => {
         <Card className="text-center py-10 bg-card border border-border">
           <CardContent>
             <p className="text-muted-foreground">
-                {isAdmin && (filterBase || filterDriver)
-                    ? 'Nenhuma viagem encontrada para os filtros selecionados.'
+                {isAdmin && filterDriver
+                    ? 'Nenhuma viagem encontrada para o motorista selecionado.'
                     : isAdmin
                     ? 'Nenhuma viagem cadastrada no sistema ainda.'
                     : 'Você ainda não cadastrou nenhuma viagem.'}

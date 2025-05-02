@@ -17,23 +17,11 @@ const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style:
 // Helper function to format distance
 const formatKm = (km?: number): string => km ? km.toLocaleString('pt-BR') + ' Km' : '0 Km';
 
-// Helper function to get unique bases
-const getUniqueBases = (driversData: User[]): string[] => {
-    const bases = driversData
-        .map(driver => driver.base)
-        .filter((base): base is string => !!base);
-    return Array.from(new Set(bases)).sort();
-};
-
 
 export const Dashboard: React.FC = () => {
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
   const [filterDriverId, setFilterDriverId] = useState<string>(''); // State for driver filter
-  const [filterBase, setFilterBase] = useState<string>(''); // State for base filter
-
-  // Memoize unique bases based on drivers
-  const uniqueBases = useMemo(() => getUniqueBases(initialDrivers), []);
 
   // Calculate summary data based on role and filters
   const summaryData = useMemo(() => {
@@ -44,13 +32,7 @@ export const Dashboard: React.FC = () => {
     let relevantDriverIds = initialDrivers.map(d => d.id);
 
     if (isAdmin) {
-      // Apply base filter if selected
-      if (filterBase) {
-        relevantDriverIds = initialDrivers.filter(d => d.base === filterBase).map(d => d.id);
-        filteredTrips = filteredTrips.filter(t => relevantDriverIds.includes(t.userId));
-      }
-
-      // Apply driver filter if selected (overrides base filter for trips/visits etc.)
+      // Apply driver filter if selected
       if (filterDriverId) {
          relevantDriverIds = [filterDriverId]; // Focus on the selected driver
          filteredTrips = initialTrips.filter(t => t.userId === filterDriverId);
@@ -63,8 +45,8 @@ export const Dashboard: React.FC = () => {
       filteredFuelings = initialFuelings.filter(f => tripIds.includes(f.tripId || ''));
 
       // Total drivers/vehicles might still show overall count unless filtered specifically
-      const totalDrivers = filterBase ? relevantDriverIds.length : initialDrivers.length;
-      // Vehicle count isn't directly linked to base/driver filters easily here, show total
+      const totalDrivers = filterDriverId ? 1 : initialDrivers.length; // Show 1 if driver is selected, else total
+      // Vehicle count isn't directly linked to driver filters easily here, show total
       const totalVehicles = initialVehicles.length;
 
 
@@ -80,10 +62,10 @@ export const Dashboard: React.FC = () => {
             .reduce((sum, t) => sum + (t.totalDistance ?? 0), 0),
         totalDrivers: totalDrivers,
         totalVehicles: totalVehicles,
-        filterApplied: !!filterDriverId || !!filterBase,
+        filterApplied: !!filterDriverId,
         filterContext: filterDriverId
             ? `Motorista: ${initialDrivers.find(d=>d.id === filterDriverId)?.name}`
-            : filterBase ? `Base: ${filterBase}` : 'Total',
+            : 'Total',
       };
 
     } else {
@@ -112,7 +94,7 @@ export const Dashboard: React.FC = () => {
         filterContext: 'Suas Atividades',
       };
     }
-  }, [isAdmin, user?.id, filterDriverId, filterBase]);
+  }, [isAdmin, user?.id, filterDriverId]); // Removed filterBase dependency
 
 
   return (
@@ -125,7 +107,7 @@ export const Dashboard: React.FC = () => {
                 <Filter className="h-5 w-5" /> Filtros do Painel
              </CardTitle>
            </CardHeader>
-           <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+           <CardContent className="grid grid-cols-1 gap-4">
              <div className="space-y-1.5">
                 <Label htmlFor="driverFilter">Filtrar por Motorista</Label>
                 <Select value={filterDriverId} onValueChange={(value) => setFilterDriverId(value === 'all' ? '' : value)}>
@@ -140,20 +122,7 @@ export const Dashboard: React.FC = () => {
                     </SelectContent>
                 </Select>
              </div>
-             <div className="space-y-1.5">
-                 <Label htmlFor="baseFilter">Filtrar por Base</Label>
-                 <Select value={filterBase} onValueChange={(value) => { setFilterBase(value === 'all' ? '' : value); setFilterDriverId(''); /* Clear driver filter when base changes */ }}>
-                    <SelectTrigger id="baseFilter">
-                        <SelectValue placeholder="Todas as Bases" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        <SelectItem value="all">Todas as Bases</SelectItem>
-                        {uniqueBases.map(base => (
-                           <SelectItem key={base} value={base}>{base}</SelectItem>
-                        ))}
-                    </SelectContent>
-                 </Select>
-             </div>
+             {/* Removed Base Filter Select */}
            </CardContent>
          </Card>
        )}
@@ -241,7 +210,7 @@ export const Dashboard: React.FC = () => {
                  <CardContent>
                    <div className="text-2xl font-bold">{summaryData.totalDrivers}</div>
                    <p className="text-xs text-muted-foreground">
-                     {filterBase ? `Motoristas na Base ${filterBase}` : 'Total de motoristas no sistema'}
+                     {filterDriverId ? 'Motorista selecionado' : 'Total de motoristas no sistema'}
                    </p>
                  </CardContent>
                </Card>
