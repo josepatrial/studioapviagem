@@ -407,7 +407,24 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
           </AlertDialogContent>
         </AlertDialog>
 
-        {/* Delete Confirmation Dialog is now inside the map loop */}
+        {/* Delete Confirmation Dialog is now moved outside the map loop */}
+        <AlertDialog open={isDeleteModalOpen} onOpenChange={closeDeleteConfirmation}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
+                    <AlertDialogDescription>
+                        Tem certeza que deseja marcar esta visita para "{visitToDelete?.clientName}" para exclusão? A exclusão definitiva ocorrerá na próxima sincronização.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                    <AlertDialogCancel onClick={closeDeleteConfirmation} disabled={isSaving}>Cancelar</AlertDialogCancel>
+                    <AlertDialogAction onClick={confirmDeleteVisit} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground" disabled={isSaving}>
+                        {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        {isSaving ? 'Marcando...' : 'Marcar para Excluir'}
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
 
 
       {/* Visits List */}
@@ -511,28 +528,15 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
                             </form>
                          </DialogContent>
                        </Dialog>
-                       <AlertDialog open={isDeleteModalOpen && visitToDelete?.id === visit.id} onOpenChange={closeDeleteConfirmation}>
+                        {/* Place AlertDialog trigger correctly */}
+                        <AlertDialog>
                            <AlertDialogTrigger asChild>
                              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => openDeleteConfirmation(visit)} disabled={isSaving}>
                                <Trash2 className="h-4 w-4" />
                                <span className="sr-only">Excluir</span>
                              </Button>
                            </AlertDialogTrigger>
-                           <AlertDialogContent>
-                               <AlertDialogHeader>
-                                   <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
-                                   <AlertDialogDescription>
-                                       Tem certeza que deseja marcar esta visita para "{visitToDelete?.clientName}" para exclusão? A exclusão definitiva ocorrerá na próxima sincronização.
-                                   </AlertDialogDescription>
-                               </AlertDialogHeader>
-                               <AlertDialogFooter>
-                                   <AlertDialogCancel onClick={closeDeleteConfirmation} disabled={isSaving}>Cancelar</AlertDialogCancel>
-                                   <AlertDialogAction onClick={confirmDeleteVisit} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground" disabled={isSaving}>
-                                       {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                       {isSaving ? 'Marcando...' : 'Marcar para Excluir'}
-                                   </AlertDialogAction>
-                               </AlertDialogFooter>
-                           </AlertDialogContent>
+                           {/* AlertDialogContent remains outside the map, controlled by isDeleteModalOpen */}
                        </AlertDialog>
                     </div>
                 </div>

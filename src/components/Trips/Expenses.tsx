@@ -807,12 +807,15 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
                                                 </form>
                                             </DialogContent>
                                         </Dialog>
-                                        <AlertDialogTrigger asChild>
-                                            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => openDeleteConfirmation(expense)} disabled={isSaving}>
-                                                <Trash2 className="h-4 w-4" />
-                                                <span className="sr-only">Excluir</span>
-                                            </Button>
-                                        </AlertDialogTrigger>
+                                        <AlertDialog>
+                                            <AlertDialogTrigger asChild>
+                                                <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => openDeleteConfirmation(expense)} disabled={isSaving}>
+                                                    <Trash2 className="h-4 w-4" />
+                                                    <span className="sr-only">Excluir</span>
+                                                </Button>
+                                            </AlertDialogTrigger>
+                                            {/* Content remains outside */}
+                                        </AlertDialog>
                                     </div>
                                 </div>
                             </CardHeader>
