@@ -75,18 +75,19 @@ export const Drivers: React.FC = () => {
                         if (onlineDriversData.length > 0) {
                             // Update local DB with online data
                             const savePromises = onlineDriversData.map(async (driver) => {
+                                const existingLocal = await getLocalUser(driver.id).catch(() => null); // Try to get existing local user by firebase ID
                                 const localUserData: DbUser = {
                                     ...driver, // Spread DriverInfo
                                     id: driver.id, // Firestore ID is the main key
-                                    // Add default passwordHash or fetch/handle appropriately if needed
-                                    passwordHash: '', // Assume no local hash needed or handle differently
-                                    lastLogin: new Date().toISOString(), // Set a recent login time?
+                                    // Preserve existing local password hash if found, otherwise empty
+                                    passwordHash: existingLocal?.passwordHash || '',
+                                    lastLogin: existingLocal?.lastLogin || new Date().toISOString(), // Preserve last login or set new
                                 };
                                 // Upsert into local DB
                                 try {
                                     await saveLocalUser(localUserData);
                                 } catch (saveError) {
-                                     console.error(`[Drivers] Error saving driver ${driver.id} locally:`, saveError);
+                                     console.error(`[Drivers] Error saving/updating driver ${driver.id} locally:`, saveError);
                                      // Potentially retry or just log
                                 }
                             });
@@ -100,7 +101,7 @@ export const Drivers: React.FC = () => {
                     } catch (onlineError: any) {
                         console.error("[Drivers] Error fetching online drivers:", onlineError);
                         if (localDriversData.length === 0) { // Only toast if local was also empty
-                            toast({ variant: "destructive", title: "Erro Online", description: `Não foi possível carregar motoristas online: ${onlineError.message}` });
+                            toast({ variant: "destructive", title: "Erro Online", description: `Não foi possível carregar motoristas online.` });
                         }
                         // Stick with empty local data if online fetch fails
                         setDrivers([]);
@@ -113,7 +114,8 @@ export const Drivers: React.FC = () => {
 
             } catch (localError: any) {
                 console.error("[Drivers] Error fetching local drivers:", localError);
-                toast({ variant: "destructive", title: "Erro Local", description: `Não foi possível carregar motoristas locais: ${localError.message}` });
+                // Use a generic error message for local fetch errors
+                toast({ variant: "destructive", title: "Erro Local", description: `Não foi possível carregar motoristas locais. Verifique o console.` });
                 setDrivers([]); // Set empty on local error
             } finally {
                 setLoadingDrivers(false);
@@ -180,6 +182,10 @@ export const Drivers: React.FC = () => {
                            toast({ variant: "destructive", title: "Erro Online", description: "Este e-mail já está em uso online. Tente um e-mail diferente ou faça login.", duration: 7000 });
                            setIsSaving(false);
                            return; // Stop if email is taken online
+                      } else if (authError.code === 'auth/invalid-email') {
+                           toast({ variant: "destructive", title: "Erro Online", description: "O formato do e-mail é inválido para cadastro online.", duration: 7000 });
+                           setIsSaving(false);
+                           return; // Stop if email is invalid for Firebase
                       }
                       // Otherwise, let local creation proceed but warn user
                       toast({ variant: "destructive", title: "Aviso Online", description: `Falha ao criar usuário online (${authError.code}). O usuário será criado apenas localmente.`, duration: 7000 });
