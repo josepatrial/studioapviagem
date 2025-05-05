@@ -1,7 +1,7 @@
 // src/contexts/AuthContext.tsx
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import {
   getAuth,
   signInWithEmailAndPassword,
@@ -27,9 +27,10 @@ import {
     openDB,
     STORE_USERS, // Import STORE_USERS
     getLocalUserByEmail, // Add this import
-    initialSeedUsers // Import initial seed users
+    initialSeedUsers
 } from '@/services/localDbService'; // Import local DB functions and STORE_USERS
 import { hashPassword, verifyPassword } from '@/lib/passwordUtils'; // Import password utils
+import { useCallback } from 'react'; // Import useCallback
 
 
 // Define user roles
@@ -69,12 +70,17 @@ const createUserDocument = async (userId: string, email: string, name: string, u
       throw new Error('Firestore not initialized. Cannot create user document.');
   }
   const userDocRef = doc(db, 'users', userId);
+
+  // Force admin role and 'ALL' base for specific email
+  const effectiveRole = email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br' ? 'admin' : role;
+  const effectiveBase = effectiveRole === 'admin' ? 'ALL' : (base || '');
+
   const userData: Partial<Omit<User, 'id' | 'lastLogin'>> = {
     name,
     email,
     username: username || '',
-    role: role, // Use the provided role
-    base: role === 'admin' ? 'ALL' : (base || ''), // Admins get 'ALL' base, others get provided or empty
+    role: effectiveRole,
+    base: effectiveBase,
   };
   try {
     await setDoc(userDocRef, userData, { merge: true }); // Use merge: true to avoid overwriting existing data if it somehow exists
@@ -139,9 +145,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
                 if (latestUser.lastLogin && new Date(latestUser.lastLogin).getTime() > sevenDaysAgo) {
                     console.log(`[checkLocalLogin ${checkLocalStartTime}] Found potentially active local user: ${latestUser.id}`);
+
+                    // Force admin role check
+                    let userToSet = { ...latestUser };
+                    if (userToSet.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br') {
+                        console.log(`[checkLocalLogin ${checkLocalStartTime}] Forcing admin role for ${userToSet.email}`);
+                        userToSet.role = 'admin';
+                        userToSet.base = 'ALL';
+                        // Re-save if role/base changed during check
+                        if(latestUser.role !== 'admin' || latestUser.base !== 'ALL'){
+                            saveLocalUser(userToSet).catch(err => console.error("Error saving forced admin role locally:", err));
+                        }
+                    }
+
                     // Exclude passwordHash when setting user state
-                    const { passwordHash, ...userToSet } = latestUser;
-                    setUser(userToSet);
+                    const { passwordHash, ...finalUserToSet } = userToSet;
+                    setUser(finalUserToSet);
                     const checkLocalEndTime = performance.now();
                     console.log(`[checkLocalLogin ${checkLocalStartTime}] Completed (found user). Time: ${checkLocalEndTime - checkLocalStartTime} ms.`);
                     // Don't set loading false here, let the listener handle it after checking Firebase status
@@ -198,7 +217,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                     console.log("[seedDb] User store is empty, seeding initial users...");
                     const writeTx = dbInstance.transaction(STORE_USERS, 'readwrite');
                     const writeStore = writeTx.objectStore(STORE_USERS);
-                    const seedPromises = initialSeedUsers.map(user =>
+
+                    // Hash passwords for seed users before adding
+                     const seededUsersWithHashedPasswords = await Promise.all(
+                         initialSeedUsers.map(async (user) => {
+                             if (user.password) { // Check if password exists before hashing
+                                 const hashedPassword = await hashPassword(user.password);
+                                  // Create a new object excluding the plain password and adding the hash
+                                 const { password, ...userWithoutPassword } = user;
+                                 return { ...userWithoutPassword, passwordHash: hashedPassword };
+                             }
+                             return user; // Return user as is if no password field
+                         })
+                     );
+
+                     // Add the users with hashed passwords
+                     const seedPromises = seededUsersWithHashedPasswords.map(user =>
                         new Promise<void>((resolve, reject) => {
                              // Check if a user with this ID already exists before adding
                              const checkReq = writeStore.get(user.id);
@@ -278,7 +312,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                            console.log(`[AuthProvider onAuthStateChanged ${listenerId}] User ${fbUser.uid} missing locally or needs role. Fetching from Firestore...`);
                             // Check network status before attempting Firestore fetch
                             if (navigator.onLine) {
-                                firestoreData = await getFirestoreUserData(fbUser.uid);
+                                try {
+                                    firestoreData = await getFirestoreUserData(fbUser.uid);
+                                } catch (firestoreError) {
+                                     console.error(`[AuthProvider onAuthStateChanged ${listenerId}] Error fetching Firestore data for ${fbUser.uid}:`, firestoreError);
+                                     // Handle cases like offline, permissions etc.
+                                }
                             } else {
                                 console.warn(`[AuthProvider onAuthStateChanged ${listenerId}] Offline. Skipping Firestore fetch for user ${fbUser.uid}.`);
                             }
@@ -296,16 +335,32 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                                  // Keep existing hash if it exists, otherwise, it implies Firebase signup without local pw update yet
                                  passwordHash: existingLocal?.passwordHash || ''
                              };
+
+                            // Force admin role check before saving
+                            if (mergedLocal.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br') {
+                                console.log(`[AuthProvider onAuthStateChanged ${listenerId}] Forcing admin role for ${mergedLocal.email} during Firestore save`);
+                                mergedLocal.role = 'admin';
+                                mergedLocal.base = 'ALL';
+                            }
                             await saveLocalUser(mergedLocal);
+
                        } else if (!localUserData) { // No local data AND no Firestore data (and we were online or skipped fetch)
                            console.warn(`[AuthProvider onAuthStateChanged ${listenerId}] No local or Firestore data for ${fbUser.uid}. Creating basic local user. Check signup process or ensure Firestore access.`);
                            // Create a basic local user record, assuming this shouldn't normally happen post-signup
+                           let basicRole: UserRole = 'driver';
+                           let basicBase = '';
+                            if (fbUser.email?.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br') {
+                                console.log(`[AuthProvider onAuthStateChanged ${listenerId}] Forcing admin role for ${fbUser.email} during basic local creation`);
+                                basicRole = 'admin';
+                                basicBase = 'ALL';
+                            }
+
                            const basicLocalUser: DbUser = {
                                 id: fbUser.uid,
                                 email: fbUser.email || 'unknown@example.com',
                                 name: fbUser.displayName || 'Usuário Firebase',
-                                role: 'driver', // Default to driver
-                                base: '',
+                                role: basicRole,
+                                base: basicBase,
                                 lastLogin: nowISO,
                                 passwordHash: '' // No password hash available
                             };
@@ -313,12 +368,18 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                             localUserData = basicLocalUser; // Use this basic data for the session
                              // Attempt to create Firestore doc in the background if online
                             if (navigator.onLine) {
-                                createUserDocument(fbUser.uid, basicLocalUser.email, basicLocalUser.name || '', undefined, '', basicLocalUser.role)
+                                createUserDocument(fbUser.uid, basicLocalUser.email, basicLocalUser.name || '', undefined, basicLocalUser.base, basicLocalUser.role)
                                   .catch(err => console.error("[AuthProvider] BG Firestore create failed:", err));
                             }
                        } else { // Local data exists
                            console.log(`[AuthProvider onAuthStateChanged ${listenerId}] User ${fbUser.uid} found locally. Updating last login.`);
                            localUserData.lastLogin = nowISO;
+                           // Force admin role check before saving
+                           if (localUserData.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br') {
+                                console.log(`[AuthProvider onAuthStateChanged ${listenerId}] Forcing admin role for ${localUserData.email} during local update`);
+                                localUserData.role = 'admin';
+                                localUserData.base = 'ALL';
+                            }
                             await saveLocalUser(localUserData); // Save updated lastLogin (preserves hash)
                        }
 
@@ -399,15 +460,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
      try {
           // 1. Attempt Local Login
           console.log(`[AuthProvider Login ${loginStartTime}] Attempting local login check for ${email}...`);
-          const localDbUser = await getLocalUserByEmail(email); // Fetch user by email
+          let localDbUser = await getLocalUserByEmail(email); // Fetch user by email
           if (localDbUser && localDbUser.passwordHash) {
               console.log(`[AuthProvider Login ${loginStartTime}] Local user found for ${email}. Verifying password...`);
               const isPasswordValid = await verifyPassword(pass, localDbUser.passwordHash);
               if (isPasswordValid) {
                   console.log(`[AuthProvider Login ${loginStartTime}] Local password verification successful for ${email}.`);
                   const nowISO = new Date().toISOString();
+
+                   // Force admin role check before saving/setting state
+                   if (localDbUser.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br') {
+                       console.log(`[AuthProvider Login ${loginStartTime}] Forcing admin role for ${localDbUser.email} during local login`);
+                       localDbUser.role = 'admin';
+                       localDbUser.base = 'ALL';
+                   }
+
                   const updatedLocalUser = { ...localDbUser, lastLogin: nowISO };
-                  await saveLocalUser(updatedLocalUser); // Update last login
+                  await saveLocalUser(updatedLocalUser); // Update last login & potentially role/base
 
                   // Set user state excluding password hash
                   const { passwordHash, ...userToSet } = updatedLocalUser;
@@ -432,10 +501,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
              toast({ variant: "destructive", title: "Offline", description: "Você está offline. Login online indisponível.", duration: 5000 });
              setLoading(false);
              // If local login also failed, return false
-             if (!localDbUser || !(await verifyPassword(pass, localDbUser.passwordHash || ''))) {
+              let isLocalPasswordStillInvalid = true; // Assume invalid unless proven otherwise
+              if (localDbUser && localDbUser.passwordHash) { // Check if local user existed but password was wrong
+                  isLocalPasswordStillInvalid = !(await verifyPassword(pass, localDbUser.passwordHash));
+              }
+              if (isLocalPasswordStillInvalid) {
                  toast({ variant: "destructive", title: "Falha no Login Offline", description: "Credenciais locais inválidas.", duration: 5000 });
                  return false;
-             }
+              }
              // If local login succeeded earlier, the function already returned true
              return false; // Should not be reached if local login was successful
          }
@@ -495,8 +568,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
      console.log(`[AuthProvider Signup ${signupStartTime}] Attempting signup for ${email}`);
      setLoading(true);
 
-     // Determine role based on email
-     const isAdminUser = email.toLowerCase() === 'admin@grupo2irmaos.com.br';
+     // Determine role based on email, force admin for specific email
+     const isAdminUser = email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br';
      const userRole: UserRole = isAdminUser ? 'admin' : 'driver';
      const userBase = isAdminUser ? 'ALL' : (base || ''); // Assign 'ALL' base to admin
 
@@ -552,7 +625,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                  await updateProfile(userCredential.user, { displayName: name });
                  console.log(`[AuthProvider Signup ${signupStartTime}] FB Auth profile updated.`);
 
-                 // Create Firestore document
+                 // Create Firestore document (will use the correct role/base due to helper logic)
                  await createUserDocument(firebaseUserId, email, name, username, userBase, userRole);
                  console.log(`[AuthProvider Signup ${signupStartTime}] Firestore document created.`);
 
@@ -694,6 +767,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             toast({ variant: "destructive", title: "Erro", description: "Usuário não autenticado." });
             return false;
         }
+        // Prevent the forced admin email from being changed
+         if (user.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br') {
+              toast({ variant: "destructive", title: "Operação não permitida", description: "Não é possível alterar o e-mail deste usuário administrador." });
+              return false;
+         }
+
         setLoading(true);
 
         const isAuthenticated = await reauthenticate(currentPassword);
@@ -748,7 +827,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                  try {
                     await setFirestoreUserData(user.id, { email: newEmail });
                     console.log(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Firestore email updated.`);
-                 } catch (firestoreError) {
+                 } catch (firestoreError: any) {
                       console.error(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Failed to update Firestore email, proceeding with local update:`, firestoreError);
                       // Mark local record for sync? (Handled by SyncProvider if status is 'pending')
                  }
@@ -902,7 +981,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 try {
                     await setFirestoreUserData(user.id, { name: newName });
                     console.log(`[AuthProvider UpdateName ${updateNameStartTime}] Firestore name updated.`);
-                } catch (firestoreError) {
+                } catch (firestoreError: any) {
                      console.error(`[AuthProvider UpdateName ${updateNameStartTime}] Failed to update Firestore name, proceeding with local update:`, firestoreError);
                      // Mark local record for sync?
                 }
@@ -942,8 +1021,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             setLoading(false);
             return false;
         }
-         // Admin 'ALL' base should not be changed via profile
-         if (user.role === 'admin') {
+         // Admin 'ALL' base should not be changed via profile (including the forced admin)
+         if (user.role === 'admin' || user.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br') {
               toast({ variant: "destructive", title: "Operação não permitida", description: "Base do administrador não pode ser alterada." });
               setLoading(false);
               return false;
@@ -1020,4 +1099,3 @@ export const useAuth = (): AuthContextType => {
   }
   return context;
 };
-    
