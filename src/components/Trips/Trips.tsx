@@ -2,6 +2,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
+import dynamic from 'next/dynamic'; // Import dynamic for lazy loading
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { PlusCircle, Edit, Trash2, ChevronDown, ChevronUp, Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Filter, Loader2 } from 'lucide-react';
@@ -22,9 +23,9 @@ import { Label } from '@/components/ui/label';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 // Fetch data functions and types
-import { Visits, type Visit } from './Visits'; // Keep component import for rendering
-import { Expenses, type Expense } from './Expenses'; // Keep component import for rendering
-import { Fuelings, type Fueling } from './Fuelings'; // Keep component import
+import { type Visit } from './Visits'; // Keep type import
+import { type Expense } from './Expenses'; // Keep type import
+import { type Fueling } from './Fuelings'; // Keep type import
 import { useToast } from '@/hooks/use-toast';
 import { useAuth, User } from '@/contexts/AuthContext';
 import { type VehicleInfo } from '../Vehicle'; // Import type VehicleInfo
@@ -49,6 +50,18 @@ import { DateRangePicker } from '@/components/ui/date-range-picker';
 import type { DateRange } from 'react-day-picker';
 import { parseISO, startOfDay, endOfDay } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid'; // Import uuid for local ID generation
+
+// Dynamically import child components for lazy loading
+const Visits = dynamic(() => import('./Visits').then(mod => mod.Visits), {
+  loading: () => <LoadingSpinner />, // Optional loading indicator
+});
+const Expenses = dynamic(() => import('./Expenses').then(mod => mod.Expenses), {
+    loading: () => <LoadingSpinner />,
+});
+const Fuelings = dynamic(() => import('./Fuelings').then(mod => mod.Fuelings), {
+    loading: () => <LoadingSpinner />,
+});
+
 
 // Trip interface now includes local ID and sync status
 export interface Trip extends Omit<LocalTrip, 'localId'> {
@@ -95,19 +108,23 @@ export const Trips: React.FC = () => {
     useEffect(() => {
         const fetchDriversData = async () => {
             if (isAdmin) {
+                setLoading(true); // Indicate loading drivers
                 try {
                     const driversData = await getDrivers();
                     setDrivers(driversData.filter(d => d.role === 'driver'));
                 } catch (error) {
                     console.error("Error fetching drivers:", error);
                     toast({ variant: "destructive", title: "Erro Online", description: "Não foi possível carregar motoristas." });
+                } finally {
+                     // Delay setting loading false slightly if other data is still fetching
+                     // setLoading(false); // Moved loading false to fetchLocalData
                 }
             }
         };
         fetchDriversData();
     }, [isAdmin, toast]);
 
-     // Fetch local vehicles
+     // Fetch local data (Vehicles and Trips)
      const fetchLocalData = useCallback(async () => {
         setLoading(true);
         console.log("[Trips] Fetching local data...");
@@ -134,19 +151,22 @@ export const Trips: React.FC = () => {
             const localTrips = await getLocalTrips(isAdmin ? undefined : user?.id);
             console.log(`[Trips] Loaded ${localTrips.length} trips locally for user ${user?.id}`);
 
-            // Fetch counts for each local trip
+            // Fetch counts for each local trip - Consider optimizing this if many trips
             const countsPromises = localTrips.map(async (trip) => {
-                const [visits, expenses, fuelings] = await Promise.all([
-                    getLocalVisits(trip.localId),
-                    getLocalExpenses(trip.localId),
-                    getLocalFuelings(trip.localId),
+                 // Fetch counts concurrently, but maybe limit concurrency if needed
+                 const [visits, expenses, fuelings] = await Promise.all([
+                    getLocalVisits(trip.localId).catch(() => []), // Add catch blocks
+                    getLocalExpenses(trip.localId).catch(() => []),
+                    getLocalFuelings(trip.localId).catch(() => []),
                 ]);
+                 // Map visits only if needed for the finish dialog, could be optimized further
+                 const adaptedVisits = visits.map(v => ({ ...v, id: v.firebaseId || v.localId })) as Visit[];
                 return {
                     tripLocalId: trip.localId,
                     visitCount: visits.length,
                     expenseCount: expenses.length,
                     fuelingCount: fuelings.length,
-                    visits: visits.map(v => ({ ...v, id: v.firebaseId || v.localId })) // Adapt for FinishTripDialog if needed
+                     visits: adaptedVisits // Store adapted visits if needed later
                 };
             });
 
@@ -154,19 +174,19 @@ export const Trips: React.FC = () => {
             const newVisitCounts: Record<string, number> = {};
             const newExpenseCounts: Record<string, number> = {};
             const newFuelingCounts: Record<string, number> = {};
-            let allVisits: Visit[] = [];
+            let allVisitsForFinish: Visit[] = []; // Renamed to avoid confusion
 
             countsResults.forEach(result => {
                 newVisitCounts[result.tripLocalId] = result.visitCount;
                 newExpenseCounts[result.tripLocalId] = result.expenseCount;
                 newFuelingCounts[result.tripLocalId] = result.fuelingCount;
-                allVisits = allVisits.concat(result.visits);
+                 allVisitsForFinish = allVisitsForFinish.concat(result.visits); // Collect visits needed for dialog
             });
 
             setVisitCounts(newVisitCounts);
             setExpenseCounts(newExpenseCounts);
             setFuelingCounts(newFuelingCounts);
-            setVisitsDataForFinish(allVisits); // Store adapted visits data
+            setVisitsDataForFinish(allVisitsForFinish); // Store combined adapted visits
 
             // Map LocalTrip to Trip for UI state
             const uiTrips = localTrips.map(lt => ({
@@ -182,7 +202,7 @@ export const Trips: React.FC = () => {
             setAllTrips([]);
             setVehicles([]);
         } finally {
-            setLoading(false);
+            setLoading(false); // Set loading false after all fetches complete
              console.log("[Trips] Finished fetching local data.");
         }
     }, [isAdmin, user?.id, toast]);
@@ -198,7 +218,7 @@ export const Trips: React.FC = () => {
 
   const getVehicleDisplay = (vehicleId: string) => {
     // Find vehicle in the local state
-    const vehicle = vehicles.find(v => v.id === vehicleId);
+    const vehicle = vehicles.find(v => v.id === vehicleId || v.localId === vehicleId); // Check both IDs
     return vehicle ? `${vehicle.model} (${vehicle.licensePlate})` : 'Veículo Desconhecido';
   };
 
@@ -229,6 +249,16 @@ export const Trips: React.FC = () => {
       toast({ variant: 'destructive', title: 'Erro', description: 'Veículo é obrigatório.' });
       return;
     }
+     // Check if user has a base defined
+      if (!user.base) {
+          toast({
+              variant: 'destructive',
+              title: 'Base Não Definida',
+              description: 'Você precisa ter uma base definida em seu perfil para criar viagens.',
+              duration: 7000,
+          });
+          return;
+      }
 
     const vehicleDisplay = getVehicleDisplay(selectedVehicleId);
     const dateStr = new Date().toLocaleDateString('pt-BR');
@@ -243,7 +273,7 @@ export const Trips: React.FC = () => {
       status: 'Andamento',
       createdAt: now,
       updatedAt: now,
-      base: user.base, // Assign base if available
+      base: user.base, // Assign user's base
       // counts will be updated later
     };
 
@@ -260,6 +290,12 @@ export const Trips: React.FC = () => {
             syncStatus: 'pending'
          };
         setAllTrips(prevTrips => [newUITrip, ...prevTrips].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+
+        // Also update counts for the new trip (initialize to 0)
+        setVisitCounts(prev => ({ ...prev, [localId]: 0 }));
+        setExpenseCounts(prev => ({ ...prev, [localId]: 0 }));
+        setFuelingCounts(prev => ({ ...prev, [localId]: 0 }));
+
 
         resetForm();
         setIsCreateModalOpen(false);
@@ -280,13 +316,21 @@ export const Trips: React.FC = () => {
         toast({ variant: 'destructive', title: 'Erro', description: 'Veículo é obrigatório.' });
         return;
     }
+     // Find original local record using the UI ID (which could be firebaseId or localId)
+     const originalLocalTrip = await getLocalTrips().then(trips => trips.find(t => t.localId === currentTrip.localId || t.firebaseId === currentTrip.id));
+
+      if (!originalLocalTrip) {
+          toast({ variant: "destructive", title: "Erro", description: "Viagem original não encontrada localmente." });
+          return;
+      }
+
 
     const updatedLocalTripData: LocalTrip = {
-       ...currentTrip, // Spread existing data (includes localId, firebaseId, syncStatus etc.)
+       ...originalLocalTrip, // Spread existing local data
        vehicleId: selectedVehicleId,
        updatedAt: new Date().toISOString(),
        // Mark as pending if it was previously synced
-       syncStatus: currentTrip.syncStatus === 'synced' ? 'pending' : currentTrip.syncStatus,
+       syncStatus: originalLocalTrip.syncStatus === 'synced' ? 'pending' : originalLocalTrip.syncStatus,
      };
 
 
@@ -490,7 +534,7 @@ export const Trips: React.FC = () => {
                            </SelectItem>
                        ) : vehicles.length > 0 ? (
                         vehicles.map((vehicle) => (
-                          <SelectItem key={vehicle.id} value={vehicle.id}>
+                          <SelectItem key={vehicle.id || vehicle.localId} value={vehicle.id || vehicle.localId}>
                             {vehicle.model} ({vehicle.licensePlate})
                           </SelectItem>
                         ))
@@ -504,7 +548,12 @@ export const Trips: React.FC = () => {
                   <Label>Motorista</Label>
                   <p className="text-sm text-muted-foreground">{user?.name || user?.email || 'Não identificado'}</p>
                 </div>
-                 {/* Base display removed as requested */}
+                 {/* Base display */}
+                  <div className="space-y-2">
+                     <Label>Base</Label>
+                     <p className="text-sm text-muted-foreground">{user?.base || <span className="text-destructive">Não definida</span>}</p>
+                     {!user?.base && <p className="text-xs text-destructive">Você precisa ter uma base definida para criar viagens.</p>}
+                  </div>
                 <div className="space-y-2">
                   <Label>Status</Label>
                   <p className="text-sm font-medium text-emerald-600 flex items-center gap-1">
@@ -515,7 +564,7 @@ export const Trips: React.FC = () => {
                   <DialogClose asChild>
                     <Button type="button" variant="outline" onClick={closeCreateModal} disabled={isSaving}>Cancelar</Button>
                   </DialogClose>
-                  <Button type="submit" disabled={loading || isSaving} className="bg-primary hover:bg-primary/90">
+                  <Button type="submit" disabled={loading || isSaving || !user?.base} className="bg-primary hover:bg-primary/90">
                      {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                      {isSaving ? 'Salvando...' : 'Salvar Viagem Local'}
                   </Button>
@@ -596,6 +645,8 @@ export const Trips: React.FC = () => {
             const fuelingCount = fuelingCounts[trip.localId] ?? 0;
             const isPending = trip.syncStatus === 'pending';
             const isError = trip.syncStatus === 'error';
+            const isExpanded = expandedTripId === trip.localId; // Track if current item is expanded
+
             return (
               <AccordionItem key={trip.localId} value={trip.localId} className="border bg-card rounded-lg shadow-sm overflow-hidden group/item data-[state=open]:border-primary/50">
                  <AccordionTrigger
@@ -650,7 +701,8 @@ export const Trips: React.FC = () => {
                               onClick={(e) => openFinishModal(trip, e)}
                               className="h-8 px-2 sm:px-3 text-emerald-600 border-emerald-600/50 hover:bg-emerald-50 hover:text-emerald-700"
                               disabled={isSaving || isDeleting}
-                              asChild={false} // Ensure this is not nested
+                              // Prevent accordion trigger when clicking this button
+                              data-no-accordion-trigger
                            >
                                {isSaving && tripToFinish?.localId === trip.localId ? <Loader2 className="h-4 w-4 animate-spin sm:mr-1" /> : <CheckCircle2 className="h-4 w-4 sm:mr-1" /> }
                               <span className="hidden sm:inline">{isSaving && tripToFinish?.localId === trip.localId ? 'Finalizando...': 'Finalizar'}</span>
@@ -660,7 +712,8 @@ export const Trips: React.FC = () => {
                            <>
                                 <Dialog open={isEditModalOpen && currentTrip?.localId === trip.localId} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); }}>
                                   <DialogTrigger asChild>
-                                     <Button variant="ghost" size="icon" onClick={(e) => openEditModal(trip, e)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving || isDeleting}>
+                                     {/* Prevent accordion trigger when clicking this button */}
+                                     <Button variant="ghost" size="icon" onClick={(e) => openEditModal(trip, e)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" data-no-accordion-trigger disabled={isSaving || isDeleting}>
                                        <Edit className="h-4 w-4" />
                                      </Button>
                                   </DialogTrigger>
@@ -687,7 +740,7 @@ export const Trips: React.FC = () => {
                                                    </div>
                                                 </SelectItem>
                                             ) : vehicles.map((vehicle) => (
-                                                <SelectItem key={vehicle.id} value={vehicle.id}>
+                                                <SelectItem key={vehicle.id || vehicle.localId} value={vehicle.id || vehicle.localId}>
                                                     {vehicle.model} ({vehicle.licensePlate})
                                                 </SelectItem>
                                             ))}
@@ -698,7 +751,11 @@ export const Trips: React.FC = () => {
                                         <Label>Motorista</Label>
                                         <p className="text-sm text-muted-foreground">{getDriverName(trip.userId)}</p>
                                       </div>
-                                       {/* Base display removed */}
+                                       {/* Base display */}
+                                       <div className="space-y-2">
+                                          <Label>Base</Label>
+                                          <p className="text-sm text-muted-foreground">{currentTrip?.base || 'N/A'}</p>
+                                       </div>
                                       <div className="space-y-2">
                                         <Label>Status</Label>
                                         <p className="text-sm font-medium">{currentTrip?.status}</p>
@@ -718,7 +775,8 @@ export const Trips: React.FC = () => {
 
                                 <AlertDialog open={!!tripToDelete && tripToDelete.localId === trip.localId} onOpenChange={(isOpen) => !isOpen && closeDeleteConfirmation()}>
                                     <AlertDialogTrigger asChild>
-                                        <Button variant="ghost" size="icon" onClick={(e) => openDeleteConfirmation(trip, e)} className="text-muted-foreground hover:text-destructive h-8 w-8" disabled={isSaving || isDeleting}>
+                                         {/* Prevent accordion trigger when clicking this button */}
+                                        <Button variant="ghost" size="icon" onClick={(e) => openDeleteConfirmation(trip, e)} className="text-muted-foreground hover:text-destructive h-8 w-8" data-no-accordion-trigger disabled={isSaving || isDeleting}>
                                             <Trash2 className="h-4 w-4" />
                                         </Button>
                                     </AlertDialogTrigger>
@@ -747,25 +805,29 @@ export const Trips: React.FC = () => {
                                 </AlertDialog>
                             </>
                          )}
+                          {/* Chevron moved inside the trigger for proper alignment and click handling */}
                           <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200 text-muted-foreground group-data-[state=open]/item:rotate-180" />
                      </div>
                  </AccordionTrigger>
 
                 <AccordionContent className="p-4 pt-0 bg-secondary/30">
-                  <div className="space-y-6">
-                     {/* Pass localId to child components */}
-                    <section>
-                      <Visits tripId={trip.localId} tripName={trip.name} />
-                    </section>
-                    <hr className="border-border" />
-                    <section>
-                      <Expenses tripId={trip.localId} tripName={trip.name} />
-                    </section>
-                    <hr className="border-border" />
-                    <section>
-                      <Fuelings tripId={trip.localId} tripName={trip.name} />
-                    </section>
-                  </div>
+                  {/* Only render content if this accordion item is expanded */}
+                  {isExpanded && (
+                     <div className="space-y-6">
+                        {/* Pass localId to child components */}
+                        <section>
+                          <Visits tripId={trip.localId} tripName={trip.name} />
+                        </section>
+                        <hr className="border-border" />
+                        <section>
+                          <Expenses tripId={trip.localId} tripName={trip.name} />
+                        </section>
+                        <hr className="border-border" />
+                        <section>
+                          <Fuelings tripId={trip.localId} tripName={trip.name} />
+                        </section>
+                      </div>
+                  )}
                 </AccordionContent>
               </AccordionItem>
             );
@@ -786,5 +848,3 @@ export const Trips: React.FC = () => {
     </div>
   );
 };
-
-    

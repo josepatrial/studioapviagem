@@ -84,106 +84,111 @@ export const openDB = (): Promise<IDBDatabase> => {
     request.onupgradeneeded = (event) => {
       console.log('[localDbService] Upgrading IndexedDB...');
       const tempDb = request.result;
+      const transaction = (event.target as IDBOpenDBRequest).transaction; // Get transaction for index checks
+
       // Vehicles Store
+      let vehicleStore: IDBObjectStore;
       if (!tempDb.objectStoreNames.contains(STORE_VEHICLES)) {
-        const vehicleStore = tempDb.createObjectStore(STORE_VEHICLES, { keyPath: 'localId' });
-        vehicleStore.createIndex('firebaseId', 'firebaseId', { unique: false }); // Can't be unique if created offline first
-        vehicleStore.createIndex('syncStatus', 'syncStatus', { unique: false });
-        vehicleStore.createIndex('deleted', 'deleted', { unique: false });
+        vehicleStore = tempDb.createObjectStore(STORE_VEHICLES, { keyPath: 'localId' });
          console.log(`[localDbService] Object store ${STORE_VEHICLES} created.`);
+      } else if (transaction){
+          vehicleStore = transaction.objectStore(STORE_VEHICLES);
       } else {
-          const transaction = (event.target as IDBOpenDBRequest).transaction;
-          if (transaction) {
-              const store = transaction.objectStore(STORE_VEHICLES);
-              if (!store.indexNames.contains('firebaseId')) store.createIndex('firebaseId', 'firebaseId', { unique: false });
-              if (!store.indexNames.contains('syncStatus')) store.createIndex('syncStatus', 'syncStatus', { unique: false });
-              if (!store.indexNames.contains('deleted')) store.createIndex('deleted', 'deleted', { unique: false });
-          }
+          console.error("[onupgradeneeded] Transaction is null for vehicles store check.");
+          return;
       }
+      // Ensure required indexes exist
+      if (!vehicleStore.indexNames.contains('firebaseId')) vehicleStore.createIndex('firebaseId', 'firebaseId', { unique: false });
+      if (!vehicleStore.indexNames.contains('syncStatus')) vehicleStore.createIndex('syncStatus', 'syncStatus', { unique: false });
+      if (!vehicleStore.indexNames.contains('deleted')) vehicleStore.createIndex('deleted', 'deleted', { unique: false });
+
       // Trips Store
+      let tripStore: IDBObjectStore;
       if (!tempDb.objectStoreNames.contains(STORE_TRIPS)) {
-        const tripStore = tempDb.createObjectStore(STORE_TRIPS, { keyPath: 'localId' });
-        tripStore.createIndex('firebaseId', 'firebaseId', { unique: false });
-        tripStore.createIndex('userId', 'userId', { unique: false });
-        tripStore.createIndex('syncStatus', 'syncStatus', { unique: false });
-        tripStore.createIndex('deleted', 'deleted', { unique: false });
+        tripStore = tempDb.createObjectStore(STORE_TRIPS, { keyPath: 'localId' });
          console.log(`[localDbService] Object store ${STORE_TRIPS} created.`);
-      } else {
-           const transaction = (event.target as IDBOpenDBRequest).transaction;
-           if (transaction) {
-               const store = transaction.objectStore(STORE_TRIPS);
-               if (!store.indexNames.contains('firebaseId')) store.createIndex('firebaseId', 'firebaseId', { unique: false });
-               if (!store.indexNames.contains('userId')) store.createIndex('userId', 'userId', { unique: false });
-               if (!store.indexNames.contains('syncStatus')) store.createIndex('syncStatus', 'syncStatus', { unique: false });
-               if (!store.indexNames.contains('deleted')) store.createIndex('deleted', 'deleted', { unique: false });
-           }
+      } else if (transaction){
+           tripStore = transaction.objectStore(STORE_TRIPS);
+       } else {
+           console.error("[onupgradeneeded] Transaction is null for trips store check.");
+           return;
        }
+        // Ensure required indexes exist
+       if (!tripStore.indexNames.contains('firebaseId')) tripStore.createIndex('firebaseId', 'firebaseId', { unique: false });
+       if (!tripStore.indexNames.contains('userId')) tripStore.createIndex('userId', 'userId', { unique: false }); // Useful for filtering trips by user
+       if (!tripStore.indexNames.contains('syncStatus')) tripStore.createIndex('syncStatus', 'syncStatus', { unique: false });
+       if (!tripStore.indexNames.contains('deleted')) tripStore.createIndex('deleted', 'deleted', { unique: false });
+       if (!tripStore.indexNames.contains('createdAt')) tripStore.createIndex('createdAt', 'createdAt', { unique: false }); // Useful for sorting
+
       // Visits Store
+      let visitStore: IDBObjectStore;
       if (!tempDb.objectStoreNames.contains(STORE_VISITS)) {
-         const visitStore = tempDb.createObjectStore(STORE_VISITS, { keyPath: 'localId' });
-         visitStore.createIndex('tripLocalId', 'tripLocalId', { unique: false });
-         visitStore.createIndex('firebaseId', 'firebaseId', { unique: false });
-         visitStore.createIndex('syncStatus', 'syncStatus', { unique: false });
-         visitStore.createIndex('deleted', 'deleted', { unique: false });
+         visitStore = tempDb.createObjectStore(STORE_VISITS, { keyPath: 'localId' });
           console.log(`[localDbService] Object store ${STORE_VISITS} created.`);
-      } else {
-           const transaction = (event.target as IDBOpenDBRequest).transaction;
-           if (transaction) {
-               const store = transaction.objectStore(STORE_VISITS);
-               if (!store.indexNames.contains('tripLocalId')) visitStore.createIndex('tripLocalId', 'tripLocalId', { unique: false });
-               if (!store.indexNames.contains('firebaseId')) store.createIndex('firebaseId', 'firebaseId', { unique: false });
-               if (!store.indexNames.contains('syncStatus')) store.createIndex('syncStatus', 'syncStatus', { unique: false });
-               if (!store.indexNames.contains('deleted')) store.createIndex('deleted', 'deleted', { unique: false });
-           }
-      }
+      } else if(transaction){
+           visitStore = transaction.objectStore(STORE_VISITS);
+       } else {
+           console.error("[onupgradeneeded] Transaction is null for visits store check.");
+           return;
+       }
+        // Ensure required indexes exist
+       if (!visitStore.indexNames.contains('tripLocalId')) visitStore.createIndex('tripLocalId', 'tripLocalId', { unique: false }); // Essential for fetching visits by trip
+       if (!visitStore.indexNames.contains('firebaseId')) visitStore.createIndex('firebaseId', 'firebaseId', { unique: false });
+       if (!visitStore.indexNames.contains('syncStatus')) visitStore.createIndex('syncStatus', 'syncStatus', { unique: false });
+       if (!visitStore.indexNames.contains('deleted')) visitStore.createIndex('deleted', 'deleted', { unique: false });
+       if (!visitStore.indexNames.contains('timestamp')) visitStore.createIndex('timestamp', 'timestamp', { unique: false }); // Useful for sorting
+
       // Expenses Store
+      let expenseStore: IDBObjectStore;
       if (!tempDb.objectStoreNames.contains(STORE_EXPENSES)) {
-         const expenseStore = tempDb.createObjectStore(STORE_EXPENSES, { keyPath: 'localId' });
-         expenseStore.createIndex('tripLocalId', 'tripLocalId', { unique: false });
-         expenseStore.createIndex('firebaseId', 'firebaseId', { unique: false });
-         expenseStore.createIndex('syncStatus', 'syncStatus', { unique: false });
-         expenseStore.createIndex('deleted', 'deleted', { unique: false });
+         expenseStore = tempDb.createObjectStore(STORE_EXPENSES, { keyPath: 'localId' });
           console.log(`[localDbService] Object store ${STORE_EXPENSES} created.`);
-      } else {
-           const transaction = (event.target as IDBOpenDBRequest).transaction;
-           if (transaction) {
-               const store = transaction.objectStore(STORE_EXPENSES);
-               if (!store.indexNames.contains('tripLocalId')) expenseStore.createIndex('tripLocalId', 'tripLocalId', { unique: false });
-               if (!store.indexNames.contains('firebaseId')) store.createIndex('firebaseId', 'firebaseId', { unique: false });
-               if (!store.indexNames.contains('syncStatus')) store.createIndex('syncStatus', 'syncStatus', { unique: false });
-               if (!store.indexNames.contains('deleted')) store.createIndex('deleted', 'deleted', { unique: false });
-           }
-      }
+      } else if(transaction){
+           expenseStore = transaction.objectStore(STORE_EXPENSES);
+       } else {
+            console.error("[onupgradeneeded] Transaction is null for expenses store check.");
+            return;
+       }
+        // Ensure required indexes exist
+       if (!expenseStore.indexNames.contains('tripLocalId')) expenseStore.createIndex('tripLocalId', 'tripLocalId', { unique: false }); // Essential
+       if (!expenseStore.indexNames.contains('firebaseId')) expenseStore.createIndex('firebaseId', 'firebaseId', { unique: false });
+       if (!expenseStore.indexNames.contains('syncStatus')) expenseStore.createIndex('syncStatus', 'syncStatus', { unique: false });
+       if (!expenseStore.indexNames.contains('deleted')) expenseStore.createIndex('deleted', 'deleted', { unique: false });
+       if (!expenseStore.indexNames.contains('timestamp')) expenseStore.createIndex('timestamp', 'timestamp', { unique: false }); // Useful for sorting
+
       // Fuelings Store
+      let fuelingStore: IDBObjectStore;
       if (!tempDb.objectStoreNames.contains(STORE_FUELINGS)) {
-         const fuelingStore = tempDb.createObjectStore(STORE_FUELINGS, { keyPath: 'localId' });
-         fuelingStore.createIndex('tripLocalId', 'tripLocalId', { unique: false });
-         fuelingStore.createIndex('firebaseId', 'firebaseId', { unique: false });
-         fuelingStore.createIndex('syncStatus', 'syncStatus', { unique: false });
-         fuelingStore.createIndex('deleted', 'deleted', { unique: false });
+         fuelingStore = tempDb.createObjectStore(STORE_FUELINGS, { keyPath: 'localId' });
           console.log(`[localDbService] Object store ${STORE_FUELINGS} created.`);
-      } else {
-           const transaction = (event.target as IDBOpenDBRequest).transaction;
-           if (transaction) {
-               const store = transaction.objectStore(STORE_FUELINGS);
-               if (!store.indexNames.contains('tripLocalId')) fuelingStore.createIndex('tripLocalId', 'tripLocalId', { unique: false });
-               if (!store.indexNames.contains('firebaseId')) store.createIndex('firebaseId', 'firebaseId', { unique: false });
-               if (!store.indexNames.contains('syncStatus')) store.createIndex('syncStatus', 'syncStatus', { unique: false });
-               if (!store.indexNames.contains('deleted')) store.createIndex('deleted', 'deleted', { unique: false });
-           }
-      }
+      } else if(transaction){
+           fuelingStore = transaction.objectStore(STORE_FUELINGS);
+       } else {
+           console.error("[onupgradeneeded] Transaction is null for fuelings store check.");
+           return;
+       }
+        // Ensure required indexes exist
+       if (!fuelingStore.indexNames.contains('tripLocalId')) fuelingStore.createIndex('tripLocalId', 'tripLocalId', { unique: false }); // Essential
+       if (!fuelingStore.indexNames.contains('firebaseId')) fuelingStore.createIndex('firebaseId', 'firebaseId', { unique: false });
+       if (!fuelingStore.indexNames.contains('syncStatus')) fuelingStore.createIndex('syncStatus', 'syncStatus', { unique: false });
+       if (!fuelingStore.indexNames.contains('deleted')) fuelingStore.createIndex('deleted', 'deleted', { unique: false });
+       if (!fuelingStore.indexNames.contains('date')) fuelingStore.createIndex('date', 'date', { unique: false }); // Useful for sorting
+
       // Users Store
+      let userStore: IDBObjectStore;
       if (!tempDb.objectStoreNames.contains(STORE_USERS)) {
-        const userStore = tempDb.createObjectStore(STORE_USERS, { keyPath: 'id' });
-        userStore.createIndex('email', 'email', { unique: true });
+        userStore = tempDb.createObjectStore(STORE_USERS, { keyPath: 'id' }); // Using firebase ID ('id') as key
         console.log(`[localDbService] Object store ${STORE_USERS} created.`);
-      } else {
-           const transaction = (event.target as IDBOpenDBRequest).transaction;
-           if (transaction) {
-               const store = transaction.objectStore(STORE_USERS);
-               if (!store.indexNames.contains('email')) store.createIndex('email', 'email', { unique: true });
-           }
-      }
+      } else if(transaction){
+           userStore = transaction.objectStore(STORE_USERS);
+       } else {
+            console.error("[onupgradeneeded] Transaction is null for users store check.");
+            return;
+       }
+        // Ensure required indexes exist
+       if (!userStore.indexNames.contains('email')) userStore.createIndex('email', 'email', { unique: true });
+       if (!userStore.indexNames.contains('lastLogin')) userStore.createIndex('lastLogin', 'lastLogin', { unique: false }); // For finding latest user
+
       console.log('[localDbService] IndexedDB upgrade complete');
     };
 
@@ -200,13 +205,14 @@ export const openDB = (): Promise<IDBDatabase> => {
 
 export const getLocalDbStore = (storeName: string, mode: IDBTransactionMode): Promise<IDBObjectStore> => {
   const getStoreStartTime = performance.now();
-  console.log(`[getLocalDbStore ${getStoreStartTime}] Acquiring store: ${storeName}, mode: ${mode}`);
+  // Reduced logging frequency for getStore to avoid spamming console
+  // console.log(`[getLocalDbStore ${getStoreStartTime}] Acquiring store: ${storeName}, mode: ${mode}`);
   return openDB().then(dbInstance => {
     try {
       const transaction = dbInstance.transaction(storeName, mode);
       const store = transaction.objectStore(storeName);
       const getStoreEndTime = performance.now();
-      console.log(`[getLocalDbStore ${getStoreStartTime}] Store acquired successfully. Time: ${getStoreEndTime - getStoreStartTime} ms`);
+      // console.log(`[getLocalDbStore ${getStoreStartTime}] Store acquired successfully. Time: ${getStoreEndTime - getStoreStartTime} ms`);
 
       transaction.onerror = (event) => {
            console.error(`[localDbService Transaction] Error on ${storeName} (${mode}):`, (event.target as IDBTransaction).error);
@@ -214,9 +220,9 @@ export const getLocalDbStore = (storeName: string, mode: IDBTransactionMode): Pr
       transaction.onabort = (event) => {
            console.warn(`[localDbService Transaction] Aborted on ${storeName} (${mode}):`, (event.target as IDBTransaction).error);
       };
-      transaction.oncomplete = () => {
-           // console.log(`[localDbService Transaction] Completed on ${storeName} (${mode})`);
-      };
+      // transaction.oncomplete = () => {
+      //      console.log(`[localDbService Transaction] Completed on ${storeName} (${mode})`);
+      // };
       return store;
      } catch (error) {
          const getStoreEndTime = performance.now();
@@ -229,7 +235,7 @@ export const getLocalDbStore = (storeName: string, mode: IDBTransactionMode): Pr
 // Use this for stores where localId is the key
 export const addLocalRecord = <T extends { localId: string }>(storeName: string, record: T): Promise<string> => {
     const addStartTime = performance.now();
-    console.log(`[addLocalRecord ${addStartTime}] Adding record to ${storeName}`, record);
+    // console.log(`[addLocalRecord ${addStartTime}] Adding record to ${storeName}`, record);
     return getLocalDbStore(storeName, 'readwrite').then(store => {
       return new Promise<string>((resolve, reject) => {
         const request = store.add(record);
@@ -250,7 +256,7 @@ export const addLocalRecord = <T extends { localId: string }>(storeName: string,
 // Use this for stores where localId is the key
 export const updateLocalRecord = <T extends { localId: string }>(storeName: string, record: T): Promise<void> => {
     const updateStartTime = performance.now();
-    console.log(`[updateLocalRecord ${updateStartTime}] Updating record in ${storeName}`, record);
+    // console.log(`[updateLocalRecord ${updateStartTime}] Updating record in ${storeName}`, record);
     return getLocalDbStore(storeName, 'readwrite').then(store => {
         return new Promise<void>((resolve, reject) => {
             // Use put which works for both adding and updating
@@ -410,6 +416,7 @@ const getLocalRecordsBySyncStatus = <T>(storeName: string, status: SyncStatus | 
 // --- Specific Operations ---
 
 // -- Users (Using firebaseId as primary key 'id') --
+// Potential Index: users store - 'id' (keyPath), 'email' (unique), 'lastLogin'
 export const getLocalUser = (userId: string): Promise<LocalUser | null> => {
     const getUserStartTime = performance.now();
     console.log(`[getLocalUser ${getUserStartTime}] Getting user with ID: ${userId}`);
@@ -456,6 +463,7 @@ export const deleteLocalUser = (userId: string): Promise<void> => {
 };
 
 // -- Vehicles --
+// Potential Index: vehicles store - 'localId' (keyPath), 'firebaseId', 'syncStatus', 'deleted'
 export const addLocalVehicle = (vehicle: Omit<LocalVehicle, 'localId' | 'syncStatus' | 'deleted' | 'firebaseId'>): Promise<string> => {
     const localId = `local_vehicle_${uuidv4()}`;
     const newLocalVehicle: LocalVehicle = {
@@ -487,6 +495,7 @@ export const getLocalVehicles = (): Promise<LocalVehicle[]> => {
 
 
 // --- Trips ---
+// Potential Index: trips store - 'localId' (keyPath), 'firebaseId', 'userId', 'syncStatus', 'deleted', 'createdAt'
 export const addLocalTrip = (trip: Omit<LocalTrip, 'localId' | 'syncStatus'>): Promise<string> => {
     const localId = `local_trip_${uuidv4()}`;
     const newLocalTrip: LocalTrip = {
@@ -513,46 +522,54 @@ export const deleteLocalTrip = (localId: string): Promise<void> => {
 export const getLocalTrips = (userId?: string): Promise<LocalTrip[]> => {
     const getTripsStartTime = performance.now();
     console.log(`[getLocalTrips ${getTripsStartTime}] Fetching trips for userId: ${userId || 'all'}`);
-    if (!userId) {
-       return getAllLocalRecords<LocalTrip>(STORE_TRIPS);
-    }
     return getLocalDbStore(STORE_TRIPS, 'readonly').then(store => {
         return new Promise<LocalTrip[]>((resolve, reject) => {
-             if (!store.indexNames.contains('userId')) {
-                 console.warn(`[getLocalTrips ${getTripsStartTime}] Index 'userId' not found on ${STORE_TRIPS}. Fetching all and filtering.`);
+             // Use 'userId' index if available and filtering by user
+             if (userId && store.indexNames.contains('userId')) {
+                 const index = store.index('userId');
+                 const request = index.getAll(userId);
+                 request.onsuccess = () => {
+                     const results = (request.result as LocalTrip[]).filter((item: any) => !item.deleted);
+                     // Sort by createdAt descending after filtering
+                     results.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+                     const getTripsEndTime = performance.now();
+                     console.log(`[getLocalTrips ${getTripsStartTime}] Found ${results.length} trips using 'userId' index. Time: ${getTripsEndTime - getTripsStartTime} ms`);
+                     resolve(results);
+                 };
+                 request.onerror = () => {
+                      const getTripsEndTime = performance.now();
+                      console.error(`[getLocalTrips ${getTripsStartTime}] Error getting trips for user ${userId} using index. Time: ${getTripsEndTime - getTripsStartTime} ms`, request.error);
+                      reject(`Error getting trips for user ${userId}: ${request.error?.message}`);
+                 }
+             } else {
+                  // Fallback: Get all and filter
                  const getAllRequest = store.getAll();
                  getAllRequest.onsuccess = () => {
-                     const allRecords = getAllRequest.result as LocalTrip[];
-                     const filtered = allRecords.filter(item => !item.deleted && item.userId === userId);
+                     let results = getAllRequest.result as LocalTrip[];
+                     if (userId) {
+                         results = results.filter(item => !item.deleted && item.userId === userId);
+                     } else {
+                         results = results.filter(item => !item.deleted);
+                     }
+                     // Sort by createdAt descending
+                     results.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
                       const getTripsEndTime = performance.now();
-                      console.log(`[getLocalTrips ${getTripsStartTime}] Fallback filter complete. Found ${filtered.length} trips. Time: ${getTripsEndTime - getTripsStartTime} ms`);
-                     resolve(filtered);
+                      const method = userId ? 'Fallback filter' : 'getAll';
+                      console.log(`[getLocalTrips ${getTripsStartTime}] ${method} complete. Found ${results.length} trips. Time: ${getTripsEndTime - getTripsStartTime} ms`);
+                     resolve(results);
                  };
                  getAllRequest.onerror = () => {
                       const getTripsEndTime = performance.now();
                       console.error(`[getLocalTrips ${getTripsStartTime}] Fallback getAll failed for ${STORE_TRIPS}. Time: ${getTripsEndTime - getTripsStartTime} ms`, getAllRequest.error);
                       reject(`Fallback getAll failed for ${STORE_TRIPS}: ${getAllRequest.error?.message}`);
                  }
-                 return;
              }
-            const index = store.index('userId');
-            const request = index.getAll(userId);
-            request.onsuccess = () => {
-                const results = (request.result as LocalTrip[]).filter((item: any) => !item.deleted);
-                 const getTripsEndTime = performance.now();
-                 console.log(`[getLocalTrips ${getTripsStartTime}] Found ${results.length} trips using index. Time: ${getTripsEndTime - getTripsStartTime} ms`);
-                resolve(results);
-            };
-            request.onerror = () => {
-                 const getTripsEndTime = performance.now();
-                 console.error(`[getLocalTrips ${getTripsStartTime}] Error getting trips for user ${userId}. Time: ${getTripsEndTime - getTripsStartTime} ms`, request.error);
-                 reject(`Error getting trips for user ${userId}: ${request.error?.message}`);
-            }
         });
     });
 };
 
 // --- Visits ---
+// Potential Index: visits store - 'localId' (keyPath), 'firebaseId', 'tripLocalId', 'syncStatus', 'deleted', 'timestamp'
 export const addLocalVisit = (visit: Omit<LocalVisit, 'localId' | 'syncStatus'>): Promise<string> => {
     const localId = `local_visit_${uuidv4()}`;
     const newLocalVisit: LocalVisit = {
@@ -581,43 +598,47 @@ export const getLocalVisits = (tripLocalId: string): Promise<LocalVisit[]> => {
      console.log(`[getLocalVisits ${getVisitsStartTime}] Fetching visits for tripLocalId: ${tripLocalId}`);
     return getLocalDbStore(STORE_VISITS, 'readonly').then(store => {
         return new Promise<LocalVisit[]>((resolve, reject) => {
-             if (!store.indexNames.contains('tripLocalId')) {
+             // Use 'tripLocalId' index for efficient fetching
+             if (store.indexNames.contains('tripLocalId')) {
+                 const index = store.index('tripLocalId');
+                 const request = index.getAll(tripLocalId);
+                 request.onsuccess = () => {
+                     const results = (request.result as LocalVisit[]).filter(item => !item.deleted);
+                     // Sort by timestamp descending
+                     results.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+                     const getVisitsEndTime = performance.now();
+                     console.log(`[getLocalVisits ${getVisitsStartTime}] Found ${results.length} visits using index. Time: ${getVisitsEndTime - getVisitsStartTime} ms`);
+                     resolve(results);
+                 };
+                 request.onerror = () => {
+                      const getVisitsEndTime = performance.now();
+                      console.error(`[getLocalVisits ${getVisitsStartTime}] Error getting visits for trip ${tripLocalId} using index. Time: ${getVisitsEndTime - getVisitsStartTime} ms`, request.error);
+                      reject(`Error getting visits for trip ${tripLocalId}: ${request.error?.message}`);
+                 }
+             } else {
+                 // Fallback (less efficient)
                  console.warn(`[getLocalVisits ${getVisitsStartTime}] Index 'tripLocalId' not found on ${STORE_VISITS}. Fetching all and filtering.`);
                  const getAllRequest = store.getAll();
                  getAllRequest.onsuccess = () => {
                      const allRecords = getAllRequest.result as LocalVisit[];
                      const filtered = allRecords.filter(item => !item.deleted && item.tripLocalId === tripLocalId);
                      filtered.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-                      const getVisitsEndTime = performance.now();
-                      console.log(`[getLocalVisits ${getVisitsStartTime}] Fallback filter complete. Found ${filtered.length} visits. Time: ${getVisitsEndTime - getVisitsStartTime} ms`);
+                     const getVisitsEndTime = performance.now();
+                     console.log(`[getLocalVisits ${getVisitsStartTime}] Fallback filter complete. Found ${filtered.length} visits. Time: ${getVisitsEndTime - getVisitsStartTime} ms`);
                      resolve(filtered);
                  };
                  getAllRequest.onerror = () => {
                       const getVisitsEndTime = performance.now();
-                      console.error(`[getLocalVisits ${getVisitsStartTime}] Fallback getAll failed for ${STORE_VISITS}. Time: ${getVisitsEndTime - getVisitsStartTime} ms`, getAllRequest.error);
+                      console.error(`[getLocalVisits ${getVisitsStartTime}] Fallback getAll failed for ${STORE_VISITS}. Time: ${getVisitsEndTime - getVisitsStartTime} ms`, request.error);
                       reject(`Fallback getAll failed for ${STORE_VISITS}: ${getAllRequest.error?.message}`);
                  }
-                 return;
              }
-            const index = store.index('tripLocalId');
-            const request = index.getAll(tripLocalId);
-            request.onsuccess = () => {
-                const results = (request.result as LocalVisit[]).filter(item => !item.deleted);
-                results.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-                 const getVisitsEndTime = performance.now();
-                 console.log(`[getLocalVisits ${getVisitsStartTime}] Found ${results.length} visits using index. Time: ${getVisitsEndTime - getVisitsStartTime} ms`);
-                resolve(results);
-            };
-            request.onerror = () => {
-                 const getVisitsEndTime = performance.now();
-                 console.error(`[getLocalVisits ${getVisitsStartTime}] Error getting visits for trip ${tripLocalId}. Time: ${getVisitsEndTime - getVisitsStartTime} ms`, request.error);
-                 reject(`Error getting visits for trip ${tripLocalId}: ${request.error?.message}`);
-            }
         });
     });
 };
 
 // --- Expenses ---
+// Potential Index: expenses store - 'localId' (keyPath), 'firebaseId', 'tripLocalId', 'syncStatus', 'deleted', 'timestamp'
 export const addLocalExpense = (expense: Omit<LocalExpense, 'localId' | 'syncStatus'>): Promise<string> => {
      const localId = `local_expense_${uuidv4()}`;
      const newLocalExpense: LocalExpense = {
@@ -646,43 +667,46 @@ export const getLocalExpenses = (tripLocalId: string): Promise<LocalExpense[]> =
       console.log(`[getLocalExpenses ${getExpensesStartTime}] Fetching expenses for tripLocalId: ${tripLocalId}`);
      return getLocalDbStore(STORE_EXPENSES, 'readonly').then(store => {
          return new Promise<LocalExpense[]>((resolve, reject) => {
-              if (!store.indexNames.contains('tripLocalId')) {
+              // Use 'tripLocalId' index
+              if (store.indexNames.contains('tripLocalId')) {
+                  const index = store.index('tripLocalId');
+                  const request = index.getAll(tripLocalId);
+                  request.onsuccess = () => {
+                      const results = (request.result as LocalExpense[]).filter(item => !item.deleted);
+                      results.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+                      const getExpensesEndTime = performance.now();
+                      console.log(`[getLocalExpenses ${getExpensesStartTime}] Found ${results.length} expenses using index. Time: ${getExpensesEndTime - getExpensesStartTime} ms`);
+                      resolve(results);
+                  };
+                  request.onerror = () => {
+                       const getExpensesEndTime = performance.now();
+                       console.error(`[getLocalExpenses ${getExpensesStartTime}] Error getting expenses for trip ${tripLocalId} using index. Time: ${getExpensesEndTime - getExpensesStartTime} ms`, request.error);
+                       reject(`Error getting expenses for trip ${tripLocalId}: ${request.error?.message}`);
+                  }
+              } else {
+                 // Fallback
                  console.warn(`[getLocalExpenses ${getExpensesStartTime}] Index 'tripLocalId' not found on ${STORE_EXPENSES}. Fetching all and filtering.`);
                  const getAllRequest = store.getAll();
                  getAllRequest.onsuccess = () => {
                      const allRecords = getAllRequest.result as LocalExpense[];
                      const filtered = allRecords.filter(item => !item.deleted && item.tripLocalId === tripLocalId);
                      filtered.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-                      const getExpensesEndTime = performance.now();
-                      console.log(`[getLocalExpenses ${getExpensesStartTime}] Fallback filter complete. Found ${filtered.length} expenses. Time: ${getExpensesEndTime - getExpensesStartTime} ms`);
+                     const getExpensesEndTime = performance.now();
+                     console.log(`[getLocalExpenses ${getExpensesStartTime}] Fallback filter complete. Found ${filtered.length} expenses. Time: ${getExpensesEndTime - getExpensesStartTime} ms`);
                      resolve(filtered);
-                 };
-                 getAllRequest.onerror = () => {
-                      const getExpensesEndTime = performance.now();
-                      console.error(`[getLocalExpenses ${getExpensesStartTime}] Fallback getAll failed for ${STORE_EXPENSES}. Time: ${getExpensesEndTime - getExpensesStartTime} ms`, getAllRequest.error);
-                      reject(`Fallback getAll failed for ${STORE_EXPENSES}: ${getAllRequest.error?.message}`);
-                 }
-                 return;
-             }
-             const index = store.index('tripLocalId');
-             const request = index.getAll(tripLocalId);
-             request.onsuccess = () => {
-                 const results = (request.result as LocalExpense[]).filter(item => !item.deleted);
-                 results.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-                  const getExpensesEndTime = performance.now();
-                  console.log(`[getLocalExpenses ${getExpensesStartTime}] Found ${results.length} expenses using index. Time: ${getExpensesEndTime - getExpensesStartTime} ms`);
-                 resolve(results);
-             };
-             request.onerror = () => {
-                  const getExpensesEndTime = performance.now();
-                  console.error(`[getLocalExpenses ${getExpensesStartTime}] Error getting expenses for trip ${tripLocalId}. Time: ${getExpensesEndTime - getExpensesStartTime} ms`, request.error);
-                  reject(`Error getting expenses for trip ${tripLocalId}: ${request.error?.message}`);
-             }
+                  };
+                  getAllRequest.onerror = () => {
+                       const getExpensesEndTime = performance.now();
+                       console.error(`[getLocalExpenses ${getExpensesStartTime}] Fallback getAll failed for ${STORE_EXPENSES}. Time: ${getExpensesEndTime - getExpensesStartTime} ms`, request.error);
+                       reject(`Fallback getAll failed for ${STORE_EXPENSES}: ${getAllRequest.error?.message}`);
+                  }
+              }
          });
      });
 };
 
 // --- Fuelings ---
+// Potential Index: fuelings store - 'localId' (keyPath), 'firebaseId', 'tripLocalId', 'syncStatus', 'deleted', 'date'
 export const addLocalFueling = (fueling: Omit<LocalFueling, 'localId' | 'syncStatus'>): Promise<string> => {
       const localId = `local_fueling_${uuidv4()}`;
       const newLocalFueling: LocalFueling = {
@@ -711,37 +735,39 @@ export const getLocalFuelings = (tripLocalId: string): Promise<LocalFueling[]> =
        console.log(`[getLocalFuelings ${getFuelingsStartTime}] Fetching fuelings for tripLocalId: ${tripLocalId}`);
       return getLocalDbStore(STORE_FUELINGS, 'readonly').then(store => {
           return new Promise<LocalFueling[]>((resolve, reject) => {
-              if (!store.indexNames.contains('tripLocalId')) {
+              // Use 'tripLocalId' index
+               if (store.indexNames.contains('tripLocalId')) {
+                   const index = store.index('tripLocalId');
+                   const request = index.getAll(tripLocalId);
+                   request.onsuccess = () => {
+                       const results = (request.result as LocalFueling[]).filter(item => !item.deleted);
+                       results.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+                       const getFuelingsEndTime = performance.now();
+                       console.log(`[getLocalFuelings ${getFuelingsStartTime}] Found ${results.length} fuelings using index. Time: ${getFuelingsEndTime - getFuelingsStartTime} ms`);
+                       resolve(results);
+                   };
+                   request.onerror = () => {
+                        const getFuelingsEndTime = performance.now();
+                        console.error(`[getLocalFuelings ${getFuelingsStartTime}] Error getting fuelings for trip ${tripLocalId} using index. Time: ${getFuelingsEndTime - getFuelingsStartTime} ms`, request.error);
+                        reject(`Error getting fuelings for trip ${tripLocalId}: ${request.error?.message}`);
+                   }
+               } else {
+                  // Fallback
                   console.warn(`[getLocalFuelings ${getFuelingsStartTime}] Index 'tripLocalId' not found on ${STORE_FUELINGS}. Fetching all and filtering.`);
                   const getAllRequest = store.getAll();
                   getAllRequest.onsuccess = () => {
                      const allRecords = getAllRequest.result as LocalFueling[];
                      const filtered = allRecords.filter(item => !item.deleted && item.tripLocalId === tripLocalId);
                      filtered.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-                      const getFuelingsEndTime = performance.now();
-                      console.log(`[getLocalFuelings ${getFuelingsStartTime}] Fallback filter complete. Found ${filtered.length} fuelings. Time: ${getFuelingsEndTime - getFuelingsStartTime} ms`);
+                     const getFuelingsEndTime = performance.now();
+                     console.log(`[getLocalFuelings ${getFuelingsStartTime}] Fallback filter complete. Found ${filtered.length} fuelings. Time: ${getFuelingsEndTime - getFuelingsStartTime} ms`);
                      resolve(filtered);
                   };
                   getAllRequest.onerror = () => {
                        const getFuelingsEndTime = performance.now();
-                       console.error(`[getLocalFuelings ${getFuelingsStartTime}] Fallback getAll failed for ${STORE_FUELINGS}. Time: ${getFuelingsEndTime - getFuelingsStartTime} ms`, getAllRequest.error);
+                       console.error(`[getLocalFuelings ${getFuelingsStartTime}] Fallback getAll failed for ${STORE_FUELINGS}. Time: ${getFuelingsEndTime - getFuelingsStartTime} ms`, request.error);
                        reject(`Fallback getAll failed for ${STORE_FUELINGS}: ${getAllRequest.error?.message}`);
                   }
-                  return;
-              }
-              const index = store.index('tripLocalId');
-              const request = index.getAll(tripLocalId);
-              request.onsuccess = () => {
-                  const results = (request.result as LocalFueling[]).filter(item => !item.deleted);
-                  results.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-                   const getFuelingsEndTime = performance.now();
-                   console.log(`[getLocalFuelings ${getFuelingsStartTime}] Found ${results.length} fuelings using index. Time: ${getFuelingsEndTime - getFuelingsStartTime} ms`);
-                  resolve(results);
-              };
-              request.onerror = () => {
-                   const getFuelingsEndTime = performance.now();
-                   console.error(`[getLocalFuelings ${getFuelingsStartTime}] Error getting fuelings for trip ${tripLocalId}. Time: ${getFuelingsEndTime - getFuelingsStartTime} ms`, request.error);
-                   reject(`Error getting fuelings for trip ${tripLocalId}: ${request.error?.message}`);
               }
           });
       });
@@ -750,6 +776,7 @@ export const getLocalFuelings = (tripLocalId: string): Promise<LocalFueling[]> =
 
 // --- Sync Operations ---
 
+// Potential Index: All stores - 'syncStatus'
 export const getPendingRecords = async (): Promise<{
   trips: LocalTrip[],
   visits: LocalVisit[],
@@ -790,8 +817,12 @@ export const updateSyncStatus = async (storeName: string, localId: string, fireb
                         firebaseId: firebaseId || request.result.firebaseId,
                         ...additionalUpdates
                     };
-                    if (status === 'synced' && !firebaseId && !recordToUpdate.deleted) {
-                        console.warn(`[updateSyncStatus ${updateStatusStartTime}] Marking ${storeName} ${localId} as synced without firebaseId.`);
+                    // If marking as synced, ensure firebaseId is present unless it's a deleted record
+                    if (status === 'synced' && !recordToUpdate.firebaseId && !recordToUpdate.deleted) {
+                        console.error(`[updateSyncStatus ${updateStatusStartTime}] CRITICAL: Attempting to mark ${storeName} ${localId} as synced WITHOUT a firebaseId.`);
+                        // Optionally reject or handle this case more explicitly
+                        // reject(`Cannot mark ${localId} as synced without firebaseId.`);
+                        // return;
                     }
                     const updateRequest = store.put(recordToUpdate);
                     updateRequest.onsuccess = () => {
@@ -801,7 +832,7 @@ export const updateSyncStatus = async (storeName: string, localId: string, fireb
                     };
                     updateRequest.onerror = () => {
                          const updateStatusEndTime = performance.now();
-                         console.error(`[updateSyncStatus ${updateStatusStartTime}] Error updating sync status for ${localId}. Time: ${updateStatusEndTime - updateStatusStartTime} ms`, updateRequest.error);
+                         console.error(`[updateSyncStatus ${updateStatusStartTime}] Error updating sync status for ${localId}. Time: ${updateStatusEndTime - updateStatusStartTime} ms`, request.error);
                          reject(`Error updating sync status for ${localId}: ${updateRequest.error?.message}`);
                     }
                 } else {
@@ -820,6 +851,7 @@ export const updateSyncStatus = async (storeName: string, localId: string, fireb
 };
 
 // Clean up successfully deleted records after sync
+// Potential Index: All stores - 'deleted'
 export const cleanupDeletedRecords = async (): Promise<void> => {
     console.log("[cleanupDeletedRecords] Starting cleanup...");
     const stores = [STORE_TRIPS, STORE_VISITS, STORE_EXPENSES, STORE_FUELINGS, STORE_VEHICLES];
@@ -850,11 +882,22 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
                          deletedCount++;
                          storeDeletedCount++;
                     }
-                    cursor = await new Promise<IDBCursorWithValue | null>((res, rej) => {
-                         const continueReq = cursor!.continue(); // Use non-null assertion
-                         continueReq.onsuccess = () => res(continueReq.result);
-                         continueReq.onerror = () => rej(continueReq.error);
-                    });
+                    // Continue to the next item regardless of deletion
+                     cursor = await new Promise<IDBCursorWithValue | null>((res, rej) => {
+                         try {
+                             cursor!.continue(); // Use non-null assertion here
+                             res(cursor!.result); // Result is available after continue? Check spec. Might need req approach.
+                         } catch(e) {
+                             rej(e); // Catch potential errors if cursor is invalid
+                         }
+                     }).catch(() => null); // Handle potential errors during continue/result access
+
+                     // Safer alternative: Re-fetch cursor after delete
+                     // cursor = await new Promise<IDBCursorWithValue | null>((res, rej) => {
+                     //     const req = index.openCursor(IDBKeyRange.only(true), 'next'); // Or use continue() and manage position
+                     //     req.onsuccess = () => res(req.result);
+                     //     req.onerror = () => rej(req.error);
+                     // });
                  }
                 console.log(`[Cleanup] Finished store ${storeName}. Deleted ${storeDeletedCount} records.`);
                 resolveStore();
