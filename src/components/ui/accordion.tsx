@@ -20,23 +20,34 @@ const AccordionItem = React.forwardRef<
 ))
 AccordionItem.displayName = "AccordionItem"
 
+// Export AccordionHeader
+const AccordionHeader = React.forwardRef<
+  React.ElementRef<typeof AccordionPrimitive.Header>,
+  React.ComponentPropsWithoutRef<typeof AccordionPrimitive.Header>
+>(({ className, ...props }, ref) => (
+  <AccordionPrimitive.Header
+    ref={ref}
+    className={cn("flex", className)} // Basic styling, adjust as needed
+    {...props}
+  />
+));
+AccordionHeader.displayName = AccordionPrimitive.Header.displayName
+
 const AccordionTrigger = React.forwardRef<
   React.ElementRef<typeof AccordionPrimitive.Trigger>,
   React.ComponentPropsWithoutRef<typeof AccordionPrimitive.Trigger>
 >(({ className, children, ...props }, ref) => (
-  <AccordionPrimitive.Header className="flex">
-    <AccordionPrimitive.Trigger
-      ref={ref}
-      className={cn(
-        "flex flex-1 items-center justify-between py-4 font-medium transition-all hover:underline [&[data-state=open]>svg]:rotate-180", // Added ChevronDown back
-        className
-      )}
-      {...props}
-    >
-      {children}
-      <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200" />
-    </AccordionPrimitive.Trigger>
-  </AccordionPrimitive.Header>
+  <AccordionPrimitive.Trigger
+    ref={ref}
+    className={cn(
+      "flex flex-1 items-center justify-between py-4 font-medium transition-all hover:underline [&[data-state=open]>svg]:rotate-180",
+      className
+    )}
+    {...props}
+  >
+    {children}
+    <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200" />
+  </AccordionPrimitive.Trigger>
 ))
 AccordionTrigger.displayName = AccordionPrimitive.Trigger.displayName
 
@@ -55,4 +66,4 @@ const AccordionContent = React.forwardRef<
 
 AccordionContent.displayName = AccordionPrimitive.Content.displayName
 
-export { Accordion, AccordionItem, AccordionTrigger, AccordionContent }
+export { Accordion, AccordionItem, AccordionHeader, AccordionTrigger, AccordionContent } // Export AccordionHeader

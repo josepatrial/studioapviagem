@@ -20,12 +20,12 @@ import {
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger, AccordionHeader } from '@/components/ui/accordion'; // Import AccordionHeader
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 // Fetch data functions and types
-import { type Visit } from './Visits'; // Keep type import
-import { type Expense } from './Expenses'; // Keep type import
-import { type Fueling } from './Fuelings'; // Keep type import
+import type { Visit } from './Visits'; // Keep type import
+import type { Expense } from './Expenses'; // Keep type import
+import type { Fueling } from './Fuelings'; // Keep type import
 import { useToast } from '@/hooks/use-toast';
 import { useAuth, User } from '@/contexts/AuthContext';
 import { type VehicleInfo } from '../Vehicle'; // Import type VehicleInfo
@@ -649,50 +649,53 @@ export const Trips: React.FC = () => {
 
             return (
               <AccordionItem key={trip.localId} value={trip.localId} className="border bg-card rounded-lg shadow-sm overflow-hidden group/item data-[state=open]:border-primary/50">
-                 <AccordionTrigger
-                     className={cn(
-                         "flex justify-between items-center p-4 hover:bg-accent/50 w-full text-left data-[state=open]:border-b hover:no-underline",
-                         isPending && "bg-yellow-50 hover:bg-yellow-100/80 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/30",
-                         isError && "bg-destructive/10 hover:bg-destructive/20"
-                      )}
-                  >
-                      <div className="flex-1 mr-4 space-y-1">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <CardTitle className="text-lg">{trip.name}</CardTitle>
-                           {/* Status Badge */}
-                           <Badge variant={trip.status === 'Andamento' ? 'default' : 'secondary'} className={cn('h-5 px-2 text-xs whitespace-nowrap', trip.status === 'Andamento' ? 'bg-emerald-500 hover:bg-emerald-500/80 dark:bg-emerald-600 dark:hover:bg-emerald-600/80 text-white' : '')}>
-                            {trip.status === 'Andamento' ? <PlayCircle className="h-3 w-3 mr-1" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
-                            {trip.status}
-                           </Badge>
-                            {/* Sync Status Badge */}
-                           {isPending && <Badge variant="outline" className="h-5 px-2 text-xs whitespace-nowrap border-yellow-500 text-yellow-700 dark:text-yellow-400">Pendente</Badge>}
-                           {isError && <Badge variant="destructive" className="h-5 px-2 text-xs whitespace-nowrap">Erro Sinc</Badge>}
-                        </div>
-                        <CardDescription className="text-sm flex items-center gap-1">
-                          <Car className="h-4 w-4 text-muted-foreground" /> {getTripDescription(trip)}
-                        </CardDescription>
-                        <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                          <span className="inline-flex items-center gap-1">
-                            <MapPin className="h-3 w-3" /> {visitCount} {visitCount === 1 ? 'Visita' : 'Visitas'}
-                          </span>
-                          <span className="inline-flex items-center gap-1">
-                            <Wallet className="h-3 w-3" /> {expenseCount} {expenseCount === 1 ? 'Despesa' : 'Despesas'}
-                          </span>
-                          <span className="inline-flex items-center gap-1">
-                            <Fuel className="h-3 w-3" /> {fuelingCount} {fuelingCount === 1 ? 'Abastec.' : 'Abastec.'}
-                          </span>
-                         {trip.status === 'Finalizado' && trip.totalDistance !== undefined && (
-                            <span className="text-emerald-600 font-medium inline-flex items-center gap-1">
-                              <Milestone className="h-3 w-3" /> {formatKm(trip.totalDistance)} Percorridos
+                 {/* Wrap Trigger and Action buttons in AccordionHeader */}
+                 <AccordionHeader className={cn(
+                     "flex justify-between items-center p-4 hover:bg-accent/50 w-full data-[state=open]:border-b",
+                     isPending && "bg-yellow-50 hover:bg-yellow-100/80 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/30",
+                     isError && "bg-destructive/10 hover:bg-destructive/20"
+                  )}>
+                    {/* AccordionTrigger takes the main content */}
+                      <AccordionTrigger
+                         className="flex-1 mr-4 space-y-1 text-left p-0 hover:no-underline"
+                      >
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <CardTitle className="text-lg">{trip.name}</CardTitle>
+                             {/* Status Badge */}
+                             <Badge variant={trip.status === 'Andamento' ? 'default' : 'secondary'} className={cn('h-5 px-2 text-xs whitespace-nowrap', trip.status === 'Andamento' ? 'bg-emerald-500 hover:bg-emerald-500/80 dark:bg-emerald-600 dark:hover:bg-emerald-600/80 text-white' : '')}>
+                              {trip.status === 'Andamento' ? <PlayCircle className="h-3 w-3 mr-1" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
+                              {trip.status}
+                             </Badge>
+                              {/* Sync Status Badge */}
+                             {isPending && <Badge variant="outline" className="h-5 px-2 text-xs whitespace-nowrap border-yellow-500 text-yellow-700 dark:text-yellow-400">Pendente</Badge>}
+                             {isError && <Badge variant="destructive" className="h-5 px-2 text-xs whitespace-nowrap">Erro Sinc</Badge>}
+                          </div>
+                          <CardDescription className="text-sm flex items-center gap-1">
+                            <Car className="h-4 w-4 text-muted-foreground" /> {getTripDescription(trip)}
+                          </CardDescription>
+                          <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                            <span className="inline-flex items-center gap-1">
+                              <MapPin className="h-3 w-3" /> {visitCount} {visitCount === 1 ? 'Visita' : 'Visitas'}
                             </span>
-                         )}
-                        </div>
-                        <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                          <span>Início: {new Date(trip.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
-                          <span>Atualizado: {new Date(trip.updatedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
-                        </div>
-                      </div>
+                            <span className="inline-flex items-center gap-1">
+                              <Wallet className="h-3 w-3" /> {expenseCount} {expenseCount === 1 ? 'Despesa' : 'Despesas'}
+                            </span>
+                            <span className="inline-flex items-center gap-1">
+                              <Fuel className="h-3 w-3" /> {fuelingCount} {fuelingCount === 1 ? 'Abastec.' : 'Abastec.'}
+                            </span>
+                           {trip.status === 'Finalizado' && trip.totalDistance !== undefined && (
+                              <span className="text-emerald-600 font-medium inline-flex items-center gap-1">
+                                <Milestone className="h-3 w-3" /> {formatKm(trip.totalDistance)} Percorridos
+                              </span>
+                           )}
+                          </div>
+                          <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                            <span>Início: {new Date(trip.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                            <span>Atualizado: {new Date(trip.updatedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                          </div>
+                      </AccordionTrigger>
 
+                      {/* Action Buttons */}
                      <div className="flex items-center gap-1 flex-shrink-0 ml-2">
                         {trip.status === 'Andamento' && (isAdmin || trip.userId === user?.id) && (
                            <Button
@@ -701,8 +704,6 @@ export const Trips: React.FC = () => {
                               onClick={(e) => openFinishModal(trip, e)}
                               className="h-8 px-2 sm:px-3 text-emerald-600 border-emerald-600/50 hover:bg-emerald-50 hover:text-emerald-700"
                               disabled={isSaving || isDeleting}
-                              // Prevent accordion trigger when clicking this button
-                              data-no-accordion-trigger
                            >
                                {isSaving && tripToFinish?.localId === trip.localId ? <Loader2 className="h-4 w-4 animate-spin sm:mr-1" /> : <CheckCircle2 className="h-4 w-4 sm:mr-1" /> }
                               <span className="hidden sm:inline">{isSaving && tripToFinish?.localId === trip.localId ? 'Finalizando...': 'Finalizar'}</span>
@@ -712,8 +713,7 @@ export const Trips: React.FC = () => {
                            <>
                                 <Dialog open={isEditModalOpen && currentTrip?.localId === trip.localId} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); }}>
                                   <DialogTrigger asChild>
-                                     {/* Prevent accordion trigger when clicking this button */}
-                                     <Button variant="ghost" size="icon" onClick={(e) => openEditModal(trip, e)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" data-no-accordion-trigger disabled={isSaving || isDeleting}>
+                                     <Button variant="ghost" size="icon" onClick={(e) => openEditModal(trip, e)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving || isDeleting}>
                                        <Edit className="h-4 w-4" />
                                      </Button>
                                   </DialogTrigger>
@@ -775,8 +775,7 @@ export const Trips: React.FC = () => {
 
                                 <AlertDialog open={!!tripToDelete && tripToDelete.localId === trip.localId} onOpenChange={(isOpen) => !isOpen && closeDeleteConfirmation()}>
                                     <AlertDialogTrigger asChild>
-                                         {/* Prevent accordion trigger when clicking this button */}
-                                        <Button variant="ghost" size="icon" onClick={(e) => openDeleteConfirmation(trip, e)} className="text-muted-foreground hover:text-destructive h-8 w-8" data-no-accordion-trigger disabled={isSaving || isDeleting}>
+                                        <Button variant="ghost" size="icon" onClick={(e) => openDeleteConfirmation(trip, e)} className="text-muted-foreground hover:text-destructive h-8 w-8" disabled={isSaving || isDeleting}>
                                             <Trash2 className="h-4 w-4" />
                                         </Button>
                                     </AlertDialogTrigger>
@@ -805,10 +804,9 @@ export const Trips: React.FC = () => {
                                 </AlertDialog>
                             </>
                          )}
-                          {/* Chevron moved inside the trigger for proper alignment and click handling */}
-                          <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200 text-muted-foreground group-data-[state=open]/item:rotate-180" />
+                          {/* Chevron is now part of AccordionTrigger */}
                      </div>
-                 </AccordionTrigger>
+                 </AccordionHeader>
 
                 <AccordionContent className="p-4 pt-0 bg-secondary/30">
                   {/* Only render content if this accordion item is expanded */}
