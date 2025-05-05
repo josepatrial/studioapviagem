@@ -26,16 +26,18 @@ interface LocalRecord {
   deleted?: boolean; // Mark for deletion during sync
 }
 
-export type LocalVehicle = VehicleInfo & LocalRecord & { localId: string }; // Use localId as primary key locally
-export type LocalTrip = Omit<Trip, 'id'> & LocalRecord & { localId: string }; // Use localId as primary key locally
-export type LocalVisit = Omit<Visit, 'id'> & LocalRecord & { localId: string; tripLocalId: string }; // Link to tripLocalId
-export type LocalExpense = Omit<Expense, 'id'> & LocalRecord & { localId: string; tripLocalId: string }; // Link to tripLocalId
-export type LocalFueling = Omit<Fueling, 'id'> & LocalRecord & { localId: string; tripLocalId: string }; // Link to tripLocalId
+// Use Omit to exclude 'id' from base types if it exists, then define localId
+export type LocalVehicle = Omit<VehicleInfo, 'id'> & LocalRecord & { localId: string; id?: string }; // Use localId as primary key locally, keep original 'id' if needed
+export type LocalTrip = Omit<Trip, 'id'> & LocalRecord & { localId: string; id?: string }; // Use localId as primary key locally
+export type LocalVisit = Omit<Visit, 'id'> & LocalRecord & { localId: string; tripLocalId: string; id?: string }; // Link to tripLocalId
+export type LocalExpense = Omit<Expense, 'id'> & LocalRecord & { localId: string; tripLocalId: string; id?: string }; // Link to tripLocalId
+export type LocalFueling = Omit<Fueling, 'id'> & LocalRecord & { localId: string; tripLocalId: string; id?: string }; // Link to tripLocalId
+
 
 let db: IDBDatabase | null = null;
 
 // --- DB Initialization ---
-const openDB = (): Promise<IDBDatabase> => {
+export const openDB = (): Promise<IDBDatabase> => { // Export openDB
   return new Promise((resolve, reject) => {
     if (db) {
       resolve(db);
@@ -61,14 +63,14 @@ const openDB = (): Promise<IDBDatabase> => {
       if (!tempDb.objectStoreNames.contains(STORE_VEHICLES)) {
         // Use localId as key path, create index for firebaseId
         const vehicleStore = tempDb.createObjectStore(STORE_VEHICLES, { keyPath: 'localId' });
-        vehicleStore.createIndex('firebaseId', 'firebaseId', { unique: true });
+        vehicleStore.createIndex('firebaseId', 'firebaseId', { unique: false }); // Allow null/undefined firebaseId initially
         vehicleStore.createIndex('syncStatus', 'syncStatus', { unique: false });
         vehicleStore.createIndex('deleted', 'deleted', { unique: false });
       }
       if (!tempDb.objectStoreNames.contains(STORE_TRIPS)) {
          // Use localId as key path, create index for firebaseId and userId
         const tripStore = tempDb.createObjectStore(STORE_TRIPS, { keyPath: 'localId' });
-        tripStore.createIndex('firebaseId', 'firebaseId', { unique: true });
+        tripStore.createIndex('firebaseId', 'firebaseId', { unique: false });
         tripStore.createIndex('userId', 'userId', { unique: false });
         tripStore.createIndex('syncStatus', 'syncStatus', { unique: false });
         tripStore.createIndex('deleted', 'deleted', { unique: false }); // Index for deleted items
@@ -76,21 +78,21 @@ const openDB = (): Promise<IDBDatabase> => {
       if (!tempDb.objectStoreNames.contains(STORE_VISITS)) {
          const visitStore = tempDb.createObjectStore(STORE_VISITS, { keyPath: 'localId' });
          visitStore.createIndex('tripLocalId', 'tripLocalId', { unique: false }); // Index by local trip ID
-         visitStore.createIndex('firebaseId', 'firebaseId', { unique: true });
+         visitStore.createIndex('firebaseId', 'firebaseId', { unique: false });
          visitStore.createIndex('syncStatus', 'syncStatus', { unique: false });
          visitStore.createIndex('deleted', 'deleted', { unique: false });
       }
       if (!tempDb.objectStoreNames.contains(STORE_EXPENSES)) {
          const expenseStore = tempDb.createObjectStore(STORE_EXPENSES, { keyPath: 'localId' });
          expenseStore.createIndex('tripLocalId', 'tripLocalId', { unique: false });
-         expenseStore.createIndex('firebaseId', 'firebaseId', { unique: true });
+         expenseStore.createIndex('firebaseId', 'firebaseId', { unique: false });
          expenseStore.createIndex('syncStatus', 'syncStatus', { unique: false });
          expenseStore.createIndex('deleted', 'deleted', { unique: false });
       }
       if (!tempDb.objectStoreNames.contains(STORE_FUELINGS)) {
          const fuelingStore = tempDb.createObjectStore(STORE_FUELINGS, { keyPath: 'localId' });
          fuelingStore.createIndex('tripLocalId', 'tripLocalId', { unique: false });
-         fuelingStore.createIndex('firebaseId', 'firebaseId', { unique: true });
+         fuelingStore.createIndex('firebaseId', 'firebaseId', { unique: false });
          fuelingStore.createIndex('syncStatus', 'syncStatus', { unique: false });
          fuelingStore.createIndex('deleted', 'deleted', { unique: false });
       }
@@ -109,7 +111,7 @@ export const getStore = (storeName: string, mode: IDBTransactionMode): Promise<I
   });
 };
 
-export const addLocalRecord = <T extends LocalRecord & { localId: string }>(storeName: string, record: T): Promise<string> => {
+export const addLocalRecord = <T extends { localId: string }>(storeName: string, record: T): Promise<string> => {
   return getStore(storeName, 'readwrite').then(store => {
     return new Promise<string>((resolve, reject) => {
       const request = store.add(record);
@@ -248,11 +250,12 @@ const getLocalRecordsBySyncStatus = <T>(storeName: string, status: SyncStatus | 
 // --- Specific Operations ---
 
 // -- Vehicles --
-export const addLocalVehicle = (vehicle: Omit<LocalVehicle, 'localId' | 'syncStatus' | 'deleted'>): Promise<string> => {
+export const addLocalVehicle = (vehicle: Omit<LocalVehicle, 'localId' | 'syncStatus' | 'deleted' | 'firebaseId'>): Promise<string> => {
     const localId = `local_vehicle_${uuidv4()}`;
     const newLocalVehicle: LocalVehicle = {
-        ...(vehicle as VehicleInfo), // Cast to ensure base properties are there
+        ...(vehicle as Omit<VehicleInfo, 'id'>), // Cast to base type expected by LocalVehicle
         localId,
+        id: localId, // Set the main 'id' field for consistency if needed, though localId is key
         syncStatus: 'pending',
         deleted: false,
     };
@@ -442,13 +445,18 @@ export const getPendingRecords = async (): Promise<{
 };
 
 // Update local record status after successful sync
-export const updateSyncStatus = async (storeName: string, localId: string, firebaseId: string | undefined, status: SyncStatus): Promise<void> => {
+export const updateSyncStatus = async (storeName: string, localId: string, firebaseId: string | undefined, status: SyncStatus, additionalUpdates: Record<string, any> = {}): Promise<void> => {
   return getStore(storeName, 'readwrite').then(store => {
     return new Promise<void>((resolve, reject) => {
       const request = store.get(localId);
       request.onsuccess = () => {
         if (request.result) {
-          const recordToUpdate = { ...request.result, syncStatus: status, firebaseId: firebaseId };
+          const recordToUpdate = {
+              ...request.result,
+              syncStatus: status,
+              firebaseId: firebaseId,
+              ...additionalUpdates // Apply additional updates like receiptUrl, receiptPath
+          };
            // If status is 'synced' and firebaseId is missing, it indicates local deletion of non-synced item
            if (status === 'synced' && !firebaseId && !recordToUpdate.deleted) {
                console.warn(`Marking ${storeName} ${localId} as synced without firebaseId, likely deleted locally before sync.`);
@@ -472,7 +480,7 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
         try {
             const store = await getStore(storeName, 'readwrite');
             const index = store.index('deleted');
-            const request = index.openCursor(IDBKeyRange.only(1)); // Get cursor for deleted items
+            const request = index.openCursor(IDBKeyRange.only(true)); // Get cursor for deleted items (assuming deleted is boolean true)
 
             request.onsuccess = (event) => {
                 const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
@@ -497,3 +505,5 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
 
 // Initial call to open the DB when the service loads
 openDB().catch(error => console.error("Failed to initialize IndexedDB on load:", error));
+
+    
