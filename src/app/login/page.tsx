@@ -3,28 +3,29 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link'; // Import Link
+import Link from 'next/link';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { LogIn, UserPlus } from 'lucide-react'; // Added UserPlus icon
+import { LogIn, UserPlus } from 'lucide-react';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const { login } = useAuth();
+  const { login, loading: authLoading } = useAuth(); // Get login function and loading state
   const router = useRouter();
   const { toast } = useToast();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    // Call the login function from AuthContext
     const success = await login(email, password);
-    setIsLoading(false);
+    setIsLoading(false); // Set loading false after login attempt completes
 
     if (success) {
       toast({
@@ -33,16 +34,18 @@ export default function LoginPage() {
       });
       router.push('/'); // Redirect to dashboard on successful login
     }
-    // Removed the else block that showed the redundant toast.
-    // The login function in AuthContext already shows a toast on failure.
+    // Error toast is handled within the login function in AuthContext
   };
+
+   // Use authLoading from context to disable fields during initial auth checks
+   const isProcessing = isLoading || authLoading;
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-secondary p-4">
       <Card className="w-full max-w-md shadow-lg">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl font-bold text-primary">Grupo 2 Irmãos</CardTitle>
-          <CardDescription>Bem-vindo! Faça login ou cadastre-se para continuar.</CardDescription> {/* Updated description */}
+          <CardDescription>Bem-vindo! Faça login ou cadastre-se para continuar.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin} className="space-y-4">
@@ -55,7 +58,7 @@ export default function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 required
-                disabled={isLoading}
+                disabled={isProcessing} // Use combined loading state
               />
             </div>
             <div className="space-y-2">
@@ -67,24 +70,18 @@ export default function LoginPage() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 required
-                disabled={isLoading}
+                disabled={isProcessing} // Use combined loading state
               />
             </div>
-             <Button type="submit" className="w-full bg-primary hover:bg-primary/90" disabled={isLoading}>
-              {isLoading ? 'Entrando...' : <> <LogIn className="mr-2 h-4 w-4" /> Entrar </>}
+             <Button type="submit" className="w-full bg-primary hover:bg-primary/90" disabled={isProcessing}>
+              {isLoading ? 'Entrando...' : authLoading ? 'Verificando...' : <> <LogIn className="mr-2 h-4 w-4" /> Entrar </>}
             </Button>
-             {/* Optional: Add forgot password link */}
-             {/* <div className="text-center text-sm">
-               <Link href="/forgot-password" className="text-primary hover:underline">
-                 Esqueceu sua senha?
-               </Link>
-             </div> */}
           </form>
         </CardContent>
          <CardFooter className="flex flex-col items-center space-y-2 pt-4">
            <p className="text-sm text-muted-foreground">Não tem uma conta?</p>
-           <Link href="/signup" passHref> {/* Link to the signup page */}
-              <Button variant="outline" className="w-full">
+           <Link href="/signup" passHref>
+              <Button variant="outline" className="w-full" disabled={isProcessing}>
                  <UserPlus className="mr-2 h-4 w-4" /> Cadastrar
               </Button>
            </Link>

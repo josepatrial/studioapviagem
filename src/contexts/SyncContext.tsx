@@ -8,7 +8,7 @@ import {
     getPendingRecords,
     updateSyncStatus,
     cleanupDeletedRecords,
-    getStore as getLocalDbStore, // Rename imported function to avoid conflict
+    getLocalDbStore, // Correctly import the renamed function
     LocalTrip,
     LocalVisit,
     LocalExpense,
@@ -294,7 +294,7 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
                  if (trip.vehicleId) {
                      let parentVehicle: LocalVehicle | null = null;
                      try {
-                        const store = await getLocalDbStore(STORE_VEHICLES, 'readonly'); // Use renamed import
+                        const store = await getLocalDbStore(STORE_VEHICLES, 'readonly'); // Use correctly imported function
                         parentVehicle = await new Promise<LocalVehicle | null>((resolve, reject) => {
                              // Try fetching by firebaseId first (if trip.vehicleId is assumed to be firebaseId)
                              // This requires an index on firebaseId in the vehicles store
@@ -362,7 +362,7 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
              // Helper function to get parent trip Firebase ID
              const getParentTripFirebaseId = async (tripLocalId: string): Promise<string | null> => {
                  try {
-                      const store = await getLocalDbStore(STORE_TRIPS, 'readonly'); // Use renamed import
+                      const store = await getLocalDbStore(STORE_TRIPS, 'readonly'); // Use correctly imported function
                      const parentTrip = await new Promise<LocalTrip | null>((resolve, reject) => {
                          const request = store.get(tripLocalId);
                          request.onsuccess = () => resolve(request.result as LocalTrip | null);
@@ -559,5 +559,3 @@ export const useSync = (): SyncContextType => {
     }
     return context;
 };
-
-// Removed duplicate getStore and openDB functions, relying on imports from localDbService
