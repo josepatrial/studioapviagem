@@ -28,6 +28,7 @@ import {
 import type { DriverInfo, User as AppUser } from '@/contexts/AuthContext'; // Import types
 import { LoadingSpinner } from '../LoadingSpinner'; // Import LoadingSpinner
 import { v4 as uuidv4 } from 'uuid';
+import bcrypt from 'bcryptjs'; // Import bcrypt
 
 // Driver interface now uses DriverInfo which extends User
 type Driver = AppUser & { username?: string }; // Username optional
