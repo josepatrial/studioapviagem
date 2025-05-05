@@ -31,13 +31,14 @@ import {
     LocalFueling
 } from '@/services/localDbService'; // Import local DB functions
 import { uploadReceipt, deleteReceipt } from '@/services/storageService'; // Storage functions needed for sync
-import { cn } from '@/lib/utils';
+import { cn } from '@/lib/utils'; // Import cn function
 
 
 // UI Interface, maps from LocalFueling
 export interface Fueling extends Omit<LocalFueling, 'localId' | 'tripLocalId'> {
   id: string; // Represents localId or firebaseId
   tripId: string; // Represents tripLocalId or firebase tripId
+  syncStatus?: 'pending' | 'synced' | 'error'; // Add syncStatus for UI indication
 }
 
 interface FuelingsProps {
@@ -84,7 +85,8 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
             const uiFuelings = localFuelings.map(lf => ({
                 ...lf,
                 id: lf.firebaseId || lf.localId,
-                tripId: lf.tripLocalId
+                tripId: lf.tripLocalId,
+                syncStatus: lf.syncStatus // Include syncStatus
             }));
             setFuelings(uiFuelings);
 
@@ -294,7 +296,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
         vehicleId, // Update vehicle ID if it changed (though unlikely in this UI)
         // Update attachment info
         receiptUrl: typeof attachment === 'string' ? attachment : undefined,
-        receiptFilename: attachmentFilename,
+        receiptFilename: attachmentFilename || undefined, // Use || undefined to ensure clear
         // receiptPath updated during sync
         syncStatus: originalLocalFueling.syncStatus === 'synced' ? 'pending' : originalLocalFueling.syncStatus,
      };
@@ -308,6 +310,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
              ...updatedLocalFuelingData,
              id: updatedLocalFuelingData.firebaseId || updatedLocalFuelingData.localId,
              tripId: tripLocalId,
+             syncStatus: updatedLocalFuelingData.syncStatus // Update sync status in UI
         };
 
         setFuelings(prevFuelings => prevFuelings.map(f => f.id === currentFueling.id ? updatedUIFueling : f).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
@@ -733,5 +736,3 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
     </>
   );
 };
-
-    

@@ -58,7 +58,7 @@ import { useToast } from '@/hooks/use-toast';
 import { format } from 'date-fns';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { cn } from '@/lib/utils';
+import { cn } from '@/lib/utils'; // Import cn function
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import {
    addLocalExpense,
@@ -73,6 +73,7 @@ import { uploadReceipt, deleteReceipt } from '@/services/storageService'; // Sto
 export interface Expense extends Omit<LocalExpense, 'localId' | 'tripLocalId'> {
     id: string; // Represents localId or firebaseId
     tripId: string; // Represents tripLocalId or firebase tripId
+    syncStatus?: 'pending' | 'synced' | 'error'; // Add syncStatus for UI indication
     // Keep receiptUrl for displaying synced image
 }
 
@@ -118,7 +119,8 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
                 const uiExpenses = localExpenses.map(le => ({
                     ...le,
                     id: le.firebaseId || le.localId,
-                    tripId: le.tripLocalId
+                    tripId: le.tripLocalId,
+                    syncStatus: le.syncStatus // Include syncStatus
                 }));
                 setExpenses(uiExpenses);
             } catch (error) {
@@ -344,7 +346,7 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
             expenseType,
             // Update attachment info based on current 'attachment' state
             receiptUrl: typeof attachment === 'string' ? attachment : undefined, // Store dataURL or existing URL
-            receiptFilename: attachmentFilename,
+            receiptFilename: attachmentFilename || undefined, // Use || undefined to ensure it clears if null
             // receiptPath will be updated during sync if needed
             syncStatus: originalLocalExpense.syncStatus === 'synced' ? 'pending' : originalLocalExpense.syncStatus,
             // timestamp is usually not updated
@@ -359,6 +361,7 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
                 ...updatedLocalExpenseData,
                 id: updatedLocalExpenseData.firebaseId || updatedLocalExpenseData.localId,
                 tripId: tripLocalId,
+                syncStatus: updatedLocalExpenseData.syncStatus // Update sync status in UI
             };
 
             setExpenses(prevExpenses => prevExpenses.map(e => e.id === currentExpense.id ? updatedUIExpense : e).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
@@ -839,5 +842,3 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
         </>
     );
 };
-
-    

@@ -14,11 +14,13 @@ import { getCurrentLocation, Coordinate } from '@/services/geolocation';
 import { useToast } from "@/hooks/use-toast";
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { addLocalVisit, updateLocalVisit, deleteLocalVisit, getLocalVisits, LocalVisit } from '@/services/localDbService'; // Import local DB functions
+import { cn } from '@/lib/utils'; // Import cn function
 
 // Interface still used for UI and props, but data comes from LocalVisit
 export interface Visit extends Omit<LocalVisit, 'localId' | 'tripLocalId'> {
   id: string; // Represents localId or firebaseId
   tripId: string; // Represents tripLocalId or firebase tripId
+  syncStatus?: 'pending' | 'synced' | 'error'; // Add syncStatus for UI indication
 }
 
 interface VisitsProps {
@@ -59,7 +61,8 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
         const uiVisits = localVisits.map(lv => ({
             ...lv,
             id: lv.firebaseId || lv.localId, // Use firebaseId if available
-            tripId: lv.tripLocalId // Keep tripId pointing to the local trip relation
+            tripId: lv.tripLocalId, // Keep tripId pointing to the local trip relation
+            syncStatus: lv.syncStatus // Include syncStatus in UI object
         }));
         setVisits(uiVisits);
       } catch (error) {
@@ -219,6 +222,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
                 ...updatedLocalVisitData,
                 id: updatedLocalVisitData.firebaseId || updatedLocalVisitData.localId,
                 tripId: tripLocalId,
+                syncStatus: updatedLocalVisitData.syncStatus // Update sync status in UI
             };
 
           setVisits(prevVisits => prevVisits.map(v => v.id === currentVisit.id ? updatedUIVisit : v)
@@ -554,5 +558,3 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
     </div>
   );
 };
-
-    
