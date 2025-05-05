@@ -19,7 +19,7 @@ import { auth, db, persistenceEnabledPromise } from '@/lib/firebase';
 import { useToast } from '@/hooks/use-toast';
 import { getUserData as getFirestoreUserData, setUserData as setFirestoreUserData } from '@/services/firestoreService';
 import { doc, setDoc, getDoc, FirestoreError } from 'firebase/firestore';
-import { getLocalUser, saveLocalUser, deleteLocalUser, LocalUser as DbUser, openDB } from '@/services/localDbService'; // Import local DB functions
+import { getLocalUser, saveLocalUser, deleteLocalUser, LocalUser as DbUser, openDB, STORE_USERS } from '@/services/localDbService'; // Import local DB functions and STORE_USERS
 
 // Define user roles
 export type UserRole = 'driver' | 'admin';
