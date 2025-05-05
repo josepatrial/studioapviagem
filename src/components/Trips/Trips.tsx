@@ -53,13 +53,13 @@ import { v4 as uuidv4 } from 'uuid'; // Import uuid for local ID generation
 
 // Dynamically import child components for lazy loading
 const Visits = dynamic(() => import('./Visits').then(mod => mod.Visits), {
-  loading: () => <LoadingSpinner />, // Optional loading indicator
+  loading: () => <LoadingSpinner className="h-5 w-5" />, // Optional loading indicator
 });
 const Expenses = dynamic(() => import('./Expenses').then(mod => mod.Expenses), {
-    loading: () => <LoadingSpinner />,
+    loading: () => <LoadingSpinner className="h-5 w-5" />,
 });
 const Fuelings = dynamic(() => import('./Fuelings').then(mod => mod.Fuelings), {
-    loading: () => <LoadingSpinner />,
+    loading: () => <LoadingSpinner className="h-5 w-5" />,
 });
 
 
@@ -331,6 +331,7 @@ export const Trips: React.FC = () => {
        updatedAt: new Date().toISOString(),
        // Mark as pending if it was previously synced
        syncStatus: originalLocalTrip.syncStatus === 'synced' ? 'pending' : originalLocalTrip.syncStatus,
+       id: originalLocalTrip.id, // Keep original ID from local record
      };
 
 
@@ -388,6 +389,7 @@ export const Trips: React.FC = () => {
         totalDistance: totalDistance,
         updatedAt: new Date().toISOString(),
         syncStatus: tripToUpdate.syncStatus === 'synced' ? 'pending' : tripToUpdate.syncStatus,
+        id: tripToUpdate.id, // Keep original ID
       };
 
     try {
@@ -649,128 +651,130 @@ export const Trips: React.FC = () => {
 
             return (
               <AccordionItem key={trip.localId} value={trip.localId} className="border bg-card rounded-lg shadow-sm overflow-hidden group/item data-[state=open]:border-primary/50">
-                 {/* Wrap Trigger and Action buttons in AccordionHeader */}
+                 {/* AccordionHeader contains trigger and action buttons */}
                  <AccordionHeader className={cn(
                      "flex justify-between items-center p-4 hover:bg-accent/50 w-full data-[state=open]:border-b",
                      isPending && "bg-yellow-50 hover:bg-yellow-100/80 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/30",
                      isError && "bg-destructive/10 hover:bg-destructive/20"
                   )}>
-                    {/* AccordionTrigger takes the main content */}
-                      <AccordionTrigger
+                    {/* AccordionTrigger contains the main clickable area for expanding/collapsing */}
+                    <AccordionTrigger
                          className="flex-1 mr-4 space-y-1 text-left p-0 hover:no-underline"
-                      >
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <CardTitle className="text-lg">{trip.name}</CardTitle>
-                             {/* Status Badge */}
-                             <Badge variant={trip.status === 'Andamento' ? 'default' : 'secondary'} className={cn('h-5 px-2 text-xs whitespace-nowrap', trip.status === 'Andamento' ? 'bg-emerald-500 hover:bg-emerald-500/80 dark:bg-emerald-600 dark:hover:bg-emerald-600/80 text-white' : '')}>
-                              {trip.status === 'Andamento' ? <PlayCircle className="h-3 w-3 mr-1" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
-                              {trip.status}
-                             </Badge>
-                              {/* Sync Status Badge */}
-                             {isPending && <Badge variant="outline" className="h-5 px-2 text-xs whitespace-nowrap border-yellow-500 text-yellow-700 dark:text-yellow-400">Pendente</Badge>}
-                             {isError && <Badge variant="destructive" className="h-5 px-2 text-xs whitespace-nowrap">Erro Sinc</Badge>}
-                          </div>
-                          <CardDescription className="text-sm flex items-center gap-1">
-                            <Car className="h-4 w-4 text-muted-foreground" /> {getTripDescription(trip)}
-                          </CardDescription>
-                          <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                            <span className="inline-flex items-center gap-1">
-                              <MapPin className="h-3 w-3" /> {visitCount} {visitCount === 1 ? 'Visita' : 'Visitas'}
-                            </span>
-                            <span className="inline-flex items-center gap-1">
-                              <Wallet className="h-3 w-3" /> {expenseCount} {expenseCount === 1 ? 'Despesa' : 'Despesas'}
-                            </span>
-                            <span className="inline-flex items-center gap-1">
-                              <Fuel className="h-3 w-3" /> {fuelingCount} {fuelingCount === 1 ? 'Abastec.' : 'Abastec.'}
-                            </span>
-                           {trip.status === 'Finalizado' && trip.totalDistance !== undefined && (
-                              <span className="text-emerald-600 font-medium inline-flex items-center gap-1">
-                                <Milestone className="h-3 w-3" /> {formatKm(trip.totalDistance)} Percorridos
-                              </span>
-                           )}
-                          </div>
-                          <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                            <span>Início: {new Date(trip.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
-                            <span>Atualizado: {new Date(trip.updatedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
-                          </div>
-                      </AccordionTrigger>
+                         asChild={false} // Ensure Trigger renders its own button
+                    >
+                        {/* Content inside the Trigger */}
+                        <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <CardTitle className="text-lg">{trip.name}</CardTitle>
+                                <Badge variant={trip.status === 'Andamento' ? 'default' : 'secondary'} className={cn('h-5 px-2 text-xs whitespace-nowrap', trip.status === 'Andamento' ? 'bg-emerald-500 hover:bg-emerald-500/80 dark:bg-emerald-600 dark:hover:bg-emerald-600/80 text-white' : '')}>
+                                    {trip.status === 'Andamento' ? <PlayCircle className="h-3 w-3 mr-1" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
+                                    {trip.status}
+                                </Badge>
+                                {isPending && <Badge variant="outline" className="h-5 px-2 text-xs whitespace-nowrap border-yellow-500 text-yellow-700 dark:text-yellow-400">Pendente</Badge>}
+                                {isError && <Badge variant="destructive" className="h-5 px-2 text-xs whitespace-nowrap">Erro Sinc</Badge>}
+                            </div>
+                            <CardDescription className="text-sm flex items-center gap-1">
+                                <Car className="h-4 w-4 text-muted-foreground" /> {getTripDescription(trip)}
+                            </CardDescription>
+                            <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                                <span className="inline-flex items-center gap-1">
+                                    <MapPin className="h-3 w-3" /> {visitCount} {visitCount === 1 ? 'Visita' : 'Visitas'}
+                                </span>
+                                <span className="inline-flex items-center gap-1">
+                                    <Wallet className="h-3 w-3" /> {expenseCount} {expenseCount === 1 ? 'Despesa' : 'Despesas'}
+                                </span>
+                                <span className="inline-flex items-center gap-1">
+                                    <Fuel className="h-3 w-3" /> {fuelingCount} {fuelingCount === 1 ? 'Abastec.' : 'Abastec.'}
+                                </span>
+                                {trip.status === 'Finalizado' && trip.totalDistance !== undefined && (
+                                    <span className="text-emerald-600 font-medium inline-flex items-center gap-1">
+                                        <Milestone className="h-3 w-3" /> {formatKm(trip.totalDistance)} Percorridos
+                                    </span>
+                                )}
+                            </div>
+                            <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                                <span>Início: {new Date(trip.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                                <span>Atualizado: {new Date(trip.updatedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                            </div>
+                        </div>
+                    </AccordionTrigger>
 
-                      {/* Action Buttons */}
-                     <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+                    {/* Action Buttons - Moved outside the AccordionTrigger */}
+                    <div className="flex items-center gap-1 flex-shrink-0 ml-2">
                         {trip.status === 'Andamento' && (isAdmin || trip.userId === user?.id) && (
-                           <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={(e) => openFinishModal(trip, e)}
-                              className="h-8 px-2 sm:px-3 text-emerald-600 border-emerald-600/50 hover:bg-emerald-50 hover:text-emerald-700"
-                              disabled={isSaving || isDeleting}
-                           >
-                               {isSaving && tripToFinish?.localId === trip.localId ? <Loader2 className="h-4 w-4 animate-spin sm:mr-1" /> : <CheckCircle2 className="h-4 w-4 sm:mr-1" /> }
-                              <span className="hidden sm:inline">{isSaving && tripToFinish?.localId === trip.localId ? 'Finalizando...': 'Finalizar'}</span>
-                           </Button>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={(e) => openFinishModal(trip, e)}
+                                className="h-8 px-2 sm:px-3 text-emerald-600 border-emerald-600/50 hover:bg-emerald-50 hover:text-emerald-700"
+                                disabled={isSaving || isDeleting}
+                            >
+                                {isSaving && tripToFinish?.localId === trip.localId ? <Loader2 className="h-4 w-4 animate-spin sm:mr-1" /> : <CheckCircle2 className="h-4 w-4 sm:mr-1" /> }
+                                <span className="hidden sm:inline">{isSaving && tripToFinish?.localId === trip.localId ? 'Finalizando...': 'Finalizar'}</span>
+                            </Button>
                         )}
                         {(isAdmin || trip.userId === user?.id) && (
-                           <>
+                            <>
                                 <Dialog open={isEditModalOpen && currentTrip?.localId === trip.localId} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); }}>
-                                  <DialogTrigger asChild>
-                                     <Button variant="ghost" size="icon" onClick={(e) => openEditModal(trip, e)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving || isDeleting}>
-                                       <Edit className="h-4 w-4" />
-                                     </Button>
-                                  </DialogTrigger>
-                                  <DialogContent className="sm:max-w-[425px]">
-                                    <DialogHeader>
-                                      <DialogTitle>Editar Viagem</DialogTitle>
-                                    </DialogHeader>
-                                    <form onSubmit={handleEditTrip} className="grid gap-4 py-4">
-                                       <div className="space-y-2">
-                                         <Label>Nome da Viagem</Label>
-                                         <p className="text-sm text-muted-foreground">{currentTrip?.name}</p>
-                                       </div>
-                                      <div className="space-y-2">
-                                        <Label htmlFor="editVehicleId">Veículo*</Label>
-                                        <Select value={selectedVehicleId} onValueChange={setSelectedVehicleId} required disabled={isSaving || loading}>
-                                          <SelectTrigger id="editVehicleId">
-                                            <SelectValue placeholder={loading ? "Carregando..." : "Selecione"} />
-                                          </SelectTrigger>
-                                          <SelectContent>
-                                            {loading ? (
-                                                <SelectItem value="loading" disabled>
-                                                   <div className="flex items-center justify-center py-2">
-                                                       <LoadingSpinner className="h-4 w-4" />
-                                                   </div>
-                                                </SelectItem>
-                                            ) : vehicles.map((vehicle) => (
-                                                <SelectItem key={vehicle.id || vehicle.localId} value={vehicle.id || vehicle.localId}>
-                                                    {vehicle.model} ({vehicle.licensePlate})
-                                                </SelectItem>
-                                            ))}
-                                          </SelectContent>
-                                        </Select>
-                                      </div>
-                                      <div className="space-y-2">
-                                        <Label>Motorista</Label>
-                                        <p className="text-sm text-muted-foreground">{getDriverName(trip.userId)}</p>
-                                      </div>
-                                       {/* Base display */}
-                                       <div className="space-y-2">
-                                          <Label>Base</Label>
-                                          <p className="text-sm text-muted-foreground">{currentTrip?.base || 'N/A'}</p>
-                                       </div>
-                                      <div className="space-y-2">
-                                        <Label>Status</Label>
-                                        <p className="text-sm font-medium">{currentTrip?.status}</p>
-                                      </div>
-                                      <DialogFooter>
-                                        <DialogClose asChild>
-                                          <Button type="button" variant="outline" onClick={closeEditModal} disabled={isSaving}>Cancelar</Button>
-                                        </DialogClose>
-                                        <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isSaving}>
-                                           {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                           {isSaving ? 'Salvando...' : 'Salvar Alterações Locais'}
+                                    <DialogTrigger asChild>
+                                        <Button variant="ghost" size="icon" onClick={(e) => openEditModal(trip, e)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving || isDeleting}>
+                                            <Edit className="h-4 w-4" />
                                         </Button>
-                                      </DialogFooter>
-                                    </form>
-                                  </DialogContent>
+                                    </DialogTrigger>
+                                    <DialogContent className="sm:max-w-[425px]">
+                                        <DialogHeader>
+                                            <DialogTitle>Editar Viagem</DialogTitle>
+                                        </DialogHeader>
+                                        <form onSubmit={handleEditTrip} className="grid gap-4 py-4">
+                                            <div className="space-y-2">
+                                                <Label>Nome da Viagem</Label>
+                                                <p className="text-sm text-muted-foreground">{currentTrip?.name}</p>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label htmlFor="editVehicleId">Veículo*</Label>
+                                                <Select value={selectedVehicleId} onValueChange={setSelectedVehicleId} required disabled={isSaving || loading}>
+                                                    <SelectTrigger id="editVehicleId">
+                                                        <SelectValue placeholder={loading ? "Carregando..." : "Selecione"} />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        {loading ? (
+                                                            <SelectItem value="loading" disabled>
+                                                                <div className="flex items-center justify-center py-2">
+                                                                    <LoadingSpinner className="h-4 w-4" />
+                                                                </div>
+                                                            </SelectItem>
+                                                        ) : vehicles.map((vehicle) => (
+                                                            <SelectItem key={vehicle.id || vehicle.localId} value={vehicle.id || vehicle.localId}>
+                                                                {vehicle.model} ({vehicle.licensePlate})
+                                                            </SelectItem>
+                                                        ))}
+                                                    </SelectContent>
+                                                </Select>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>Motorista</Label>
+                                                <p className="text-sm text-muted-foreground">{getDriverName(trip.userId)}</p>
+                                            </div>
+                                            {/* Base display */}
+                                            <div className="space-y-2">
+                                                <Label>Base</Label>
+                                                <p className="text-sm text-muted-foreground">{currentTrip?.base || 'N/A'}</p>
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>Status</Label>
+                                                <p className="text-sm font-medium">{currentTrip?.status}</p>
+                                            </div>
+                                            <DialogFooter>
+                                                <DialogClose asChild>
+                                                    <Button type="button" variant="outline" onClick={closeEditModal} disabled={isSaving}>Cancelar</Button>
+                                                </DialogClose>
+                                                <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isSaving}>
+                                                    {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                                    {isSaving ? 'Salvando...' : 'Salvar Alterações Locais'}
+                                                </Button>
+                                            </DialogFooter>
+                                        </form>
+                                    </DialogContent>
                                 </Dialog>
 
                                 <AlertDialog open={!!tripToDelete && tripToDelete.localId === trip.localId} onOpenChange={(isOpen) => !isOpen && closeDeleteConfirmation()}>
@@ -783,7 +787,7 @@ export const Trips: React.FC = () => {
                                         <AlertDialogHeader>
                                             <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
                                             <AlertDialogDescription>
-                                                 Tem certeza que deseja marcar a viagem "{tripToDelete?.name}" para exclusão? Itens relacionados (visitas, despesas, abastecimentos) também serão marcados. A exclusão definitiva ocorrerá na próxima sincronização.
+                                                Tem certeza que deseja marcar a viagem "{tripToDelete?.name}" para exclusão? Itens relacionados (visitas, despesas, abastecimentos) também serão marcados. A exclusão definitiva ocorrerá na próxima sincronização.
                                                 {(visitCounts[tripToDelete?.localId ?? ''] ?? 0) > 0 || (expenseCounts[tripToDelete?.localId ?? ''] ?? 0) > 0 || (fuelingCounts[tripToDelete?.localId ?? ''] ?? 0) > 0 ?
                                                     <strong className="text-destructive block mt-2"> Atenção: Esta viagem possui itens relacionados localmente. Eles também serão marcados para exclusão.</strong>
                                                     : ''}
@@ -803,9 +807,8 @@ export const Trips: React.FC = () => {
                                     </AlertDialogContent>
                                 </AlertDialog>
                             </>
-                         )}
-                          {/* Chevron is now part of AccordionTrigger */}
-                     </div>
+                        )}
+                    </div>
                  </AccordionHeader>
 
                 <AccordionContent className="p-4 pt-0 bg-secondary/30">

@@ -3,6 +3,7 @@
 import * as React from "react"
 import * as AccordionPrimitive from "@radix-ui/react-accordion"
 import { ChevronDown } from "lucide-react"
+import { Slot } from "@radix-ui/react-slot" // Import Slot
 
 import { cn } from "@/lib/utils"
 
@@ -35,20 +36,25 @@ AccordionHeader.displayName = AccordionPrimitive.Header.displayName
 
 const AccordionTrigger = React.forwardRef<
   React.ElementRef<typeof AccordionPrimitive.Trigger>,
-  React.ComponentPropsWithoutRef<typeof AccordionPrimitive.Trigger>
->(({ className, children, ...props }, ref) => (
-  <AccordionPrimitive.Trigger
-    ref={ref}
-    className={cn(
-      "flex flex-1 items-center justify-between py-4 font-medium transition-all hover:underline [&[data-state=open]>svg]:rotate-180",
-      className
-    )}
-    {...props}
-  >
-    {children}
-    <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200" />
-  </AccordionPrimitive.Trigger>
-))
+  React.ComponentPropsWithoutRef<typeof AccordionPrimitive.Trigger> & { asChild?: boolean } // Add asChild prop
+>(({ className, children, asChild = false, ...props }, ref) => {
+  const Comp = asChild ? Slot : AccordionPrimitive.Trigger; // Use Slot if asChild is true
+  return (
+    <Comp
+      ref={ref}
+      className={cn(
+        "flex flex-1 items-center justify-between py-4 font-medium transition-all hover:underline [&[data-state=open]>svg]:rotate-180",
+        !asChild && 'p-0', // Remove padding if it's not rendering the button itself
+        className
+      )}
+      {...props}
+    >
+      {children}
+      {/* Only render the Chevron if not using asChild */}
+      {!asChild && <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200" />}
+    </Comp>
+  );
+})
 AccordionTrigger.displayName = AccordionPrimitive.Trigger.displayName
 
 const AccordionContent = React.forwardRef<
