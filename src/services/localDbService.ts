@@ -34,8 +34,8 @@ export type LocalTrip = Omit<Trip, 'id'> & LocalRecord & { localId: string; id?:
 export type LocalVisit = Omit<Visit, 'id'> & LocalRecord & { localId: string; tripLocalId: string; id?: string };
 export type LocalExpense = Omit<Expense, 'id'> & LocalRecord & { localId: string; tripLocalId: string; id?: string };
 export type LocalFueling = Omit<Fueling, 'id'> & LocalRecord & { localId: string; tripLocalId: string; id?: string };
-// Define LocalUser type - use Firebase ID as the primary key locally for simplicity in this case
-export type LocalUser = User & { lastLogin?: string }; // Keep 'id' as firebaseId, add lastLogin timestamp
+// Define LocalUser type - include password hash
+export type LocalUser = User & { lastLogin?: string; passwordHash?: string; }; // 'id' is firebaseId, add hash
 
 
 let db: IDBDatabase | null = null;
@@ -437,6 +437,33 @@ export const getLocalUser = (userId: string): Promise<LocalUser | null> => {
     });
 };
 
+// Get user by email using the 'email' index
+export const getLocalUserByEmail = (email: string): Promise<LocalUser | null> => {
+    const getByEmailStartTime = performance.now();
+    console.log(`[getLocalUserByEmail ${getByEmailStartTime}] Getting user with email: ${email}`);
+    return getLocalDbStore(STORE_USERS, 'readonly').then(store => {
+        return new Promise<LocalUser | null>((resolve, reject) => {
+            if (!store.indexNames.contains('email')) {
+                 console.error(`[getLocalUserByEmail ${getByEmailStartTime}] Index 'email' not found on ${STORE_USERS}. Cannot get user by email.`);
+                 reject(`Index 'email' not found on ${STORE_USERS}`);
+                 return;
+             }
+            const index = store.index('email');
+            const request = index.get(email);
+            request.onsuccess = () => {
+                const getByEmailEndTime = performance.now();
+                console.log(`[getLocalUserByEmail ${getByEmailStartTime}] User with email ${email} ${request.result ? 'found' : 'not found'}. Time: ${getByEmailEndTime - getByEmailStartTime} ms`);
+                resolve(request.result as LocalUser | null);
+            };
+            request.onerror = () => {
+                const getByEmailEndTime = performance.now();
+                console.error(`[getLocalUserByEmail ${getByEmailStartTime}] Error getting user by email ${email}. Time: ${getByEmailEndTime - getByEmailStartTime} ms`, request.error);
+                reject(`Error getting user by email ${email}: ${request.error?.message}`);
+            }
+        });
+    });
+};
+
 export const saveLocalUser = (user: LocalUser): Promise<void> => {
     const saveUserStartTime = performance.now();
     console.log(`[saveLocalUser ${saveUserStartTime}] Saving user with ID: ${user.id}`);
@@ -479,7 +506,9 @@ export const addLocalVehicle = (vehicle: Omit<LocalVehicle, 'localId' | 'syncSta
 
 export const updateLocalVehicle = (vehicle: LocalVehicle): Promise<void> => {
     console.log(`[updateLocalVehicle] Preparing to update vehicle with localId: ${vehicle.localId}`);
-    const updatedVehicle = { ...vehicle, syncStatus: vehicle.syncStatus === 'synced' ? 'pending' : vehicle.syncStatus };
+    // If the record was synced, mark it as pending, otherwise keep its status (e.g., 'pending', 'error')
+    const updatedSyncStatus = vehicle.syncStatus === 'synced' ? 'pending' : vehicle.syncStatus;
+    const updatedVehicle = { ...vehicle, syncStatus: updatedSyncStatus };
     return updateLocalRecord<LocalVehicle>(STORE_VEHICLES, updatedVehicle);
 };
 
@@ -510,14 +539,71 @@ export const addLocalTrip = (trip: Omit<LocalTrip, 'localId' | 'syncStatus'>): P
 
 export const updateLocalTrip = (trip: LocalTrip): Promise<void> => {
     console.log(`[updateLocalTrip] Preparing to update trip with localId: ${trip.localId}`);
-    const updatedTrip = { ...trip, syncStatus: trip.syncStatus === 'synced' ? 'pending' : trip.syncStatus };
+    const updatedSyncStatus = trip.syncStatus === 'synced' ? 'pending' : trip.syncStatus;
+    const updatedTrip = { ...trip, syncStatus: updatedSyncStatus };
     return updateLocalRecord<LocalTrip>(STORE_TRIPS, updatedTrip);
 };
 
 export const deleteLocalTrip = (localId: string): Promise<void> => {
     console.log(`[deleteLocalTrip] Preparing to mark trip for deletion with localId: ${localId}`);
-    return markRecordForDeletion(STORE_TRIPS, localId);
+    // Before marking the trip, mark all its children for deletion too
+    return Promise.all([
+        markRecordForDeletion(STORE_TRIPS, localId),
+        markChildrenForDeletion(STORE_VISITS, localId),
+        markChildrenForDeletion(STORE_EXPENSES, localId),
+        markChildrenForDeletion(STORE_FUELINGS, localId)
+    ]).then(() => {
+        console.log(`[deleteLocalTrip] Trip ${localId} and its children marked for deletion.`);
+    }).catch(err => {
+        console.error(`[deleteLocalTrip] Error marking trip ${localId} or its children for deletion:`, err);
+        throw err; // Re-throw the error
+    });
 };
+
+// Helper to mark child records for deletion
+const markChildrenForDeletion = async (storeName: string, tripLocalId: string): Promise<void> => {
+    console.log(`[markChildrenForDeletion] Marking children in ${storeName} for trip ${tripLocalId}`);
+    try {
+        const store = await getLocalDbStore(storeName, 'readwrite');
+        if (!store.indexNames.contains('tripLocalId')) {
+            console.warn(`[markChildren] Index 'tripLocalId' not found on ${storeName}. Cannot mark children.`);
+            return;
+        }
+        const index = store.index('tripLocalId');
+        let cursor = await new Promise<IDBCursorWithValue | null>((res, rej) => {
+            const req = index.openCursor(IDBKeyRange.only(tripLocalId));
+            req.onsuccess = () => res(req.result);
+            req.onerror = () => rej(req.error);
+        });
+
+        while (cursor) {
+            const recordToUpdate = { ...cursor.value, deleted: true, syncStatus: 'pending' as SyncStatus };
+            cursor.update(recordToUpdate); // Update through the cursor
+            console.log(`[markChildren] Marked child ${cursor.primaryKey} in ${storeName} for deletion.`);
+            cursor = await new Promise<IDBCursorWithValue | null>((res, rej) => {
+                try {
+                    cursor!.continue();
+                    // Await the request associated with the continue() call if necessary,
+                    // or structure to get the result correctly. This part can be tricky.
+                    // Let's re-querying after update for simplicity, though less efficient.
+                    res(null); // Exit loop, re-querying might be safer
+                } catch (e) { rej(e); }
+            }).catch(() => null); // Need robust cursor handling
+
+             // Safer: Re-open cursor after update/delete if continue() is complex
+             cursor = await new Promise<IDBCursorWithValue | null>((res, rej) => {
+                const req = index.openCursor(IDBKeyRange.only(tripLocalId)); // Re-open cursor
+                req.onsuccess = () => res(req.result);
+                req.onerror = () => rej(req.error);
+            }).catch(() => null);
+             // Need logic to skip already processed items if re-opening cursor
+        }
+    } catch (error) {
+        console.error(`[markChildren] Error marking children in ${storeName} for trip ${tripLocalId}:`, error);
+        throw error; // Re-throw
+    }
+};
+
 
 export const getLocalTrips = (userId?: string): Promise<LocalTrip[]> => {
     const getTripsStartTime = performance.now();
@@ -584,7 +670,8 @@ export const addLocalVisit = (visit: Omit<LocalVisit, 'localId' | 'syncStatus'>)
 
 export const updateLocalVisit = (visit: LocalVisit): Promise<void> => {
      console.log(`[updateLocalVisit] Preparing to update visit with localId: ${visit.localId}`);
-    const updatedVisit = { ...visit, syncStatus: visit.syncStatus === 'synced' ? 'pending' : visit.syncStatus };
+    const updatedSyncStatus = visit.syncStatus === 'synced' ? 'pending' : visit.syncStatus;
+    const updatedVisit = { ...visit, syncStatus: updatedSyncStatus };
     return updateLocalRecord<LocalVisit>(STORE_VISITS, updatedVisit);
 };
 
@@ -629,7 +716,7 @@ export const getLocalVisits = (tripLocalId: string): Promise<LocalVisit[]> => {
                  };
                  getAllRequest.onerror = () => {
                       const getVisitsEndTime = performance.now();
-                      console.error(`[getLocalVisits ${getVisitsStartTime}] Fallback getAll failed for ${STORE_VISITS}. Time: ${getVisitsEndTime - getVisitsStartTime} ms`, request.error);
+                      console.error(`[getLocalVisits ${getVisitsStartTime}] Fallback getAll failed for ${STORE_VISITS}. Time: ${getVisitsEndTime - getVisitsStartTime} ms`, getAllRequest.error);
                       reject(`Fallback getAll failed for ${STORE_VISITS}: ${getAllRequest.error?.message}`);
                  }
              }
@@ -653,7 +740,8 @@ export const addLocalExpense = (expense: Omit<LocalExpense, 'localId' | 'syncSta
 
 export const updateLocalExpense = (expense: LocalExpense): Promise<void> => {
       console.log(`[updateLocalExpense] Preparing to update expense with localId: ${expense.localId}`);
-     const updatedExpense = { ...expense, syncStatus: expense.syncStatus === 'synced' ? 'pending' : expense.syncStatus };
+     const updatedSyncStatus = expense.syncStatus === 'synced' ? 'pending' : expense.syncStatus;
+     const updatedExpense = { ...expense, syncStatus: updatedSyncStatus };
      return updateLocalRecord<LocalExpense>(STORE_EXPENSES, updatedExpense);
 };
 
@@ -697,7 +785,7 @@ export const getLocalExpenses = (tripLocalId: string): Promise<LocalExpense[]> =
                   };
                   getAllRequest.onerror = () => {
                        const getExpensesEndTime = performance.now();
-                       console.error(`[getLocalExpenses ${getExpensesStartTime}] Fallback getAll failed for ${STORE_EXPENSES}. Time: ${getExpensesEndTime - getExpensesStartTime} ms`, request.error);
+                       console.error(`[getLocalExpenses ${getExpensesStartTime}] Fallback getAll failed for ${STORE_EXPENSES}. Time: ${getExpensesEndTime - getExpensesStartTime} ms`, getAllRequest.error);
                        reject(`Fallback getAll failed for ${STORE_EXPENSES}: ${getAllRequest.error?.message}`);
                   }
               }
@@ -721,7 +809,8 @@ export const addLocalFueling = (fueling: Omit<LocalFueling, 'localId' | 'syncSta
 
 export const updateLocalFueling = (fueling: LocalFueling): Promise<void> => {
        console.log(`[updateLocalFueling] Preparing to update fueling with localId: ${fueling.localId}`);
-      const updatedFueling = { ...fueling, syncStatus: fueling.syncStatus === 'synced' ? 'pending' : fueling.syncStatus };
+      const updatedSyncStatus = fueling.syncStatus === 'synced' ? 'pending' : fueling.syncStatus;
+      const updatedFueling = { ...fueling, syncStatus: updatedSyncStatus };
       return updateLocalRecord<LocalFueling>(STORE_FUELINGS, updatedFueling);
 };
 
@@ -765,7 +854,7 @@ export const getLocalFuelings = (tripLocalId: string): Promise<LocalFueling[]> =
                   };
                   getAllRequest.onerror = () => {
                        const getFuelingsEndTime = performance.now();
-                       console.error(`[getLocalFuelings ${getFuelingsStartTime}] Fallback getAll failed for ${STORE_FUELINGS}. Time: ${getFuelingsEndTime - getFuelingsStartTime} ms`, request.error);
+                       console.error(`[getLocalFuelings ${getFuelingsStartTime}] Fallback getAll failed for ${STORE_FUELINGS}. Time: ${getFuelingsEndTime - getFuelingsStartTime} ms`, getAllRequest.error);
                        reject(`Fallback getAll failed for ${STORE_FUELINGS}: ${getAllRequest.error?.message}`);
                   }
               }
@@ -814,15 +903,15 @@ export const updateSyncStatus = async (storeName: string, localId: string, fireb
                     const recordToUpdate = {
                         ...request.result,
                         syncStatus: status,
-                        firebaseId: firebaseId || request.result.firebaseId,
+                        firebaseId: firebaseId || request.result.firebaseId, // Keep existing firebaseId if provided one is undefined
                         ...additionalUpdates
                     };
                     // If marking as synced, ensure firebaseId is present unless it's a deleted record
                     if (status === 'synced' && !recordToUpdate.firebaseId && !recordToUpdate.deleted) {
                         console.error(`[updateSyncStatus ${updateStatusStartTime}] CRITICAL: Attempting to mark ${storeName} ${localId} as synced WITHOUT a firebaseId.`);
                         // Optionally reject or handle this case more explicitly
-                        // reject(`Cannot mark ${localId} as synced without firebaseId.`);
-                        // return;
+                         reject(`Cannot mark ${localId} as synced without firebaseId.`);
+                         return;
                     }
                     const updateRequest = store.put(recordToUpdate);
                     updateRequest.onsuccess = () => {
@@ -869,36 +958,35 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
                      return;
                  }
                 const index = store.index('deleted');
-                let cursor = await new Promise<IDBCursorWithValue | null>((res, rej) => {
-                    const req = index.openCursor(IDBKeyRange.only(true));
-                    req.onsuccess = () => res(req.result);
-                    req.onerror = () => rej(req.error);
-                });
+                let cursorReq = index.openCursor(IDBKeyRange.only(true));
 
-                while (cursor) {
-                    if (cursor.value.syncStatus === 'synced' && cursor.value.deleted === true) {
-                         console.log(`[Cleanup] Deleting record ${cursor.primaryKey} from ${storeName}`);
-                         cursor.delete(); // Delete the record via the cursor
-                         deletedCount++;
-                         storeDeletedCount++;
+                const processCursor = async () => {
+                    const cursor: IDBCursorWithValue | null = await new Promise((res, rej) => {
+                        cursorReq.onsuccess = () => res(cursorReq.result);
+                        cursorReq.onerror = () => rej(cursorReq.error);
+                    });
+
+                    if (cursor) {
+                        if (cursor.value.syncStatus === 'synced' && cursor.value.deleted === true) {
+                            console.log(`[Cleanup] Deleting record ${cursor.primaryKey} from ${storeName}`);
+                            const deleteReq = cursor.delete();
+                            await new Promise<void>((resDel, rejDel) => {
+                                deleteReq.onsuccess = () => {
+                                     deletedCount++;
+                                     storeDeletedCount++;
+                                     resDel();
+                                };
+                                deleteReq.onerror = () => rejDel(deleteReq.error);
+                            });
+                        }
+                        // Continue must happen *after* potential async operations inside the loop
+                        cursor.continue();
+                        await processCursor(); // Recurse for the next item
                     }
-                    // Continue to the next item regardless of deletion
-                     cursor = await new Promise<IDBCursorWithValue | null>((res, rej) => {
-                         try {
-                             cursor!.continue(); // Use non-null assertion here
-                             res(cursor!.result); // Result is available after continue? Check spec. Might need req approach.
-                         } catch(e) {
-                             rej(e); // Catch potential errors if cursor is invalid
-                         }
-                     }).catch(() => null); // Handle potential errors during continue/result access
+                };
 
-                     // Safer alternative: Re-fetch cursor after delete
-                     // cursor = await new Promise<IDBCursorWithValue | null>((res, rej) => {
-                     //     const req = index.openCursor(IDBKeyRange.only(true), 'next'); // Or use continue() and manage position
-                     //     req.onsuccess = () => res(req.result);
-                     //     req.onerror = () => rej(req.error);
-                     // });
-                 }
+                await processCursor(); // Start processing the cursor
+
                 console.log(`[Cleanup] Finished store ${storeName}. Deleted ${storeDeletedCount} records.`);
                 resolveStore();
             } catch (error) {
@@ -918,3 +1006,4 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
 
 // Initial call to open the DB when the service loads
 openDB().catch(error => console.error("Failed to initialize IndexedDB on load:", error));
+    

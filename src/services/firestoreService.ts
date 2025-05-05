@@ -18,7 +18,7 @@ import {
   QueryFilterConstraint
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import type { User, DriverInfo } from '@/contexts/AuthContext';
+import type { User, DriverInfo, UserRole } from '@/contexts/AuthContext'; // Import UserRole
 import type { VehicleInfo } from '@/components/Vehicle';
 import type { Trip } from '@/components/Trips/Trips';
 import type { Visit } from '@/components/Trips/Visits';
@@ -67,11 +67,21 @@ export const getUserData = async (userId: string): Promise<User | null> => {
   const getUserStartTime = performance.now();
   console.log(`[firestoreService getUserData ${getUserStartTime}] Getting user data for ID: ${userId}`);
   try {
+    // Ensure DB is initialized
+    if (!db) {
+        console.error(`[firestoreService getUserData ${getUserStartTime}] Firestore DB not initialized.`);
+        return null;
+    }
     const userDocRef = doc(db, 'users', userId);
     const userDocSnap = await getDoc(userDocRef);
     const getUserEndTime = performance.now();
     if (userDocSnap.exists()) {
       const userData = convertTimestampsToISO({ id: userDocSnap.id, ...userDocSnap.data() }) as User;
+       // Ensure role is present, default to 'driver' if missing
+      if (!userData.role) {
+           console.warn(`[firestoreService getUserData ${getUserStartTime}] User ${userId} missing role, defaulting to 'driver'.`);
+           userData.role = 'driver';
+      }
       console.log(`[firestoreService getUserData ${getUserStartTime}] User data found. Time: ${getUserEndTime - getUserStartTime} ms`);
       return userData;
     } else {
@@ -81,12 +91,10 @@ export const getUserData = async (userId: string): Promise<User | null> => {
   } catch (error) {
     const getUserEndTime = performance.now();
     console.error(`[firestoreService getUserData ${getUserStartTime}] Error getting user document. Time: ${getUserEndTime - getUserStartTime} ms`, error);
-    // Check if offline error
     if ((error as any).code === 'unavailable') {
         console.warn('Firestore is offline. Cannot fetch user data.');
-        // Return null or potentially try to get from local cache if implemented
     }
-    return null; // Return null on error
+    return null;
   }
 };
 
@@ -94,9 +102,14 @@ export const setUserData = async (userId: string, data: Partial<Omit<User, 'id'>
     const setUserStartTime = performance.now();
     console.log(`[firestoreService setUserData ${setUserStartTime}] Setting/merging user data for ID: ${userId}`, data);
     try {
+       if (!db) throw new Error("Firestore DB not initialized.");
       const userDocRef = doc(db, 'users', userId);
-      // No timestamp conversion needed for user data currently
-      await setDoc(userDocRef, data, { merge: true }); // Use setDoc with merge: true
+      // Ensure base is 'ALL' if role is admin
+      const dataToSet = { ...data };
+      if (dataToSet.role === 'admin') {
+        dataToSet.base = 'ALL';
+      }
+      await setDoc(userDocRef, dataToSet, { merge: true });
       const setUserEndTime = performance.now();
       console.log(`[firestoreService setUserData ${setUserStartTime}] User data set/merged successfully. Time: ${setUserEndTime - setUserStartTime} ms`);
     } catch (error) {
@@ -107,15 +120,21 @@ export const setUserData = async (userId: string, data: Partial<Omit<User, 'id'>
 };
 
 // Use setDoc to ensure the document ID matches the Auth UID
-export const addUser = async (userId: string, userData: Omit<DriverInfo, 'id' | 'password'>): Promise<void> => {
+export const addUser = async (userId: string, userData: Omit<User, 'id'>): Promise<void> => {
     const addUserStartTime = performance.now();
-    console.log(`[firestoreService addUser ${addUserStartTime}] Adding user document for ID: ${userId}`);
+    console.log(`[firestoreService addUser ${addUserStartTime}] Adding user document for ID: ${userId}`, userData);
     try {
-      const userDocRef = doc(db, 'users', userId);
-      const finalUserData = { ...userData, role: 'driver' }; // Ensure role is set
-      await setDoc(userDocRef, finalUserData);
-      const addUserEndTime = performance.now();
-      console.log(`[firestoreService addUser ${addUserStartTime}] User document created successfully. Time: ${addUserEndTime - addUserStartTime} ms`);
+        if (!db) throw new Error("Firestore DB not initialized.");
+        const userDocRef = doc(db, 'users', userId);
+        // Ensure role is present and base matches role
+        const finalUserData = {
+             ...userData,
+             role: userData.role || 'driver',
+             base: userData.role === 'admin' ? 'ALL' : (userData.base || '')
+         };
+        await setDoc(userDocRef, finalUserData);
+        const addUserEndTime = performance.now();
+        console.log(`[firestoreService addUser ${addUserStartTime}] User document created successfully. Time: ${addUserEndTime - addUserStartTime} ms`);
     } catch (error) {
         const addUserEndTime = performance.now();
         console.error(`[firestoreService addUser ${addUserStartTime}] Error adding user document. Time: ${addUserEndTime - addUserStartTime} ms`, error);
@@ -123,12 +142,31 @@ export const addUser = async (userId: string, userData: Omit<DriverInfo, 'id' | 
     }
 };
 
+
 export const updateUser = async (userId: string, data: Partial<DriverInfo>) => {
     const updateUserStartTime = performance.now();
     console.log(`[firestoreService updateUser ${updateUserStartTime}] Updating user document for ID: ${userId}`, data);
+    if (!db) throw new Error("Firestore DB not initialized.");
     const userDocRef = doc(db, 'users', userId);
-    // Remove password if accidentally included
-    const { password, ...dataToUpdate } = data;
+    // Remove password if accidentally included, ensure base matches role
+    const { password, role, base, ...restData } = data;
+    const dataToUpdate: Partial<User> = { ...restData };
+
+    if (role) {
+       dataToUpdate.role = role;
+       dataToUpdate.base = role === 'admin' ? 'ALL' : (base || '');
+    } else if (base !== undefined) {
+       // Fetch current role to ensure base is consistent if role isn't changing
+       const currentUserData = await getUserData(userId);
+       if (currentUserData?.role !== 'admin') {
+           dataToUpdate.base = base;
+       } else {
+            console.warn(`[firestoreService updateUser] Attempted to change base for admin user ${userId}. Base remains 'ALL'.`);
+            dataToUpdate.base = 'ALL'; // Ensure admin base stays 'ALL'
+       }
+    }
+
+
     try {
         await updateDoc(userDocRef, dataToUpdate);
         const updateUserEndTime = performance.now();
@@ -143,6 +181,7 @@ export const updateUser = async (userId: string, data: Partial<DriverInfo>) => {
 export const deleteUser = async (userId: string) => {
     const deleteUserStartTime = performance.now();
     console.log(`[firestoreService deleteUser ${deleteUserStartTime}] Deleting user document for ID: ${userId}`);
+    if (!db) throw new Error("Firestore DB not initialized.");
     const userDocRef = doc(db, 'users', userId);
     try {
         await deleteDoc(userDocRef);
@@ -159,7 +198,7 @@ export const getDrivers = async (): Promise<DriverInfo[]> => {
     const getDriversStartTime = performance.now();
     console.log(`[firestoreService getDrivers ${getDriversStartTime}] Fetching drivers...`);
     try {
-         // Potential Index: users collection - index on 'role'
+         if (!db) throw new Error("Firestore DB not initialized.");
         const q = query(usersCollectionRef, where('role', '==', 'driver'));
         const querySnapshot = await getDocs(q);
         const drivers = querySnapshot.docs.map(doc => convertTimestampsToISO({ id: doc.id, ...doc.data() }) as DriverInfo);
@@ -177,12 +216,15 @@ export const getDrivers = async (): Promise<DriverInfo[]> => {
 };
 
 // --- Vehicle Service ---
-const vehiclesCollectionRef = collection(db, 'vehicles');
+const vehiclesCollectionRef = db ? collection(db, 'vehicles') : null; // Handle potential null db
 
-// No specific index needed for just fetching all vehicles, but could index fields used for filtering later.
 export const getVehicles = async (): Promise<VehicleInfo[]> => {
     const getVehiclesStartTime = performance.now();
     console.log(`[firestoreService getVehicles ${getVehiclesStartTime}] Fetching vehicles...`);
+    if (!vehiclesCollectionRef) {
+         console.error(`[firestoreService getVehicles ${getVehiclesStartTime}] Vehicles collection ref not initialized.`);
+         return [];
+    }
     try {
         const querySnapshot = await getDocs(vehiclesCollectionRef);
         const vehicles = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as VehicleInfo);
@@ -202,6 +244,7 @@ export const getVehicles = async (): Promise<VehicleInfo[]> => {
 export const addVehicle = async (vehicleData: Omit<VehicleInfo, 'id'>): Promise<string> => {
     const addVehicleStartTime = performance.now();
     console.log(`[firestoreService addVehicle ${addVehicleStartTime}] Adding new vehicle`, vehicleData);
+    if (!vehiclesCollectionRef) throw new Error("Vehicles collection ref not initialized.");
     try {
         const docRef = await addDoc(vehiclesCollectionRef, vehicleData);
         const addVehicleEndTime = performance.now();
@@ -217,6 +260,7 @@ export const addVehicle = async (vehicleData: Omit<VehicleInfo, 'id'>): Promise<
 export const updateVehicle = async (vehicleId: string, data: Partial<VehicleInfo>) => {
     const updateVehicleStartTime = performance.now();
     console.log(`[firestoreService updateVehicle ${updateVehicleStartTime}] Updating vehicle ID: ${vehicleId}`, data);
+    if (!db) throw new Error("Firestore DB not initialized.");
     try {
         const vehicleDocRef = doc(db, 'vehicles', vehicleId);
         await updateDoc(vehicleDocRef, data);
@@ -232,6 +276,7 @@ export const updateVehicle = async (vehicleId: string, data: Partial<VehicleInfo
 export const deleteVehicle = async (vehicleId: string) => {
     const deleteVehicleStartTime = performance.now();
     console.log(`[firestoreService deleteVehicle ${deleteVehicleStartTime}] Deleting vehicle ID: ${vehicleId}`);
+     if (!db) throw new Error("Firestore DB not initialized.");
     try {
         const vehicleDocRef = doc(db, 'vehicles', vehicleId);
         await deleteDoc(vehicleDocRef);
@@ -245,70 +290,48 @@ export const deleteVehicle = async (vehicleId: string) => {
 };
 
 // --- Trip Service ---
-const tripsCollectionRef = collection(db, 'trips');
+const tripsCollectionRef = db ? collection(db, 'trips') : null; // Handle potential null db
 
-// Define a filter type for trips
 export interface TripFilter {
     userId?: string;
     startDate?: string; // ISO String
     endDate?: string; // ISO String
-    // Add other potential filters like status, vehicleId etc.
 }
 
-// Potential Composite Indexes for trips collection (Create these in Firebase Console):
-// 1. (userId ==, status ASC, createdAt DESC) - For filtering by user and sorting
-// 2. (status ASC, createdAt DESC) - For sorting all trips
-// 3. (userId ==, createdAt >=, status ASC, createdAt DESC) - For filtering by user + date range
-// 4. (createdAt >=, status ASC, createdAt DESC) - For filtering by date range
 export const getTrips = async (filters: TripFilter = {}): Promise<Trip[]> => {
     const getTripsStartTime = performance.now();
     console.log(`[firestoreService getTrips ${getTripsStartTime}] Fetching trips with filters:`, filters);
+     if (!tripsCollectionRef) {
+        console.error(`[firestoreService getTrips ${getTripsStartTime}] Trips collection ref not initialized.`);
+        return [];
+     }
     try {
         const constraints: QueryConstraint[] = [];
-
-        // Apply filters
-        if (filters.userId) {
-            constraints.push(where('userId', '==', filters.userId));
-        }
-        if (filters.startDate) {
-            constraints.push(where('createdAt', '>=', Timestamp.fromDate(new Date(filters.startDate))));
-        }
+        if (filters.userId) constraints.push(where('userId', '==', filters.userId));
+        if (filters.startDate) constraints.push(where('createdAt', '>=', Timestamp.fromDate(new Date(filters.startDate))));
         if (filters.endDate) {
-             // Add 1 day to endDate to make it inclusive of the end date
              const endDatePlusOne = new Date(filters.endDate);
              endDatePlusOne.setDate(endDatePlusOne.getDate() + 1);
              constraints.push(where('createdAt', '<', Timestamp.fromDate(endDatePlusOne)));
         }
-        // Add other filters based on `filters` object
-
-        // Default ordering (applied after filters)
-        constraints.push(orderBy('status', 'asc')); // 'Andamento' first
-        // Firestore requires the first orderBy field to match the inequality field if present
+        constraints.push(orderBy('status', 'asc'));
         if (filters.startDate || filters.endDate) {
-             // If filtering by date, createdAt order must match inequality direction or be the inequality field
-             // constraints.push(orderBy('createdAt', 'desc')); // Requires index like (userId ==, createdAt DESC, status ASC) - might conflict
-             // So, we rely on sorting after fetching if combining date filters and status sort
+             // Cannot reliably sort by status AND createdAt when using date range inequality
         } else {
-             // If no date filter, we can order by createdAt after status
-             constraints.push(orderBy('createdAt', 'desc')); // Requires index like (userId ==, status ASC, createdAt DESC) or (status ASC, createdAt DESC)
+             constraints.push(orderBy('createdAt', 'desc'));
         }
-
 
         const q = query(tripsCollectionRef, ...constraints);
         const querySnapshot = await getDocs(q);
         let trips = querySnapshot.docs.map(doc => convertTimestampsToISO({ id: doc.id, ...doc.data() }) as Trip);
 
-        // Manual sort if date range filter was applied with status sort
-         if (filters.startDate || filters.endDate) {
+        if (filters.startDate || filters.endDate) {
             trips.sort((a, b) => {
-                // Sort by status first ('Andamento' comes first)
                 if (a.status === 'Andamento' && b.status !== 'Andamento') return -1;
                 if (a.status !== 'Andamento' && b.status === 'Andamento') return 1;
-                // Then sort by creation date descending
                 return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
             });
          }
-
 
         const getTripsEndTime = performance.now();
         console.log(`[firestoreService getTrips ${getTripsStartTime}] Found ${trips.length} trips. Time: ${getTripsEndTime - getTripsStartTime} ms`);
@@ -319,7 +342,6 @@ export const getTrips = async (filters: TripFilter = {}): Promise<Trip[]> => {
         console.error(`[firestoreService getTrips ${getTripsStartTime}] Error fetching trips. Time: ${getTripsEndTime - getTripsStartTime} ms`, error);
         if ((error as any).code === 'failed-precondition' && error instanceof Error && error.message.includes('index')) {
              console.error("Firestore index missing. Please check the recommended indexes in the getTrips function comments and create them in your Firebase console.");
-             // Consider providing a more user-friendly error or fallback behavior
         } else if ((error as any).code === 'unavailable') {
             console.warn('Firestore is offline. Cannot fetch trips.');
         }
@@ -328,17 +350,15 @@ export const getTrips = async (filters: TripFilter = {}): Promise<Trip[]> => {
 };
 
 
-// Data should not contain id or updatedAt
-export const addTrip = async (tripData: Omit<Trip, 'id' | 'updatedAt' | 'createdAt'>): Promise<string> => {
+export const addTrip = async (tripData: Omit<Trip, 'id' | 'updatedAt' | 'createdAt' | 'firebaseId' | 'localId' | 'syncStatus'>): Promise<string> => {
     const addTripStartTime = performance.now();
     console.log(`[firestoreService addTrip ${addTripStartTime}] Adding new trip`, tripData);
+    if (!tripsCollectionRef) throw new Error("Trips collection ref not initialized.");
     try {
-        // Ensure createdAt and updatedAt are Timestamps
-        const dataWithTimestamps = convertISOToTimestamps(tripData, ['createdAt']); // Convert only if needed
-         const finalData = {
-            ...dataWithTimestamps,
-             createdAt: Timestamp.now(), // Always set server-side timestamp on creation
-             updatedAt: Timestamp.now(), // Always set server-side timestamp on creation
+        const finalData = {
+            ...tripData, // Spread the provided data
+             createdAt: Timestamp.now(),
+             updatedAt: Timestamp.now(),
          };
 
         const docRef = await addDoc(tripsCollectionRef, finalData);
@@ -352,17 +372,15 @@ export const addTrip = async (tripData: Omit<Trip, 'id' | 'updatedAt' | 'created
     }
 };
 
-export const updateTrip = async (tripId: string, data: Partial<Omit<Trip, 'id' | 'createdAt'>>) => {
+export const updateTrip = async (tripId: string, data: Partial<Omit<Trip, 'id' | 'createdAt' | 'firebaseId' | 'localId' | 'syncStatus'>>) => {
     const updateTripStartTime = performance.now();
     console.log(`[firestoreService updateTrip ${updateTripStartTime}] Updating trip ID: ${tripId}`, data);
+    if (!db) throw new Error("Firestore DB not initialized.");
     try {
         const tripDocRef = doc(db, 'trips', tripId);
-        // Convert relevant date fields if they are passed as ISO strings
-        const dataWithPotentialTimestamps = convertISOToTimestamps(data, ['updatedAt']); // Add other relevant fields if needed
-
         const dataToUpdate = {
-            ...dataWithPotentialTimestamps,
-            updatedAt: Timestamp.now(), // Always update 'updatedAt' with server timestamp
+            ...data,
+            updatedAt: Timestamp.now(),
         };
         await updateDoc(tripDocRef, dataToUpdate);
         const updateTripEndTime = performance.now();
@@ -375,12 +393,15 @@ export const updateTrip = async (tripId: string, data: Partial<Omit<Trip, 'id' |
 };
 
 // --- Visit Service ---
-const visitsCollectionRef = collection(db, 'visits');
+const visitsCollectionRef = db ? collection(db, 'visits') : null; // Handle potential null db
 
-// Potential Index: visits collection - (tripId ==, timestamp DESC)
 export const getVisits = async (tripId: string): Promise<Visit[]> => {
     const getVisitsStartTime = performance.now();
     console.log(`[firestoreService getVisits ${getVisitsStartTime}] Fetching visits for trip ID: ${tripId}`);
+     if (!visitsCollectionRef) {
+         console.error(`[firestoreService getVisits ${getVisitsStartTime}] Visits collection ref not initialized.`);
+         return [];
+     }
     try {
         const q = query(visitsCollectionRef, where('tripId', '==', tripId), orderBy('timestamp', 'desc'));
         const querySnapshot = await getDocs(q);
@@ -398,9 +419,10 @@ export const getVisits = async (tripId: string): Promise<Visit[]> => {
     }
 };
 
-export const addVisit = async (visitData: Omit<Visit, 'id'>): Promise<string> => {
+export const addVisit = async (visitData: Omit<Visit, 'id' | 'firebaseId' | 'localId' | 'syncStatus'>): Promise<string> => {
     const addVisitStartTime = performance.now();
     console.log(`[firestoreService addVisit ${addVisitStartTime}] Adding new visit`, visitData);
+    if (!visitsCollectionRef) throw new Error("Visits collection ref not initialized.");
     try {
         const dataWithTimestamp = convertISOToTimestamps(visitData, ['timestamp']);
         const docRef = await addDoc(visitsCollectionRef, dataWithTimestamp);
@@ -414,9 +436,10 @@ export const addVisit = async (visitData: Omit<Visit, 'id'>): Promise<string> =>
     }
 };
 
-export const updateVisit = async (visitId: string, data: Partial<Omit<Visit, 'id'>>) => {
+export const updateVisit = async (visitId: string, data: Partial<Omit<Visit, 'id' | 'firebaseId' | 'localId' | 'syncStatus'>>) => {
     const updateVisitStartTime = performance.now();
     console.log(`[firestoreService updateVisit ${updateVisitStartTime}] Updating visit ID: ${visitId}`, data);
+     if (!db) throw new Error("Firestore DB not initialized.");
     try {
         const visitDocRef = doc(db, 'visits', visitId);
         const dataWithTimestamp = convertISOToTimestamps(data, ['timestamp']);
@@ -433,6 +456,7 @@ export const updateVisit = async (visitId: string, data: Partial<Omit<Visit, 'id
 export const deleteVisit = async (visitId: string) => {
     const deleteVisitStartTime = performance.now();
     console.log(`[firestoreService deleteVisit ${deleteVisitStartTime}] Deleting visit ID: ${visitId}`);
+     if (!db) throw new Error("Firestore DB not initialized.");
     try {
         const visitDocRef = doc(db, 'visits', visitId);
         await deleteDoc(visitDocRef);
@@ -446,12 +470,15 @@ export const deleteVisit = async (visitId: string) => {
 };
 
 // --- Expense Service ---
-const expensesCollectionRef = collection(db, 'expenses');
+const expensesCollectionRef = db ? collection(db, 'expenses') : null; // Handle potential null db
 
-// Potential Index: expenses collection - (tripId ==, timestamp DESC)
 export const getExpenses = async (tripId: string): Promise<Expense[]> => {
     const getExpensesStartTime = performance.now();
     console.log(`[firestoreService getExpenses ${getExpensesStartTime}] Fetching expenses for trip ID: ${tripId}`);
+     if (!expensesCollectionRef) {
+          console.error(`[firestoreService getExpenses ${getExpensesStartTime}] Expenses collection ref not initialized.`);
+          return [];
+     }
     try {
         const q = query(expensesCollectionRef, where('tripId', '==', tripId), orderBy('timestamp', 'desc'));
         const querySnapshot = await getDocs(q);
@@ -469,9 +496,10 @@ export const getExpenses = async (tripId: string): Promise<Expense[]> => {
     }
 };
 
-export const addExpense = async (expenseData: Omit<Expense, 'id'>): Promise<string> => {
+export const addExpense = async (expenseData: Omit<Expense, 'id' | 'firebaseId' | 'localId' | 'syncStatus'>): Promise<string> => {
     const addExpenseStartTime = performance.now();
     console.log(`[firestoreService addExpense ${addExpenseStartTime}] Adding new expense`, expenseData);
+    if (!expensesCollectionRef) throw new Error("Expenses collection ref not initialized.");
     try {
         const dataWithTimestamps = convertISOToTimestamps(expenseData, ['expenseDate', 'timestamp']);
         const docRef = await addDoc(expensesCollectionRef, dataWithTimestamps);
@@ -485,9 +513,10 @@ export const addExpense = async (expenseData: Omit<Expense, 'id'>): Promise<stri
     }
 };
 
-export const updateExpense = async (expenseId: string, data: Partial<Omit<Expense, 'id'>>) => {
+export const updateExpense = async (expenseId: string, data: Partial<Omit<Expense, 'id' | 'firebaseId' | 'localId' | 'syncStatus'>>) => {
     const updateExpenseStartTime = performance.now();
     console.log(`[firestoreService updateExpense ${updateExpenseStartTime}] Updating expense ID: ${expenseId}`, data);
+     if (!db) throw new Error("Firestore DB not initialized.");
     try {
         const expenseDocRef = doc(db, 'expenses', expenseId);
         const dataWithTimestamps = convertISOToTimestamps(data, ['expenseDate', 'timestamp']);
@@ -504,9 +533,9 @@ export const updateExpense = async (expenseId: string, data: Partial<Omit<Expens
 export const deleteExpense = async (expenseId: string) => {
     const deleteExpenseStartTime = performance.now();
     console.log(`[firestoreService deleteExpense ${deleteExpenseStartTime}] Deleting expense ID: ${expenseId}`);
+     if (!db) throw new Error("Firestore DB not initialized.");
     try {
         const expenseDocRef = doc(db, 'expenses', expenseId);
-        // Consider deleting associated receipt from storage here if needed, or handle during batch delete
         await deleteDoc(expenseDocRef);
         const deleteExpenseEndTime = performance.now();
         console.log(`[firestoreService deleteExpense ${deleteExpenseStartTime}] Expense deleted successfully. Time: ${deleteExpenseEndTime - deleteExpenseStartTime} ms`);
@@ -518,12 +547,15 @@ export const deleteExpense = async (expenseId: string) => {
 };
 
 // --- Fueling Service ---
-const fuelingsCollectionRef = collection(db, 'fuelings');
+const fuelingsCollectionRef = db ? collection(db, 'fuelings') : null; // Handle potential null db
 
-// Potential Index: fuelings collection - (tripId ==, date DESC)
 export const getFuelings = async (tripId: string): Promise<Fueling[]> => {
     const getFuelingsStartTime = performance.now();
     console.log(`[firestoreService getFuelings ${getFuelingsStartTime}] Fetching fuelings for trip ID: ${tripId}`);
+     if (!fuelingsCollectionRef) {
+          console.error(`[firestoreService getFuelings ${getFuelingsStartTime}] Fuelings collection ref not initialized.`);
+          return [];
+     }
     try {
         const q = query(fuelingsCollectionRef, where('tripId', '==', tripId), orderBy('date', 'desc'));
         const querySnapshot = await getDocs(q);
@@ -541,9 +573,10 @@ export const getFuelings = async (tripId: string): Promise<Fueling[]> => {
     }
 };
 
-export const addFueling = async (fuelingData: Omit<Fueling, 'id'>): Promise<string> => {
+export const addFueling = async (fuelingData: Omit<Fueling, 'id' | 'firebaseId' | 'localId' | 'syncStatus'>): Promise<string> => {
     const addFuelingStartTime = performance.now();
     console.log(`[firestoreService addFueling ${addFuelingStartTime}] Adding new fueling`, fuelingData);
+    if (!fuelingsCollectionRef) throw new Error("Fuelings collection ref not initialized.");
     try {
         const dataWithTimestamp = convertISOToTimestamps(fuelingData, ['date']);
         const docRef = await addDoc(fuelingsCollectionRef, dataWithTimestamp);
@@ -557,9 +590,10 @@ export const addFueling = async (fuelingData: Omit<Fueling, 'id'>): Promise<stri
     }
 };
 
-export const updateFueling = async (fuelingId: string, data: Partial<Omit<Fueling, 'id'>>) => {
+export const updateFueling = async (fuelingId: string, data: Partial<Omit<Fueling, 'id' | 'firebaseId' | 'localId' | 'syncStatus'>>) => {
     const updateFuelingStartTime = performance.now();
     console.log(`[firestoreService updateFueling ${updateFuelingStartTime}] Updating fueling ID: ${fuelingId}`, data);
+    if (!db) throw new Error("Firestore DB not initialized.");
     try {
         const fuelingDocRef = doc(db, 'fuelings', fuelingId);
         const dataWithTimestamp = convertISOToTimestamps(data, ['date']);
@@ -576,9 +610,9 @@ export const updateFueling = async (fuelingId: string, data: Partial<Omit<Fuelin
 export const deleteFueling = async (fuelingId: string) => {
     const deleteFuelingStartTime = performance.now();
     console.log(`[firestoreService deleteFueling ${deleteFuelingStartTime}] Deleting fueling ID: ${fuelingId}`);
+     if (!db) throw new Error("Firestore DB not initialized.");
     try {
         const fuelingDocRef = doc(db, 'fuelings', fuelingId);
-         // Consider deleting associated receipt from storage here if needed
         await deleteDoc(fuelingDocRef);
         const deleteFuelingEndTime = performance.now();
         console.log(`[firestoreService deleteFueling ${deleteFuelingStartTime}] Fueling deleted successfully. Time: ${deleteFuelingEndTime - deleteFuelingStartTime} ms`);
@@ -590,62 +624,57 @@ export const deleteFueling = async (fuelingId: string) => {
 };
 
 // --- Batch Delete for Trip Deletion ---
-// Ensures atomicity for Firestore deletes, but storage deletes are separate operations.
 export const deleteTripAndRelatedData = async (tripId: string) => {
     const deleteBatchStartTime = performance.now();
     console.log(`[firestoreService deleteTripAndRelatedData ${deleteBatchStartTime}] Starting batch delete for trip ID: ${tripId}`);
+    if (!db) throw new Error("Firestore DB not initialized.");
     const batch = writeBatch(db);
-    let relatedReceiptPaths: string[] = []; // To collect paths for storage deletion
+    let relatedReceiptPaths: string[] = [];
 
     try {
-        // 1. Delete the Trip itself
+        // 1. Delete Trip
         const tripDocRef = doc(db, 'trips', tripId);
         batch.delete(tripDocRef);
 
-        // 2. Query and batch delete related Visits
-        const visitsQuery = query(visitsCollectionRef, where('tripId', '==', tripId));
+        // 2. Delete Visits
+        const visitsQuery = query(collection(db, 'visits'), where('tripId', '==', tripId));
         const visitsSnapshot = await getDocs(visitsQuery);
         console.log(`[deleteTripAndRelatedData] Found ${visitsSnapshot.docs.length} visits to delete.`);
         visitsSnapshot.docs.forEach(doc => batch.delete(doc.ref));
 
-        // 3. Query and batch delete related Expenses, collect storage paths
-        const expensesQuery = query(expensesCollectionRef, where('tripId', '==', tripId));
+        // 3. Delete Expenses & Collect Paths
+        const expensesQuery = query(collection(db, 'expenses'), where('tripId', '==', tripId));
         const expensesSnapshot = await getDocs(expensesQuery);
         console.log(`[deleteTripAndRelatedData] Found ${expensesSnapshot.docs.length} expenses to delete.`);
         expensesSnapshot.docs.forEach(expenseDoc => {
             batch.delete(expenseDoc.ref);
             const expenseData = expenseDoc.data() as Expense;
-            if (expenseData.receiptPath) {
-                relatedReceiptPaths.push(expenseData.receiptPath);
-            }
+            if (expenseData.receiptPath) relatedReceiptPaths.push(expenseData.receiptPath);
         });
 
-        // 4. Query and batch delete related Fuelings, collect storage paths
-        const fuelingsQuery = query(fuelingsCollectionRef, where('tripId', '==', tripId));
+        // 4. Delete Fuelings & Collect Paths
+        const fuelingsQuery = query(collection(db, 'fuelings'), where('tripId', '==', tripId));
         const fuelingsSnapshot = await getDocs(fuelingsQuery);
          console.log(`[deleteTripAndRelatedData] Found ${fuelingsSnapshot.docs.length} fuelings to delete.`);
          fuelingsSnapshot.docs.forEach(fuelingDoc => {
             batch.delete(fuelingDoc.ref);
             const fuelingData = fuelingDoc.data() as Fueling;
-            if (fuelingData.receiptPath) {
-                 relatedReceiptPaths.push(fuelingData.receiptPath);
-            }
+            if (fuelingData.receiptPath) relatedReceiptPaths.push(fuelingData.receiptPath);
         });
 
-        // Commit the Firestore batch delete FIRST
+        // Commit Firestore batch
         await batch.commit();
         console.log(`[firestoreService deleteTripAndRelatedData] Firestore batch delete committed for trip ${tripId}.`);
 
-        // 5. Delete related storage files AFTER successful Firestore commit
+        // 5. Delete Storage files
         if (relatedReceiptPaths.length > 0) {
             console.log(`[deleteTripAndRelatedData] Deleting ${relatedReceiptPaths.length} related receipts from storage...`);
             const deleteStoragePromises = relatedReceiptPaths.map(path =>
-                 deleteReceipt(path).catch(e => console.error(`Failed to delete receipt ${path}:`, e)) // Log errors but don't fail the whole operation
+                 deleteReceipt(path).catch(e => console.error(`Failed to delete receipt ${path}:`, e))
              );
              await Promise.all(deleteStoragePromises);
              console.log(`[deleteTripAndRelatedData] Finished attempting receipt deletions.`);
         }
-
 
         const deleteBatchEndTime = performance.now();
         console.log(`[firestoreService deleteTripAndRelatedData ${deleteBatchStartTime}] Successfully deleted trip ${tripId} and related data. Time: ${deleteBatchEndTime - deleteBatchStartTime} ms`);
@@ -653,7 +682,6 @@ export const deleteTripAndRelatedData = async (tripId: string) => {
     } catch (error) {
          const deleteBatchEndTime = performance.now();
          console.error(`[firestoreService deleteTripAndRelatedData ${deleteBatchStartTime}] Error deleting trip ${tripId} and related data. Time: ${deleteBatchEndTime - deleteBatchStartTime} ms`, error);
-         // Rethrow the error for the calling component to handle
          throw error;
     }
 };
