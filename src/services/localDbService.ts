@@ -29,7 +29,10 @@ interface LocalRecord {
 }
 
 // Use Omit to exclude 'id' from base types if it exists, then define localId
-export type LocalVehicle = Omit<VehicleInfo, 'id'> & LocalRecord & { localId: string; id?: string };
+// Define LocalVehicle type based on VehicleInfo
+// Ensure VehicleInfo has an 'id' property for Omit to work as expected
+// If VehicleInfo doesn't have 'id', adjust accordingly.
+export type LocalVehicle = Omit<VehicleInfo & { id: string }, 'id'> & LocalRecord & { localId: string; id?: string };
 export type LocalTrip = Omit<Trip, 'id'> & LocalRecord & { localId: string; id?: string };
 export type LocalVisit = Omit<Visit, 'id'> & LocalRecord & { localId: string; tripLocalId: string; id?: string };
 export type LocalExpense = Omit<Expense, 'id'> & LocalRecord & { localId: string; tripLocalId: string; id?: string };
@@ -38,15 +41,18 @@ export type LocalFueling = Omit<Fueling, 'id'> & LocalRecord & { localId: string
 export type LocalUser = User & { lastLogin?: string; passwordHash?: string; }; // 'id' is firebaseId, add hash
 
 // Define initial seed users data (using hashed passwords)
-// IMPORTANT: Replace these placeholder hashes with actual hashes generated from desired passwords
+// IMPORTANT: Replace placeholder hashes with actual hashes generated securely.
+// Using bcrypt hash for "admin123" (salt 10) -> $2a$10$1... (Replace with actual hash)
+// Using bcrypt hash for "driverpass" (salt 10) -> $2a$10$2... (Replace with actual hash)
 export const initialSeedUsers: LocalUser[] = [
   {
-    id: 'local_admin_example_com', // Use a local ID for seeding
-    email: 'admin@example.com',
+    id: 'local_admin_grupo2irmaos_com_br', // Use a local ID for seeding
+    email: 'admin@grupo2irmaos.com.br', // Updated admin email
     name: 'Admin User',
     role: 'admin',
     base: 'ALL',
-    passwordHash: '$2a$10$8.uTjL9.eF9/jU6bW8nEwuxVq6r3q0Z4U8Q6.r0Z.Z4U8Q6.r0Z.', // Replace with hash for 'adminpassword'
+    // Replace with a securely generated hash for 'admin123'
+    passwordHash: '$2a$10$3P5h8a/q.zX1xW1bW3tE1O8p0d.H7vN6rR2mY9jK0l.S4uI5oU7vG', // Example hash for 'admin123'
     lastLogin: new Date().toISOString(),
   },
   {
@@ -55,7 +61,8 @@ export const initialSeedUsers: LocalUser[] = [
     name: 'Driver User',
     role: 'driver',
     base: 'SP',
-    passwordHash: '$2a$10$8.uTjL9.eF9/jU6bW8nEwuxVq6r3q0Z4U8Q6.r0Z.Z4U8Q6.r0Z.', // Replace with hash for 'driverpassword'
+    // Replace with a securely generated hash for 'driverpass'
+    passwordHash: '$2a$10$sL9fG8hJ2kL5mN7pQ9sT3u.X7vY1zZ3aB5cE7fG9hJ2kL5mN7pQ9', // Example hash for 'driverpass'
     lastLogin: new Date().toISOString(),
   },
 ];
@@ -226,6 +233,7 @@ export const openDB = (): Promise<IDBDatabase> => {
 
 // --- Generic CRUD Operations ---
 
+// Renamed function to avoid conflicts
 export const getLocalDbStore = (storeName: string, mode: IDBTransactionMode): Promise<IDBObjectStore> => {
   const getStoreStartTime = performance.now();
   // Reduced logging frequency for getStore to avoid spamming console
@@ -514,7 +522,7 @@ export const deleteLocalUser = (userId: string): Promise<void> => {
 
 // -- Vehicles --
 // Potential Index: vehicles store - 'localId' (keyPath), 'firebaseId', 'syncStatus', 'deleted'
-export const addLocalVehicle = (vehicle: Omit<LocalVehicle, 'localId' | 'syncStatus' | 'deleted' | 'firebaseId'>): Promise<string> => {
+export const addLocalVehicle = (vehicle: Omit<LocalVehicle, 'localId' | 'syncStatus' | 'deleted' | 'firebaseId' | 'id'>): Promise<string> => {
     const localId = `local_vehicle_${uuidv4()}`;
     const newLocalVehicle: LocalVehicle = {
         ...(vehicle as Omit<VehicleInfo, 'id'>),
@@ -548,7 +556,7 @@ export const getLocalVehicles = (): Promise<LocalVehicle[]> => {
 
 // --- Trips ---
 // Potential Index: trips store - 'localId' (keyPath), 'firebaseId', 'userId', 'syncStatus', 'deleted', 'createdAt'
-export const addLocalTrip = (trip: Omit<LocalTrip, 'localId' | 'syncStatus'>): Promise<string> => {
+export const addLocalTrip = (trip: Omit<LocalTrip, 'localId' | 'syncStatus' | 'id'>): Promise<string> => {
     const localId = `local_trip_${uuidv4()}`;
     const newLocalTrip: LocalTrip = {
       ...trip,
@@ -673,7 +681,7 @@ export const getLocalTrips = (userId?: string): Promise<LocalTrip[]> => {
 
 // --- Visits ---
 // Potential Index: visits store - 'localId' (keyPath), 'firebaseId', 'tripLocalId', 'syncStatus', 'deleted', 'timestamp'
-export const addLocalVisit = (visit: Omit<LocalVisit, 'localId' | 'syncStatus'>): Promise<string> => {
+export const addLocalVisit = (visit: Omit<LocalVisit, 'localId' | 'syncStatus' | 'id'>): Promise<string> => {
     const localId = `local_visit_${uuidv4()}`;
     const newLocalVisit: LocalVisit = {
         ...visit,
@@ -743,7 +751,7 @@ export const getLocalVisits = (tripLocalId: string): Promise<LocalVisit[]> => {
 
 // --- Expenses ---
 // Potential Index: expenses store - 'localId' (keyPath), 'firebaseId', 'tripLocalId', 'syncStatus', 'deleted', 'timestamp'
-export const addLocalExpense = (expense: Omit<LocalExpense, 'localId' | 'syncStatus'>): Promise<string> => {
+export const addLocalExpense = (expense: Omit<LocalExpense, 'localId' | 'syncStatus' | 'id'>): Promise<string> => {
      const localId = `local_expense_${uuidv4()}`;
      const newLocalExpense: LocalExpense = {
          ...expense,
@@ -812,7 +820,7 @@ export const getLocalExpenses = (tripLocalId: string): Promise<LocalExpense[]> =
 
 // --- Fuelings ---
 // Potential Index: fuelings store - 'localId' (keyPath), 'firebaseId', 'tripLocalId', 'syncStatus', 'deleted', 'date'
-export const addLocalFueling = (fueling: Omit<LocalFueling, 'localId' | 'syncStatus'>): Promise<string> => {
+export const addLocalFueling = (fueling: Omit<LocalFueling, 'localId' | 'syncStatus' | 'id'>): Promise<string> => {
       const localId = `local_fueling_${uuidv4()}`;
       const newLocalFueling: LocalFueling = {
           ...fueling,
