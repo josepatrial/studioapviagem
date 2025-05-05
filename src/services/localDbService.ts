@@ -4,8 +4,9 @@ import type { Trip } from '@/components/Trips/Trips';
 import type { Visit } from '@/components/Trips/Visits';
 import type { Expense } from '@/components/Trips/Expenses';
 import type { Fueling } from '@/components/Trips/Fuelings';
-import type { User } from '@/contexts/AuthContext'; // Import base User type
+import type { User, UserRole } from '@/contexts/AuthContext'; // Import base User type and UserRole
 import { v4 as uuidv4 } from 'uuid'; // Import uuid
+import bcrypt from 'bcryptjs'; // Import bcrypt for password hashing
 
 const DB_NAME = 'RotaCertaDB';
 const DB_VERSION = 2; // Increment version to trigger onupgradeneeded for new store
@@ -44,15 +45,14 @@ export type LocalUser = User & { lastLogin?: string; passwordHash?: string; }; /
 // IMPORTANT: Replace placeholder hashes with actual hashes generated securely.
 // Using bcrypt hash for "admin123" (salt 10) -> $2a$10$1... (Replace with actual hash)
 // Using bcrypt hash for "driverpass" (salt 10) -> $2a$10$2... (Replace with actual hash)
-export const initialSeedUsers: LocalUser[] = [
+const seedUsers: Omit<LocalUser, 'passwordHash'> & {password: string}[] = [
   {
     id: 'local_admin_grupo2irmaos_com_br', // Use a local ID for seeding
     email: 'admin@grupo2irmaos.com.br', // Updated admin email
     name: 'Admin User',
     role: 'admin',
     base: 'ALL',
-    // Replace with a securely generated hash for 'admin123'
-    passwordHash: '$2a$10$3P5h8a/q.zX1xW1bW3tE1O8p0d.H7vN6rR2mY9jK0l.S4uI5oU7vG', // Example hash for 'admin123'
+    password: 'admin123', // Plain password for seeding hash
     lastLogin: new Date().toISOString(),
   },
   {
@@ -61,10 +61,27 @@ export const initialSeedUsers: LocalUser[] = [
     name: 'Driver User',
     role: 'driver',
     base: 'SP',
-    // Replace with a securely generated hash for 'driverpass'
-    passwordHash: '$2a$10$sL9fG8hJ2kL5mN7pQ9sT3u.X7vY1zZ3aB5cE7fG9hJ2kL5mN7pQ9', // Example hash for 'driverpass'
+    password: 'driverpassword', // Plain password for seeding hash
     lastLogin: new Date().toISOString(),
   },
+   {
+    id: 'local_jose_patrial_grupo2irmaos_com_br', // Local ID for Jose
+    email: 'jose.patrial@grupo2irmaos.com.br',
+    name: 'Jose Patrial',
+    role: 'driver',
+    base: 'PR', // Example base
+    password: '123456', // Plain password for seeding hash
+    lastLogin: new Date().toISOString(),
+   },
+   {
+     id: 'local_forced_admin_grupo2irmaos_com_br', // Local ID for forced admin
+     email: 'grupo2irmaos@grupo2irmaos.com.br',
+     name: 'Forced Admin',
+     role: 'admin', // Will be forced to admin regardless
+     base: 'ALL', // Will be forced to ALL regardless
+     password: 'admin123', // Same password for simplicity, change if needed
+     lastLogin: new Date().toISOString(),
+   },
 ];
 
 
@@ -116,16 +133,20 @@ export const openDB = (): Promise<IDBDatabase> => {
       const tempDb = request.result;
       const transaction = (event.target as IDBOpenDBRequest).transaction; // Get transaction for index checks
 
+      if (!transaction) {
+           console.error("[onupgradeneeded] Upgrade transaction is null. Cannot proceed.");
+           request.onerror = () => reject("Upgrade transaction failed."); // Ensure promise rejection
+           // Attempt to abort the transaction? Might not be possible here.
+           return;
+       }
+
       // Vehicles Store
       let vehicleStore: IDBObjectStore;
       if (!tempDb.objectStoreNames.contains(STORE_VEHICLES)) {
         vehicleStore = tempDb.createObjectStore(STORE_VEHICLES, { keyPath: 'localId' });
          console.log(`[localDbService] Object store ${STORE_VEHICLES} created.`);
-      } else if (transaction){
-          vehicleStore = transaction.objectStore(STORE_VEHICLES);
       } else {
-          console.error("[onupgradeneeded] Transaction is null for vehicles store check.");
-          return;
+          vehicleStore = transaction.objectStore(STORE_VEHICLES);
       }
       // Ensure required indexes exist
       if (!vehicleStore.indexNames.contains('firebaseId')) vehicleStore.createIndex('firebaseId', 'firebaseId', { unique: false });
@@ -137,11 +158,8 @@ export const openDB = (): Promise<IDBDatabase> => {
       if (!tempDb.objectStoreNames.contains(STORE_TRIPS)) {
         tripStore = tempDb.createObjectStore(STORE_TRIPS, { keyPath: 'localId' });
          console.log(`[localDbService] Object store ${STORE_TRIPS} created.`);
-      } else if (transaction){
+      } else {
            tripStore = transaction.objectStore(STORE_TRIPS);
-       } else {
-           console.error("[onupgradeneeded] Transaction is null for trips store check.");
-           return;
        }
         // Ensure required indexes exist
        if (!tripStore.indexNames.contains('firebaseId')) tripStore.createIndex('firebaseId', 'firebaseId', { unique: false });
@@ -155,11 +173,8 @@ export const openDB = (): Promise<IDBDatabase> => {
       if (!tempDb.objectStoreNames.contains(STORE_VISITS)) {
          visitStore = tempDb.createObjectStore(STORE_VISITS, { keyPath: 'localId' });
           console.log(`[localDbService] Object store ${STORE_VISITS} created.`);
-      } else if(transaction){
+      } else {
            visitStore = transaction.objectStore(STORE_VISITS);
-       } else {
-           console.error("[onupgradeneeded] Transaction is null for visits store check.");
-           return;
        }
         // Ensure required indexes exist
        if (!visitStore.indexNames.contains('tripLocalId')) visitStore.createIndex('tripLocalId', 'tripLocalId', { unique: false }); // Essential for fetching visits by trip
@@ -173,11 +188,8 @@ export const openDB = (): Promise<IDBDatabase> => {
       if (!tempDb.objectStoreNames.contains(STORE_EXPENSES)) {
          expenseStore = tempDb.createObjectStore(STORE_EXPENSES, { keyPath: 'localId' });
           console.log(`[localDbService] Object store ${STORE_EXPENSES} created.`);
-      } else if(transaction){
+      } else {
            expenseStore = transaction.objectStore(STORE_EXPENSES);
-       } else {
-            console.error("[onupgradeneeded] Transaction is null for expenses store check.");
-            return;
        }
         // Ensure required indexes exist
        if (!expenseStore.indexNames.contains('tripLocalId')) expenseStore.createIndex('tripLocalId', 'tripLocalId', { unique: false }); // Essential
@@ -191,11 +203,8 @@ export const openDB = (): Promise<IDBDatabase> => {
       if (!tempDb.objectStoreNames.contains(STORE_FUELINGS)) {
          fuelingStore = tempDb.createObjectStore(STORE_FUELINGS, { keyPath: 'localId' });
           console.log(`[localDbService] Object store ${STORE_FUELINGS} created.`);
-      } else if(transaction){
+      } else {
            fuelingStore = transaction.objectStore(STORE_FUELINGS);
-       } else {
-           console.error("[onupgradeneeded] Transaction is null for fuelings store check.");
-           return;
        }
         // Ensure required indexes exist
        if (!fuelingStore.indexNames.contains('tripLocalId')) fuelingStore.createIndex('tripLocalId', 'tripLocalId', { unique: false }); // Essential
@@ -209,15 +218,13 @@ export const openDB = (): Promise<IDBDatabase> => {
       if (!tempDb.objectStoreNames.contains(STORE_USERS)) {
         userStore = tempDb.createObjectStore(STORE_USERS, { keyPath: 'id' }); // Using firebase ID ('id') as key
         console.log(`[localDbService] Object store ${STORE_USERS} created.`);
-      } else if(transaction){
+      } else {
            userStore = transaction.objectStore(STORE_USERS);
-       } else {
-            console.error("[onupgradeneeded] Transaction is null for users store check.");
-            return;
        }
         // Ensure required indexes exist
        if (!userStore.indexNames.contains('email')) userStore.createIndex('email', 'email', { unique: true });
        if (!userStore.indexNames.contains('lastLogin')) userStore.createIndex('lastLogin', 'lastLogin', { unique: false }); // For finding latest user
+       if (!userStore.indexNames.contains('role')) userStore.createIndex('role', 'role', { unique: false }); // Add index for role
 
       console.log('[localDbService] IndexedDB upgrade complete');
     };
@@ -443,11 +450,51 @@ const getLocalRecordsBySyncStatus = <T>(storeName: string, status: SyncStatus | 
     });
 };
 
+// Get records by role using the 'role' index
+export const getLocalRecordsByRole = <T extends { role: UserRole }>(role: UserRole): Promise<T[]> => {
+    const getByRoleStartTime = performance.now();
+    console.log(`[getLocalRecordsByRole ${getByRoleStartTime}] Getting users from ${STORE_USERS} with role: ${role}`);
+    return getLocalDbStore(STORE_USERS, 'readonly').then(store => {
+        return new Promise<T[]>((resolve, reject) => {
+            if (!store.indexNames.contains('role')) {
+                console.warn(`[getLocalRecordsByRole ${getByRoleStartTime}] Index 'role' not found on ${STORE_USERS}. Fetching all and filtering.`);
+                const getAllRequest = store.getAll();
+                getAllRequest.onsuccess = () => {
+                    const allRecords = getAllRequest.result as T[];
+                    const filtered = allRecords.filter(item => !(item as any).deleted && item.role === role);
+                    const getByRoleEndTime = performance.now();
+                    console.log(`[getLocalRecordsByRole ${getByRoleStartTime}] Fallback filter complete. Found ${filtered.length} records. Time: ${getByRoleEndTime - getByRoleStartTime} ms`);
+                    resolve(filtered);
+                };
+                getAllRequest.onerror = () => {
+                    const getByRoleEndTime = performance.now();
+                    console.error(`[getLocalRecordsByRole ${getByRoleStartTime}] Fallback getAll failed for ${STORE_USERS}. Time: ${getByRoleEndTime - getByRoleStartTime} ms`, getAllRequest.error);
+                    reject(`Fallback getAll failed for ${STORE_USERS}: ${getAllRequest.error?.message}`);
+                };
+                return;
+            }
+
+            const index = store.index('role');
+            const request = index.getAll(role);
+            request.onsuccess = () => {
+                const results = (request.result as T[]).filter(item => !(item as any).deleted);
+                const getByRoleEndTime = performance.now();
+                console.log(`[getLocalRecordsByRole ${getByRoleStartTime}] Got ${results.length} records successfully using index. Time: ${getByRoleEndTime - getByRoleStartTime} ms`);
+                resolve(results);
+            };
+            request.onerror = () => {
+                const getByRoleEndTime = performance.now();
+                console.error(`[getLocalRecordsByRole ${getByRoleStartTime}] Error getting records by role ${role} from ${STORE_USERS}:`, request.error);
+                reject(`Error getting records by role ${role}: ${request.error?.message}`);
+            };
+        });
+    });
+};
 
 // --- Specific Operations ---
 
 // -- Users (Using firebaseId as primary key 'id') --
-// Potential Index: users store - 'id' (keyPath), 'email' (unique), 'lastLogin'
+// Potential Index: users store - 'id' (keyPath), 'email' (unique), 'lastLogin', 'role'
 export const getLocalUser = (userId: string): Promise<LocalUser | null> => {
     const getUserStartTime = performance.now();
     console.log(`[getLocalUser ${getUserStartTime}] Getting user with ID: ${userId}`);
@@ -517,6 +564,9 @@ export const saveLocalUser = (user: LocalUser): Promise<void> => {
 
 export const deleteLocalUser = (userId: string): Promise<void> => {
      console.log(`[deleteLocalUser] Deleting user with ID: ${userId}`);
+     // For users, we might actually want a hard delete locally if Firebase auth is deleted?
+     // Or maybe mark as deleted locally to prevent login? Depends on requirements.
+     // Using hard delete for now, assuming sync will handle Firebase deletion.
      return deleteLocalRecordByKey(STORE_USERS, userId);
 };
 
@@ -601,28 +651,29 @@ const markChildrenForDeletion = async (storeName: string, tripLocalId: string): 
             return;
         }
         const index = store.index('tripLocalId');
-        let cursor: IDBCursorWithValue | null = null;
-        const request = index.openCursor(IDBKeyRange.only(tripLocalId));
+        let cursorReq = index.openCursor(IDBKeyRange.only(tripLocalId));
 
         return new Promise((resolve, reject) => {
-             request.onerror = () => reject(request.error);
-             request.onsuccess = () => {
-                 cursor = request.result;
+             const transaction = store.transaction; // Get transaction from store
+
+             transaction.onerror = (event) => reject((event.target as IDBRequest).error);
+             transaction.oncomplete = () => resolve(); // Resolve when transaction completes
+
+             cursorReq.onerror = (event) => reject((event.target as IDBRequest).error);
+             cursorReq.onsuccess = (event) => {
+                 const cursor = (event.target as IDBRequest).result;
                  if (cursor) {
                      const recordToUpdate = { ...cursor.value, deleted: true, syncStatus: 'pending' as SyncStatus };
                      const updateRequest = cursor.update(recordToUpdate);
-                     updateRequest.onerror = () => reject(updateRequest.error);
-                     updateRequest.onsuccess = () => {
-                          console.log(`[markChildren] Marked child ${cursor!.primaryKey} in ${storeName} for deletion.`);
-                          cursor!.continue();
+                     updateRequest.onerror = (errEvent) => {
+                         console.error(`[markChildren] Error updating child ${cursor.primaryKey} in ${storeName}:`, (errEvent.target as IDBRequest).error);
+                          // Potentially abort transaction?
                      };
-                 } else {
-                      // No more items for this tripLocalId
-                      resolve();
+                     console.log(`[markChildren] Marked child ${cursor.primaryKey} in ${storeName} for deletion.`);
+                     cursor.continue();
                  }
              };
         });
-
     } catch (error) {
         console.error(`[markChildren] Error marking children in ${storeName} for trip ${tripLocalId}:`, error);
         throw error; // Re-throw
@@ -716,7 +767,6 @@ export const getLocalVisits = (tripLocalId: string): Promise<LocalVisit[]> => {
                  const request = index.getAll(tripLocalId);
                  request.onsuccess = () => {
                      const results = (request.result as LocalVisit[]).filter(item => !item.deleted);
-                     // Sort by timestamp descending
                      results.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
                      const getVisitsEndTime = performance.now();
                      console.log(`[getLocalVisits ${getVisitsStartTime}] Found ${results.length} visits using index. Time: ${getVisitsEndTime - getVisitsStartTime} ms`);
@@ -738,15 +788,15 @@ export const getLocalVisits = (tripLocalId: string): Promise<LocalVisit[]> => {
                      const getVisitsEndTime = performance.now();
                      console.log(`[getLocalVisits ${getVisitsStartTime}] Fallback filter complete. Found ${filtered.length} visits. Time: ${getVisitsEndTime - getVisitsStartTime} ms`);
                      resolve(filtered);
-                 };
-                 getAllRequest.onerror = () => {
-                      const getVisitsEndTime = performance.now();
-                      console.error(`[getLocalVisits ${getVisitsStartTime}] Fallback getAll failed for ${STORE_VISITS}. Time: ${getVisitsEndTime - getVisitsStartTime} ms`, getAllRequest.error);
-                      reject(`Fallback getAll failed for ${STORE_VISITS}: ${getAllRequest.error?.message}`);
-                 }
-             }
-        });
-    });
+                  };
+                  getAllRequest.onerror = () => {
+                       const getVisitsEndTime = performance.now();
+                       console.error(`[getLocalVisits ${getVisitsStartTime}] Fallback getAll failed for ${STORE_VISITS}. Time: ${getVisitsEndTime - getVisitsStartTime} ms`, getAllRequest.error);
+                       reject(`Fallback getAll failed for ${STORE_VISITS}: ${getAllRequest.error?.message}`);
+                  }
+              }
+         });
+     });
 };
 
 // --- Expenses ---
@@ -968,7 +1018,7 @@ export const updateSyncStatus = async (storeName: string, localId: string, fireb
 // Potential Index: All stores - 'deleted'
 export const cleanupDeletedRecords = async (): Promise<void> => {
     console.log("[cleanupDeletedRecords] Starting cleanup...");
-    const stores = [STORE_TRIPS, STORE_VISITS, STORE_EXPENSES, STORE_FUELINGS, STORE_VEHICLES];
+    const stores = [STORE_TRIPS, STORE_VISITS, STORE_EXPENSES, STORE_FUELINGS, STORE_VEHICLES, STORE_USERS];
     let deletedCount = 0;
     const cleanupPromises: Promise<void>[] = [];
 
@@ -985,56 +1035,42 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
                 const index = store.index('deleted');
                 let cursorReq = index.openCursor(IDBKeyRange.only(true));
 
-                const processCursor = async () => {
-                    let cursor: IDBCursorWithValue | null = null;
-                     try {
-                         cursor = await new Promise((res, rej) => {
-                             cursorReq.onsuccess = () => res(cursorReq.result);
-                             cursorReq.onerror = () => rej(cursorReq.error);
-                         });
-                     } catch (cursorError) {
-                         console.error(`[Cleanup] Error opening cursor for ${storeName}:`, cursorError);
-                         return; // Stop processing this store on cursor error
-                     }
+                 // Use transaction events for promise resolution/rejection
+                const transaction = store.transaction;
+                transaction.oncomplete = () => {
+                    console.log(`[Cleanup] Finished store ${storeName}. Deleted ${storeDeletedCount} records.`);
+                    resolveStore();
+                };
+                transaction.onerror = (event) => rejectStore((event.target as IDBRequest).error);
+                transaction.onabort = (event) => rejectStore((event.target as IDBTransaction).error || new Error('Transaction aborted'));
 
-
+                cursorReq.onerror = (event) => reject(error);
+                cursorReq.onsuccess = (event) => {
+                    const cursor = (event.target as IDBRequest).result;
                     if (cursor) {
-                        if (cursor.value.syncStatus === 'synced' && cursor.value.deleted === true) {
-                            console.log(`[Cleanup] Deleting record ${cursor.primaryKey} from ${storeName}`);
-                            const deleteReq = cursor.delete();
-                             try {
-                                 await new Promise<void>((resDel, rejDel) => {
-                                     deleteReq.onsuccess = () => {
-                                         deletedCount++;
-                                         storeDeletedCount++;
-                                         resDel();
-                                     };
-                                     deleteReq.onerror = () => rejDel(deleteReq.error);
-                                 });
-                             } catch (deleteError) {
-                                 console.error(`[Cleanup] Error deleting record ${cursor.primaryKey} from ${storeName}:`, deleteError);
-                                 // Decide whether to continue or stop on individual delete error
-                             }
-
-                        }
-                        // Continue MUST be called to advance the cursor
                          try {
-                             cursor.continue();
-                             await processCursor(); // Recurse for the next item
-                         } catch (continueError) {
-                              console.error(`[Cleanup] Error continuing cursor for ${storeName}:`, continueError);
+                              if (cursor.value.syncStatus === 'synced' && cursor.value.deleted === true) {
+                                  console.log(`[Cleanup] Deleting record ${cursor.primaryKey} from ${storeName}`);
+                                  const deleteReq = cursor.delete();
+                                  // No need for success handler, transaction handles completion
+                                  deleteReq.onerror = (errEvent) => {
+                                      console.error(`[Cleanup] Error deleting record ${cursor.primaryKey} from ${storeName}:`, (errEvent.target as IDBRequest).error);
+                                       // Allow transaction to continue or abort? Let's allow for now.
+                                  };
+                                  deletedCount++;
+                                  storeDeletedCount++;
+                              }
+                         } catch (error) {
+                              console.error(`[Cleanup] Error processing cursor value for ${cursor.primaryKey} in ${storeName}:`, error);
+                              transaction.abort(); // Abort if processing fails badly
                          }
-
+                         cursor.continue();
                     }
                 };
 
-                await processCursor(); // Start processing the cursor
-
-                console.log(`[Cleanup] Finished store ${storeName}. Deleted ${storeDeletedCount} records.`);
-                resolveStore();
             } catch (error) {
-                 console.error(`[Cleanup] Error during cleanupDeletedRecords for store ${storeName}:`, error);
-                 rejectStore(error); // Reject the store promise on error
+                 console.error(`[Cleanup] Error during setup for store ${storeName}:`, error);
+                 rejectStore(error); // Reject the store promise on setup error
             }
         }));
     }
@@ -1047,5 +1083,31 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
      }
 };
 
-// Initial call to open the DB when the service loads
-openDB().catch(error => console.error("Failed to initialize IndexedDB on load:", error));
+// Function to seed initial users with hashed passwords
+const seedInitialUsers = async () => {
+     const store = await getLocalDbStore(STORE_USERS, 'readwrite');
+     const countReq = store.count();
+     const count = await new Promise<number>((res, rej) => {
+          countReq.onsuccess = () => res(countReq.result);
+          countReq.onerror = () => rej(countReq.error);
+     });
+
+     if (count === 0) {
+          console.log("[seedInitialUsers] Seeding initial users...");
+          const hashPromises = seedUsers.map(async (user) => {
+               const hash = await bcrypt.hash(user.password, 10);
+               const { password, ...userData } = user;
+               return { ...userData, passwordHash: hash };
+          });
+          const usersToSeed = await Promise.all(hashPromises);
+          const addPromises = usersToSeed.map(user => store.add(user));
+          await Promise.all(addPromises);
+          console.log("[seedInitialUsers] Seeding complete.");
+     } else {
+          console.log("[seedInitialUsers] User store not empty, skipping seed.");
+     }
+};
+
+
+// Initial call to open the DB and seed users when the service loads
+openDB().then(() => seedInitialUsers()).catch(error => console.error("Failed to initialize/seed IndexedDB on load:", error));

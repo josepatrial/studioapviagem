@@ -27,7 +27,6 @@ import {
     openDB,
     STORE_USERS, // Import STORE_USERS
     getLocalUserByEmail, // Add this import
-    initialSeedUsers
 } from '@/services/localDbService'; // Import local DB functions and STORE_USERS
 import { hashPassword, verifyPassword } from '@/lib/passwordUtils'; // Import password utils
 import { useCallback } from 'react'; // Import useCallback
@@ -190,78 +189,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []); // Added eslint-disable comment
 
-
-    // Seed initial users into local DB if empty
-    useEffect(() => {
-        const seedDb = async () => {
-            try {
-                 // Wait for persistence to be ready before seeding
-                if (persistenceEnabledPromise) await persistenceEnabledPromise;
-
-                const dbInstance = await openDB();
-                 if (!dbInstance.objectStoreNames.contains(STORE_USERS)) {
-                     console.warn("[seedDb] User store not found, cannot seed.");
-                     return;
-                 }
-                const tx = dbInstance.transaction(STORE_USERS, 'readonly');
-                const store = tx.objectStore(STORE_USERS);
-                const countRequest = store.count();
-                const count = await new Promise<number>((resolve, reject) => {
-                    countRequest.onsuccess = () => resolve(countRequest.result);
-                    countRequest.onerror = () => reject(countRequest.error);
-                });
-
-                await tx.done;
-
-                if (count === 0) {
-                    console.log("[seedDb] User store is empty, seeding initial users...");
-                    const writeTx = dbInstance.transaction(STORE_USERS, 'readwrite');
-                    const writeStore = writeTx.objectStore(STORE_USERS);
-
-                    // Hash passwords for seed users before adding
-                     const seededUsersWithHashedPasswords = await Promise.all(
-                         initialSeedUsers.map(async (user) => {
-                             if (user.password) { // Check if password exists before hashing
-                                 const hashedPassword = await hashPassword(user.password);
-                                  // Create a new object excluding the plain password and adding the hash
-                                 const { password, ...userWithoutPassword } = user;
-                                 return { ...userWithoutPassword, passwordHash: hashedPassword };
-                             }
-                             return user; // Return user as is if no password field
-                         })
-                     );
-
-                     // Add the users with hashed passwords
-                     const seedPromises = seededUsersWithHashedPasswords.map(user =>
-                        new Promise<void>((resolve, reject) => {
-                             // Check if a user with this ID already exists before adding
-                             const checkReq = writeStore.get(user.id);
-                             checkReq.onsuccess = () => {
-                                 if (!checkReq.result) { // Only add if it doesn't exist
-                                     const addReq = writeStore.add(user);
-                                     addReq.onsuccess = () => resolve();
-                                     addReq.onerror = () => reject(addReq.error);
-                                 } else {
-                                     console.log(`[seedDb] User ${user.id} already exists, skipping add.`);
-                                     resolve(); // Resolve successfully if already exists
-                                 }
-                             };
-                             checkReq.onerror = () => reject(checkReq.error); // Error checking existence
-                        })
-                    );
-                    await Promise.all(seedPromises);
-                    await writeTx.done;
-                    console.log("[seedDb] Initial users seeding process completed.");
-                } else {
-                    console.log("[seedDb] User store already contains data, skipping seed.");
-                }
-            } catch (error) {
-                console.error("[seedDb] Error seeding initial users:", error);
-            }
-        };
-
-        seedDb();
-    }, []); // Run only once on mount
 
     // Combined Effect for initial check and Firebase listener
     useEffect(() => {
@@ -646,7 +573,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                        fbErrorDesc = "O formato do e-mail é inválido.";
                    } else if (firebaseError.code === 'auth/configuration-not-found') {
                       fbErrorDesc = 'Erro de configuração do Firebase (auth/configuration-not-found). Verifique as chaves de API e outras configurações.';
-                      console.error("Firebase Signup Error: auth/configuration-not-found. Ensure API keys, etc. are correct.");
+                      console.error("Firebase Signup Error: auth/configuration-not-found. Ensure API keys, etc. are correct in .env AND Firebase console settings.");
                     }
                    toast({ variant: "destructive", title: "Aviso Cadastro Online", description: fbErrorDesc, duration: 7000 });
                   // Continue with local signup success
@@ -848,7 +775,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                  try {
                      await firebaseUpdateEmail(firebaseUser, originalEmail);
                  } catch (rollbackError) {
-                     console.error(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Firebase Auth email rollback FAILED:`, rollbackError);
+                     console.error(`[AuthProvider UpdateEmail ${updateEmailEndTime}] Firebase Auth email rollback FAILED:`, rollbackError);
                  }
              }
               // Revert local state if it was changed, and revert local DB if possible
