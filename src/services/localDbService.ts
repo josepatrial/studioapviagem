@@ -37,6 +37,29 @@ export type LocalFueling = Omit<Fueling, 'id'> & LocalRecord & { localId: string
 // Define LocalUser type - include password hash
 export type LocalUser = User & { lastLogin?: string; passwordHash?: string; }; // 'id' is firebaseId, add hash
 
+// Define initial seed users data (using hashed passwords)
+// IMPORTANT: Replace these placeholder hashes with actual hashes generated from desired passwords
+export const initialSeedUsers: LocalUser[] = [
+  {
+    id: 'local_admin_example_com', // Use a local ID for seeding
+    email: 'admin@example.com',
+    name: 'Admin User',
+    role: 'admin',
+    base: 'ALL',
+    passwordHash: '$2a$10$8.uTjL9.eF9/jU6bW8nEwuxVq6r3q0Z4U8Q6.r0Z.Z4U8Q6.r0Z.', // Replace with hash for 'adminpassword'
+    lastLogin: new Date().toISOString(),
+  },
+  {
+    id: 'local_driver_example_com', // Use a local ID for seeding
+    email: 'driver@example.com',
+    name: 'Driver User',
+    role: 'driver',
+    base: 'SP',
+    passwordHash: '$2a$10$8.uTjL9.eF9/jU6bW8nEwuxVq6r3q0Z4U8Q6.r0Z.Z4U8Q6.r0Z.', // Replace with hash for 'driverpassword'
+    lastLogin: new Date().toISOString(),
+  },
+];
+
 
 let db: IDBDatabase | null = null;
 let openDBPromise: Promise<IDBDatabase> | null = null; // Promise to track opening process
@@ -73,7 +96,7 @@ export const openDB = (): Promise<IDBDatabase> => {
           openDBPromise = null; // Allow reopening
       };
       db.onerror = (event) => {
-           console.error('[localDbService] IndexedDB connection error:', (event.target as IDBDatabase).error);
+           console.error('[localDbService] IndexedDB connection error:', (event.target as IDBDatabase)?.error);
            db = null; // Reset db instance
            openDBPromise = null;
       };
@@ -215,10 +238,10 @@ export const getLocalDbStore = (storeName: string, mode: IDBTransactionMode): Pr
       // console.log(`[getLocalDbStore ${getStoreStartTime}] Store acquired successfully. Time: ${getStoreEndTime - getStoreStartTime} ms`);
 
       transaction.onerror = (event) => {
-           console.error(`[localDbService Transaction] Error on ${storeName} (${mode}):`, (event.target as IDBTransaction).error);
+           console.error(`[localDbService Transaction] Error on ${storeName} (${mode}):`, (event.target as IDBTransaction)?.error);
       };
       transaction.onabort = (event) => {
-           console.warn(`[localDbService Transaction] Aborted on ${storeName} (${mode}):`, (event.target as IDBTransaction).error);
+           console.warn(`[localDbService Transaction] Aborted on ${storeName} (${mode}):`, (event.target as IDBTransaction)?.error);
       };
       // transaction.oncomplete = () => {
       //      console.log(`[localDbService Transaction] Completed on ${storeName} (${mode})`);
@@ -570,34 +593,28 @@ const markChildrenForDeletion = async (storeName: string, tripLocalId: string): 
             return;
         }
         const index = store.index('tripLocalId');
-        let cursor = await new Promise<IDBCursorWithValue | null>((res, rej) => {
-            const req = index.openCursor(IDBKeyRange.only(tripLocalId));
-            req.onsuccess = () => res(req.result);
-            req.onerror = () => rej(req.error);
+        let cursor: IDBCursorWithValue | null = null;
+        const request = index.openCursor(IDBKeyRange.only(tripLocalId));
+
+        return new Promise((resolve, reject) => {
+             request.onerror = () => reject(request.error);
+             request.onsuccess = () => {
+                 cursor = request.result;
+                 if (cursor) {
+                     const recordToUpdate = { ...cursor.value, deleted: true, syncStatus: 'pending' as SyncStatus };
+                     const updateRequest = cursor.update(recordToUpdate);
+                     updateRequest.onerror = () => reject(updateRequest.error);
+                     updateRequest.onsuccess = () => {
+                          console.log(`[markChildren] Marked child ${cursor!.primaryKey} in ${storeName} for deletion.`);
+                          cursor!.continue();
+                     };
+                 } else {
+                      // No more items for this tripLocalId
+                      resolve();
+                 }
+             };
         });
 
-        while (cursor) {
-            const recordToUpdate = { ...cursor.value, deleted: true, syncStatus: 'pending' as SyncStatus };
-            cursor.update(recordToUpdate); // Update through the cursor
-            console.log(`[markChildren] Marked child ${cursor.primaryKey} in ${storeName} for deletion.`);
-            cursor = await new Promise<IDBCursorWithValue | null>((res, rej) => {
-                try {
-                    cursor!.continue();
-                    // Await the request associated with the continue() call if necessary,
-                    // or structure to get the result correctly. This part can be tricky.
-                    // Let's re-querying after update for simplicity, though less efficient.
-                    res(null); // Exit loop, re-querying might be safer
-                } catch (e) { rej(e); }
-            }).catch(() => null); // Need robust cursor handling
-
-             // Safer: Re-open cursor after update/delete if continue() is complex
-             cursor = await new Promise<IDBCursorWithValue | null>((res, rej) => {
-                const req = index.openCursor(IDBKeyRange.only(tripLocalId)); // Re-open cursor
-                req.onsuccess = () => res(req.result);
-                req.onerror = () => rej(req.error);
-            }).catch(() => null);
-             // Need logic to skip already processed items if re-opening cursor
-        }
     } catch (error) {
         console.error(`[markChildren] Error marking children in ${storeName} for trip ${tripLocalId}:`, error);
         throw error; // Re-throw
@@ -961,27 +978,45 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
                 let cursorReq = index.openCursor(IDBKeyRange.only(true));
 
                 const processCursor = async () => {
-                    const cursor: IDBCursorWithValue | null = await new Promise((res, rej) => {
-                        cursorReq.onsuccess = () => res(cursorReq.result);
-                        cursorReq.onerror = () => rej(cursorReq.error);
-                    });
+                    let cursor: IDBCursorWithValue | null = null;
+                     try {
+                         cursor = await new Promise((res, rej) => {
+                             cursorReq.onsuccess = () => res(cursorReq.result);
+                             cursorReq.onerror = () => rej(cursorReq.error);
+                         });
+                     } catch (cursorError) {
+                         console.error(`[Cleanup] Error opening cursor for ${storeName}:`, cursorError);
+                         return; // Stop processing this store on cursor error
+                     }
+
 
                     if (cursor) {
                         if (cursor.value.syncStatus === 'synced' && cursor.value.deleted === true) {
                             console.log(`[Cleanup] Deleting record ${cursor.primaryKey} from ${storeName}`);
                             const deleteReq = cursor.delete();
-                            await new Promise<void>((resDel, rejDel) => {
-                                deleteReq.onsuccess = () => {
-                                     deletedCount++;
-                                     storeDeletedCount++;
-                                     resDel();
-                                };
-                                deleteReq.onerror = () => rejDel(deleteReq.error);
-                            });
+                             try {
+                                 await new Promise<void>((resDel, rejDel) => {
+                                     deleteReq.onsuccess = () => {
+                                         deletedCount++;
+                                         storeDeletedCount++;
+                                         resDel();
+                                     };
+                                     deleteReq.onerror = () => rejDel(deleteReq.error);
+                                 });
+                             } catch (deleteError) {
+                                 console.error(`[Cleanup] Error deleting record ${cursor.primaryKey} from ${storeName}:`, deleteError);
+                                 // Decide whether to continue or stop on individual delete error
+                             }
+
                         }
-                        // Continue must happen *after* potential async operations inside the loop
-                        cursor.continue();
-                        await processCursor(); // Recurse for the next item
+                        // Continue MUST be called to advance the cursor
+                         try {
+                             cursor.continue();
+                             await processCursor(); // Recurse for the next item
+                         } catch (continueError) {
+                              console.error(`[Cleanup] Error continuing cursor for ${storeName}:`, continueError);
+                         }
+
                     }
                 };
 
@@ -1006,4 +1041,3 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
 
 // Initial call to open the DB when the service loads
 openDB().catch(error => console.error("Failed to initialize IndexedDB on load:", error));
-    

@@ -1,7 +1,7 @@
 // src/contexts/AuthContext.tsx
 'use client';
 
-import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import {
   getAuth,
   signInWithEmailAndPassword,
@@ -26,9 +26,11 @@ import {
     LocalUser as DbUser, // Rename to avoid conflict
     openDB,
     STORE_USERS, // Import STORE_USERS
-    getLocalUserByEmail // Add this import
+    getLocalUserByEmail, // Add this import
+    initialSeedUsers // Import initial seed users
 } from '@/services/localDbService'; // Import local DB functions and STORE_USERS
 import { hashPassword, verifyPassword } from '@/lib/passwordUtils'; // Import password utils
+import { useCallback } from 'react'; // Import useCallback
 
 // Define user roles
 export type UserRole = 'driver' | 'admin';
@@ -75,13 +77,13 @@ const createUserDocument = async (userId: string, email: string, name: string, u
     base: role === 'admin' ? 'ALL' : (base || ''), // Admins get 'ALL' base, others get provided or empty
   };
   try {
-    await setDoc(userDocRef, userData);
+    await setDoc(userDocRef, userData, { merge: true }); // Use merge: true to avoid overwriting existing data if it somehow exists
     const endTime = performance.now();
-    console.log(`[createUserDocument ${startTime}] Firestore document created successfully for ${userId} in ${endTime - startTime} ms.`);
+    console.log(`[createUserDocument ${startTime}] Firestore document created/merged successfully for ${userId} in ${endTime - startTime} ms.`);
   } catch (firestoreError: any) {
     const endTime = performance.now();
-    console.error(`[createUserDocument ${startTime}] Error creating Firestore document for ${userId} in ${endTime - startTime} ms:`, firestoreError);
-    throw new Error(`Failed to create Firestore user document: ${firestoreError.message}`);
+    console.error(`[createUserDocument ${startTime}] Error creating/merging Firestore document for ${userId} in ${endTime - startTime} ms:`, firestoreError);
+    throw new Error(`Failed to create/merge Firestore user document: ${firestoreError.message}`);
   }
 };
 
@@ -90,6 +92,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [firebaseUser, setFirebaseUser] = useState<FirebaseUser | null>(null);
   const [loading, setLoading] = useState(true); // Start loading true until initial check is done
   const { toast } = useToast();
+
 
     // Check local DB for logged-in user on initial load
     const checkLocalLogin = useCallback(async (): Promise<boolean> => {
@@ -100,7 +103,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             await persistenceEnabledPromise; // Wait for persistence setup (if applicable)
             const dbInstance = await openDB(); // Ensure DB is open
 
-             if (!dbInstance.objectStoreNames.contains(STORE_USERS)) {
+            if (!dbInstance.objectStoreNames.contains(STORE_USERS)) {
                  console.warn(`[checkLocalLogin ${checkLocalStartTime}] User store '${STORE_USERS}' not found. Skipping local check.`);
                  setLoading(false); // If store doesn't exist, we are not loading anymore
                  return false;
@@ -134,7 +137,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                     return true;
                 } else {
                      console.log(`[checkLocalLogin ${checkLocalStartTime}] Local user ${latestUser.id} found, but login is too old or timestamp missing. Deleting...`);
-                     await deleteLocalUser(latestUser.id).catch(e => console.error("[checkLocalLogin] Error deleting stale local user:", e));
+                     // Don't delete potentially valid users just because the timestamp is old
+                     // await deleteLocalUser(latestUser.id).catch(e => console.error("[checkLocalLogin] Error deleting stale local user:", e));
                 }
             } else {
                 console.log(`[checkLocalLogin ${checkLocalStartTime}] No local users found.`);
@@ -156,6 +160,50 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         }
     }, []); // Keep useCallback dependency array empty
 
+
+    // Seed initial users into local DB if empty
+    useEffect(() => {
+        const seedDb = async () => {
+            try {
+                const dbInstance = await openDB();
+                 if (!dbInstance.objectStoreNames.contains(STORE_USERS)) {
+                     console.warn("[seedDb] User store not found, cannot seed.");
+                     return;
+                 }
+                const tx = dbInstance.transaction(STORE_USERS, 'readonly');
+                const store = tx.objectStore(STORE_USERS);
+                const countRequest = store.count();
+                const count = await new Promise<number>((resolve, reject) => {
+                    countRequest.onsuccess = () => resolve(countRequest.result);
+                    countRequest.onerror = () => reject(countRequest.error);
+                });
+
+                await tx.done;
+
+                if (count === 0) {
+                    console.log("[seedDb] User store is empty, seeding initial users...");
+                    const writeTx = dbInstance.transaction(STORE_USERS, 'readwrite');
+                    const writeStore = writeTx.objectStore(STORE_USERS);
+                    const seedPromises = initialSeedUsers.map(user =>
+                        new Promise<void>((resolve, reject) => {
+                            const req = writeStore.add(user);
+                            req.onsuccess = () => resolve();
+                            req.onerror = () => reject(req.error);
+                        })
+                    );
+                    await Promise.all(seedPromises);
+                    await writeTx.done;
+                    console.log("[seedDb] Initial users seeded successfully.");
+                } else {
+                    console.log("[seedDb] User store already contains data, skipping seed.");
+                }
+            } catch (error) {
+                console.error("[seedDb] Error seeding initial users:", error);
+            }
+        };
+
+        seedDb();
+    }, []); // Run only once on mount
 
     // Combined Effect for initial check and Firebase listener
     useEffect(() => {
@@ -191,8 +239,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                   if (user) {
                       console.log(`[AuthProvider onAuthStateChanged ${listenerId}] Clearing local user state due to FB logout.`);
                       setUser(null);
-                      // No need to delete local user here, login logic handles that
-                      // await deleteLocalUser(user.id).catch(e => console.error("Error deleting local user on FB logout:", e));
                   }
                   setLoading(false); // Definitively stop loading on logout
               } else {
@@ -218,7 +264,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                              const existingLocal = await getLocalUser(fbUser.uid);
                              const mergedLocal: DbUser = {
                                  ...localUserData,
-                                 passwordHash: existingLocal?.passwordHash || '' // Keep existing hash or set empty
+                                 // Keep existing hash if it exists, otherwise, it implies Firebase signup without local pw update yet
+                                 passwordHash: existingLocal?.passwordHash || ''
                              };
                             await saveLocalUser(mergedLocal);
                        } else if (!localUserData) { // No local data AND no Firestore data
@@ -252,7 +299,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                    } catch (error: any) {
                        console.error(`[AuthProvider onAuthStateChanged ${listenerId}] Error fetching/saving user data for ${fbUser.uid}:`, error);
                        if (isMounted) {
-                            toast({ variant: "destructive", title: "Erro Dados Locais/Online", description: `Não foi possível carregar/salvar dados do usuário. ${error.code === 'unavailable' || error.message?.includes('offline') ? 'Sistema offline?' : ''}` });
+                            // Enhanced error message for offline scenario
+                            let description = `Não foi possível carregar/salvar dados do usuário.`;
+                            if (error.name === 'NetworkError' || error.message?.includes('offline') || error.message?.includes('Failed to fetch')) {
+                                description += ' Parece que você está offline.';
+                            } else if (error.code === 'unavailable') {
+                                description += ' O serviço do Firestore está temporariamente indisponível ou offline.';
+                            } else if (error.message) {
+                                description += ` Detalhes: ${error.message}`;
+                            }
+                            toast({ variant: "destructive", title: "Erro Dados Locais/Online", description: description, duration: 9000 });
                        }
                    } finally {
                        if (isMounted) {
@@ -274,10 +330,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             if (isMounted) {
                 console.log(`[AuthProvider Effect ${listenerId}] Local check completed. User found: ${localUserFound}. Setting up Firebase listener.`);
                 setupFirebaseListener();
-                 // If local user WAS found, loading remains true until Firebase confirms/updates
-                 // If no local user was found, loading remains true until Firebase responds
                  console.log(`[AuthProvider Effect ${listenerId}] Waiting for Firebase listener... (Loading is ${loading})`);
-                 // setLoading(false); // DO NOT set loading false here, let the listener handle it
             }
         }).catch(err => {
              initialLocalCheckDone = true; // Mark local check as done even on error
@@ -333,13 +386,26 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                   return true;
               } else {
                    console.log(`[AuthProvider Login ${loginStartTime}] Local password verification failed for ${email}.`);
-                   // Proceed to Firebase login
+                   // Proceed to Firebase login if online
               }
           } else {
                console.log(`[AuthProvider Login ${loginStartTime}] Local user ${email} not found or has no password hash. Proceeding to Firebase login.`);
           }
 
-         // 2. Attempt Firebase Login
+         // 2. Attempt Firebase Login (Only if online)
+         if (!navigator.onLine) {
+             console.log(`[AuthProvider Login ${loginStartTime}] Offline. Firebase login skipped.`);
+             toast({ variant: "destructive", title: "Offline", description: "Você está offline. Login online indisponível.", duration: 5000 });
+             setLoading(false);
+             // If local login also failed, return false
+             if (!localDbUser || !(await verifyPassword(pass, localDbUser.passwordHash || ''))) {
+                 toast({ variant: "destructive", title: "Falha no Login Offline", description: "Credenciais locais inválidas.", duration: 5000 });
+                 return false;
+             }
+             // If local login succeeded earlier, the function already returned true
+             return false; // Should not be reached if local login was successful
+         }
+
          if (!auth) {
              console.error(`[AuthProvider Login ${loginStartTime}] Firebase login skipped: Auth instance not available.`);
              toast({ variant: "destructive", title: "Erro de Configuração", description: "Autenticação online não inicializada.", duration: 9000 });
@@ -351,16 +417,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
          const userCredential = await signInWithEmailAndPassword(auth, email, pass);
          const loginEndTime = performance.now();
          console.log(`[AuthProvider Login ${loginStartTime}] signInWithEmailAndPassword successful for ${userCredential.user.email}. Time: ${loginEndTime - loginStartTime} ms. Waiting for onAuthStateChanged...`);
-         // **Crucially, we return true here, but the UI update depends on the listener**
-         // The listener will handle fetching/saving data and setting user/loading state correctly.
-         // It will also set loading to false eventually.
+         // Listener will handle state updates
          return true;
 
      } catch (error: any) {
          const loginEndTime = performance.now();
-         console.error(`[AuthProvider Login ${loginStartTime}] Login failed for ${email}. Time: ${loginEndTime - loginStartTime} ms. Error Code: ${error.code}, Message: ${error.message}`); // Log specific error code
+         console.error(`[AuthProvider Login ${loginStartTime}] Login failed for ${email}. Time: ${loginEndTime - loginStartTime} ms. Error Code: ${error.code}, Message: ${error.message}`);
          let errorMessage = 'Falha no Login. Verifique seu e-mail e senha.';
-          // Explicitly handle auth/invalid-credential
           if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
               errorMessage = 'E-mail ou senha inválidos.';
           } else if (error.code === 'auth/invalid-email') {
@@ -372,10 +435,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           } else if (error.code === 'auth/operation-not-allowed') {
                  errorMessage = 'Login com e-mail/senha não está habilitado. Contacte o administrador.';
           } else if (error.code === 'auth/configuration-not-found') {
-               errorMessage = 'Erro de configuração do Firebase (auth/configuration-not-found). Verifique as chaves de API e outras configurações.';
-               console.error("Firebase Login Error: auth/configuration-not-found. Ensure API keys, etc. are correct.");
-           }
-           else if (error.code?.includes('auth/')) {
+               errorMessage = 'Erro de configuração do Firebase. Verifique as chaves de API e outras configurações no console.';
+               console.error("Firebase Login Error: auth/configuration-not-found. Ensure API keys, etc. are correct in .env AND Firebase console settings.");
+           } else if (error.code?.includes('auth/')) {
                 errorMessage = `Erro de autenticação (${error.code}). Tente novamente.`;
            }
          toast({
@@ -464,14 +526,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
              } catch (firebaseError: any) {
                   console.warn(`[AuthProvider Signup ${signupStartTime}] Firebase signup/setup failed (User still created locally). Error: ${firebaseError.code}, ${firebaseError.message}`);
-                  // Don't fail the whole signup, local user is created. Maybe show a warning toast?
                    let fbErrorDesc = "Falha ao criar usuário online. A conta funcionará localmente.";
                     if (firebaseError.code === 'auth/email-already-in-use') {
                        fbErrorDesc = "E-mail já em uso online. A conta local foi criada, mas pode haver conflitos de sincronização.";
-                       // Potential recovery: try linking? Or just inform user.
                    } else if (firebaseError.code === 'auth/weak-password') {
                        fbErrorDesc = "Senha fraca para cadastro online. Conta local criada.";
-                   }
+                   } else if (firebaseError.code === 'auth/operation-not-allowed') {
+                       fbErrorDesc = "Cadastro com email/senha desabilitado no Firebase.";
+                   } else if (firebaseError.code === 'auth/invalid-email') {
+                       fbErrorDesc = "O formato do e-mail é inválido.";
+                   } else if (firebaseError.code === 'auth/configuration-not-found') {
+                      fbErrorDesc = 'Erro de configuração do Firebase (auth/configuration-not-found). Verifique as chaves de API e outras configurações.';
+                      console.error("Firebase Signup Error: auth/configuration-not-found. Ensure API keys, etc. are correct.");
+                    }
                    toast({ variant: "destructive", title: "Aviso Cadastro Online", description: fbErrorDesc, duration: 7000 });
                   // Continue with local signup success
              }
@@ -601,14 +668,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
         let originalEmail = user.email; // Store original email for potential rollback
         let firebaseAuthUpdated = false;
+        let currentDbUser = null; // To store the DbUser for rollback
 
         try {
+             // Get current full local user data (including hash) for potential rollback
+             currentDbUser = await getLocalUser(user.id);
+             if (!currentDbUser) throw new Error("Current local user data not found for email update.");
+
             // Update Local DB First (Optimistic for local state)
             const updatedLocalUser = { ...user, email: newEmail };
-             // Fetch full DbUser to preserve hash
-             const currentDbUser = await getLocalUser(user.id);
-             if (!currentDbUser) throw new Error("Current local user data not found for email update.");
-             const updatedDbUser: DbUser = { ...currentDbUser, email: newEmail, lastLogin: new Date().toISOString() }; // Update lastLogin too?
+            const updatedDbUser: DbUser = { ...currentDbUser, email: newEmail, lastLogin: new Date().toISOString() };
             await saveLocalUser(updatedDbUser);
             console.log(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Local DB email updated.`);
             setUser(updatedLocalUser); // Update context state
@@ -623,7 +692,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                      console.error(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Firebase Auth email update failed. Rolling back local changes...`, authError);
                       // Rollback local changes
                       setUser({ ...user, email: originalEmail });
-                      await saveLocalUser({ ...currentDbUser, email: originalEmail }); // Revert DB
+                      await saveLocalUser(currentDbUser); // Revert DB using the fetched original DbUser
 
                      let desc = "Não foi possível atualizar o e-mail online.";
                       if (authError.code === 'auth/email-already-in-use') desc = "Este e-mail já está em uso por outra conta.";
@@ -644,8 +713,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                     await setFirestoreUserData(user.id, { email: newEmail });
                     console.log(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Firestore email updated.`);
                  } catch (firestoreError) {
-                      console.error(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Failed to update Firestore email (continuing anyway):`, firestoreError);
-                      // Non-critical, maybe just mark local record for sync?
+                      console.error(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Failed to update Firestore email, proceeding with local update:`, firestoreError);
+                      // Mark local record for sync? (Handled by SyncProvider if status is 'pending')
                  }
             } else {
                  console.warn(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Firestore DB not available or offline. Skipping Firestore update.`);
@@ -667,8 +736,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                      console.error(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Firebase Auth email rollback FAILED:`, rollbackError);
                  }
              }
-             // Revert local state if it was changed
+              // Revert local state if it was changed, and revert local DB if possible
              setUser({ ...user, email: originalEmail });
+             if (currentDbUser) { // Ensure we have the original DbUser data before trying to revert
+                 await saveLocalUser(currentDbUser).catch(dbRollbackError => {
+                     console.error(`[AuthProvider UpdateEmail ${updateEmailEndTime}] CRITICAL: Failed to rollback local DB change after error:`, dbRollbackError);
+                 });
+             }
             toast({ variant: "destructive", title: "Falha Local", description: "Não foi possível salvar a alteração do e-mail localmente." });
             return false;
         } finally {
@@ -759,11 +833,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
          }
         setLoading(true);
         const originalName = user.name; // For potential rollback
+        let currentDbUser = null; // For potential DB rollback
 
         try {
-             // Update Local DB First
-             const currentDbUser = await getLocalUser(user.id);
+             // Fetch current DbUser
+             currentDbUser = await getLocalUser(user.id);
              if (!currentDbUser) throw new Error("Current local user data not found for name update.");
+
+             // Update Local DB First
              const updatedDbUser: DbUser = { ...currentDbUser, name: newName, lastLogin: new Date().toISOString() };
              await saveLocalUser(updatedDbUser);
              console.log(`[AuthProvider UpdateName ${updateNameStartTime}] Local DB name updated.`);
@@ -790,7 +867,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                     await setFirestoreUserData(user.id, { name: newName });
                     console.log(`[AuthProvider UpdateName ${updateNameStartTime}] Firestore name updated.`);
                 } catch (firestoreError) {
-                     console.error(`[AuthProvider UpdateName ${updateNameStartTime}] Failed to update Firestore name (continuing anyway):`, firestoreError);
+                     console.error(`[AuthProvider UpdateName ${updateNameStartTime}] Failed to update Firestore name, proceeding with local update:`, firestoreError);
                      // Mark local record for sync?
                 }
             } else {
@@ -806,6 +883,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
              console.error(`[AuthProvider UpdateName ${updateNameStartTime}] Local DB Name update failed after ${updateNameEndTime - updateNameStartTime} ms. Error:`, error);
               // Rollback local state
               setUser({ ...user, name: originalName });
+              // Rollback local DB
+               if (currentDbUser) {
+                   await saveLocalUser(currentDbUser).catch(dbRollbackError => {
+                       console.error(`[AuthProvider UpdateName ${updateNameEndTime}] CRITICAL: Failed to rollback local DB change after error:`, dbRollbackError);
+                   });
+               }
              toast({ variant: "destructive", title: "Falha Local", description: "Não foi possível salvar a alteração do nome localmente." });
             return false;
         } finally {
@@ -835,12 +918,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             return false;
         }
         const originalBase = user.base; // For potential rollback
+        let currentDbUser = null; // For DB rollback
 
         setLoading(true);
         try {
-             // 1. Update Local DB
-             const currentDbUser = await getLocalUser(user.id);
+             // Fetch current DbUser
+             currentDbUser = await getLocalUser(user.id);
              if (!currentDbUser) throw new Error("Current local user data not found for base update.");
+
+             // 1. Update Local DB
              const updatedDbUser: DbUser = { ...currentDbUser, base: newBase, lastLogin: new Date().toISOString() };
              await saveLocalUser(updatedDbUser);
              console.log(`[AuthProvider UpdateBase ${updateBaseStartTime}] Local DB base updated.`);
@@ -853,8 +939,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                  try {
                      await setFirestoreUserData(user.id, { base: newBase });
                      console.log(`[AuthProvider UpdateBase ${updateBaseStartTime}] Firestore base updated.`);
-                 } catch (firestoreError){ // Catch specific Firestore error
-                      console.error(`[AuthProvider UpdateBase ${updateBaseStartTime}] Failed to update Firestore base (continuing anyway):`, firestoreError);
+                 } catch (firestoreError) { // Corrected catch syntax
+                      console.error(`[AuthProvider UpdateBase ${updateBaseStartTime}] Failed to update Firestore base, proceeding with local update:`, firestoreError);
                      // Mark local for sync?
                  }
              } else {
@@ -870,6 +956,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
               console.error(`[AuthProvider UpdateBase ${updateBaseStartTime}] Local DB Base update failed after ${updateBaseEndTime - updateBaseStartTime} ms. Error:`, error);
               // Rollback local state
               setUser({ ...user, base: originalBase });
+               // Rollback local DB
+               if (currentDbUser) {
+                   await saveLocalUser(currentDbUser).catch(dbRollbackError => {
+                       console.error(`[AuthProvider UpdateBase ${updateBaseEndTime}] CRITICAL: Failed to rollback local DB change after error:`, dbRollbackError);
+                   });
+               }
               toast({ variant: "destructive", title: "Falha Local", description: "Não foi possível salvar a alteração da base localmente." });
               return false;
          } finally {
