@@ -42,7 +42,7 @@ export type LocalFueling = Omit<Fueling, 'id'> & LocalRecord & { localId: string
 export type LocalUser = User & { lastLogin?: string; passwordHash?: string; }; // 'id' is firebaseId, add hash
 
 // Define initial seed users data (using hashed passwords)
-const seedUsersData: Omit<LocalUser, 'passwordHash'> & {password: string}[] = [
+const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin'> & {password: string})[] = [
   {
     id: 'admin@grupo2irmaos.com.br', // Use email as ID for direct mapping for this special user
     email: 'admin@grupo2irmaos.com.br',
@@ -50,7 +50,6 @@ const seedUsersData: Omit<LocalUser, 'passwordHash'> & {password: string}[] = [
     role: 'admin',
     base: 'ALL',
     password: 'admin123',
-    lastLogin: new Date().toISOString(),
   },
   {
     id: 'jose.patrial@grupo2irmaos.com.br', // Use email as ID for direct mapping
@@ -59,16 +58,14 @@ const seedUsersData: Omit<LocalUser, 'passwordHash'> & {password: string}[] = [
     role: 'driver',
     base: 'PR',
     password: '123456',
-    lastLogin: new Date().toISOString(),
    },
    {
      id: 'grupo2irmaos@grupo2irmaos.com.br', // Forced Admin - also use email as ID
      email: 'grupo2irmaos@grupo2irmaos.com.br',
-     name: 'Forced Admin Special',
+     name: 'Grupo 2 Irmãos Admin',
      role: 'admin', // Will be forced to admin regardless
      base: 'ALL', // Will be forced to ALL regardless
      password: 'admin123', // Same password for simplicity, change if needed
-     lastLogin: new Date().toISOString(),
    },
 ];
 
@@ -1039,7 +1036,7 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
                     resolveStore();
                 };
                 transaction.onerror = (event) => rejectStore((event.target as IDBRequest).error);
-                transaction.onabort = (event) => rejectStore((event.target as IDBTransaction).error || new Error('Transaction aborted'));
+                transaction.onabort = (event) => rejectStore((event.target as IDBTransaction).error || new Error("Transaction aborted"));
 
                 cursorReq.onerror = (event: Event) => rejectStore((event.target as IDBRequest).error);
                 cursorReq.onsuccess = (event) => {
@@ -1083,52 +1080,71 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
 };
 
 // Function to seed initial users with hashed passwords
-const seedInitialUsers = async () => {
+export const seedInitialUsers = async () => {
     const dbInstance = await openDB(); // Ensure DB is open
     const transaction = dbInstance.transaction(STORE_USERS, 'readwrite');
     const store = transaction.objectStore(STORE_USERS);
 
-    const countReq = store.count();
-    const count = await new Promise<number>((res, rej) => {
-        countReq.onsuccess = () => res(countReq.result);
-        countReq.onerror = () => rej(countReq.error);
+    // Promise to handle transaction completion for all operations
+    const transactionCompletePromise = new Promise<void>((resolveTx, rejectTx) => {
+        transaction.oncomplete = () => {
+            console.log("[seedInitialUsers] Transaction completed.");
+            resolveTx();
+        };
+        transaction.onerror = (event) => {
+            console.error("[seedInitialUsers] Transaction error:", (event.target as IDBTransaction).error);
+            rejectTx((event.target as IDBTransaction).error);
+        };
+        transaction.onabort = (event) => {
+            console.warn("[seedInitialUsers] Transaction aborted:", (event.target as IDBTransaction).error);
+            rejectTx((event.target as IDBTransaction).error || new Error("Seed transaction aborted"));
+        };
     });
 
-    if (count === 0) {
-        console.log("[seedInitialUsers] Seeding initial users...");
-        const hashPromises = seedUsersData.map(async (user) => {
-            const hash = await bcrypt.hash(user.password, 10);
-            const { password, ...userData } = user;
-            return { ...userData, passwordHash: hash };
+    try {
+        const countReq = store.count();
+        const count = await new Promise<number>((res, rej) => {
+            countReq.onsuccess = () => res(countReq.result);
+            countReq.onerror = () => rej(countReq.error);
         });
-        const usersToSeed = await Promise.all(hashPromises);
 
-        // Add users within the same transaction
-        const addPromises = usersToSeed.map(user => {
-            return new Promise<void>((resolveAdd, rejectAdd) => {
-                const addReq = store.add(user);
-                addReq.onsuccess = () => resolveAdd();
+        if (count === 0) {
+            console.log("[seedInitialUsers] Seeding initial users...");
+            const hashPromises = seedUsersData.map(async (user) => {
+                const hash = await bcrypt.hash(user.password, 10);
+                const { password, ...userData } = user;
+                return { ...userData, passwordHash: hash, lastLogin: new Date().toISOString() } as LocalUser;
+            });
+            const usersToSeed = await Promise.all(hashPromises);
+
+            // Add users within the same transaction
+            usersToSeed.forEach(user => {
+                const addReq = store.add(user); // IDBRequest is event-based, not a promise
                 addReq.onerror = () => {
-                    console.error(`[seedInitialUsers] Error adding user ${user.email}:`, addReq.error);
-                    rejectAdd(addReq.error);
+                    console.error(`[seedInitialUsers] Error adding user ${user.email} in transaction:`, addReq.error);
+                    // Don't reject here, let the transaction.onerror handle it
+                };
+                addReq.onsuccess = () => {
+                    console.log(`[seedInitialUsers] User ${user.email} added to store.`);
                 };
             });
-        });
-
-        try {
-            await Promise.all(addPromises);
-            await new Promise((resolve, reject) => { // Wait for transaction to complete
-                transaction.oncomplete = () => resolve(null);
-                transaction.onerror = (event) => reject((event.target as IDBTransaction).error);
-                transaction.onabort = (event) => reject((event.target as IDBTransaction).error || new Error("Seed transaction aborted"));
-            });
-            console.log("[seedInitialUsers] Seeding complete.");
-        } catch (seedError) {
-            console.error("[seedInitialUsers] Error during seeding user additions:", seedError);
-             // Transaction should automatically roll back on error
+            console.log("[seedInitialUsers] All add requests issued within transaction.");
+            // Wait for the transaction to complete using the promise
+        } else {
+            console.log("[seedInitialUsers] User store not empty, skipping seed.");
         }
-    } else {
-        console.log("[seedInitialUsers] User store not empty, skipping seed.");
+        // Wait for transaction complete regardless of seeding or not (if count > 0, tx is still active from count())
+        await transactionCompletePromise;
+        console.log("[seedInitialUsers] Seeding process/check finished.");
+
+    } catch (error) {
+        console.error("[seedInitialUsers] Error during seeding process:", error);
+        if (transaction && transaction.abort && transaction.readyState !== 'done') { // Check if abort is possible and tx not done
+            console.warn("[seedInitialUsers] Aborting transaction due to error.");
+            transaction.abort();
+        }
+        // Rethrow or handle as appropriate for the application
+        throw error;
     }
 };
 
