@@ -42,41 +42,29 @@ export type LocalFueling = Omit<Fueling, 'id'> & LocalRecord & { localId: string
 export type LocalUser = User & { lastLogin?: string; passwordHash?: string; }; // 'id' is firebaseId, add hash
 
 // Define initial seed users data (using hashed passwords)
-// IMPORTANT: Replace placeholder hashes with actual hashes generated securely.
-// Using bcrypt hash for "admin123" (salt 10) -> $2a$10$1... (Replace with actual hash)
-// Using bcrypt hash for "driverpass" (salt 10) -> $2a$10$2... (Replace with actual hash)
-const seedUsers: Omit<LocalUser, 'passwordHash'> & {password: string}[] = [
+const seedUsersData: Omit<LocalUser, 'passwordHash'> & {password: string}[] = [
   {
-    id: 'local_admin_grupo2irmaos_com_br', // Use a local ID for seeding
-    email: 'admin@grupo2irmaos.com.br', // Updated admin email
-    name: 'Admin User',
+    id: 'admin@grupo2irmaos.com.br', // Use email as ID for direct mapping for this special user
+    email: 'admin@grupo2irmaos.com.br',
+    name: 'Admin Grupo 2 Irmãos',
     role: 'admin',
     base: 'ALL',
-    password: 'admin123', // Plain password for seeding hash
+    password: 'admin123',
     lastLogin: new Date().toISOString(),
   },
   {
-    id: 'local_driver_example_com', // Use a local ID for seeding
-    email: 'driver@example.com',
-    name: 'Driver User',
-    role: 'driver',
-    base: 'SP',
-    password: 'driverpassword', // Plain password for seeding hash
-    lastLogin: new Date().toISOString(),
-  },
-   {
-    id: 'local_jose_patrial_grupo2irmaos_com_br', // Local ID for Jose
+    id: 'jose.patrial@grupo2irmaos.com.br', // Use email as ID for direct mapping
     email: 'jose.patrial@grupo2irmaos.com.br',
     name: 'Jose Patrial',
     role: 'driver',
-    base: 'PR', // Example base
-    password: '123456', // Plain password for seeding hash
+    base: 'PR',
+    password: '123456',
     lastLogin: new Date().toISOString(),
    },
    {
-     id: 'local_forced_admin_grupo2irmaos_com_br', // Local ID for forced admin
+     id: 'grupo2irmaos@grupo2irmaos.com.br', // Forced Admin - also use email as ID
      email: 'grupo2irmaos@grupo2irmaos.com.br',
-     name: 'Forced Admin',
+     name: 'Forced Admin Special',
      role: 'admin', // Will be forced to admin regardless
      base: 'ALL', // Will be forced to ALL regardless
      password: 'admin123', // Same password for simplicity, change if needed
@@ -572,12 +560,12 @@ export const deleteLocalUser = (userId: string): Promise<void> => {
 
 // -- Vehicles --
 // Potential Index: vehicles store - 'localId' (keyPath), 'firebaseId', 'syncStatus', 'deleted'
-export const addLocalVehicle = (vehicle: Omit<LocalVehicle, 'localId' | 'syncStatus' | 'deleted' | 'firebaseId' | 'id'>): Promise<string> => {
+export const addLocalVehicle = (vehicle: Omit<VehicleInfo, 'id'>): Promise<string> => {
     const localId = `local_vehicle_${uuidv4()}`;
     const newLocalVehicle: LocalVehicle = {
-        ...(vehicle as Omit<VehicleInfo, 'id'>),
+        ...(vehicle as Omit<VehicleInfo, 'id'>), // Cast to ensure 'id' is not part of spread
         localId,
-        id: localId,
+        id: localId, // Set UI 'id' to localId initially
         syncStatus: 'pending',
         deleted: false,
     };
@@ -663,14 +651,23 @@ const markChildrenForDeletion = async (storeName: string, tripLocalId: string): 
              cursorReq.onsuccess = (event) => {
                  const cursor = (event.target as IDBRequest).result;
                  if (cursor) {
-                     const recordToUpdate = { ...cursor.value, deleted: true, syncStatus: 'pending' as SyncStatus };
-                     const updateRequest = cursor.update(recordToUpdate);
-                     updateRequest.onerror = (errEvent) => {
-                         console.error(`[markChildren] Error updating child ${cursor.primaryKey} in ${storeName}:`, (errEvent.target as IDBRequest).error);
-                          // Potentially abort transaction?
-                     };
-                     console.log(`[markChildren] Marked child ${cursor.primaryKey} in ${storeName} for deletion.`);
-                     cursor.continue();
+                     try {
+                              const recordToUpdate = { ...cursor.value, deleted: true, syncStatus: 'pending' as SyncStatus };
+                              const updateRequest = cursor.update(recordToUpdate);
+                              updateRequest.onerror = (errEvent) => {
+                                  console.error(`[markChildren] Error updating child ${cursor.primaryKey} in ${storeName}:`, (errEvent.target as IDBRequest).error);
+                                   // Potentially abort transaction?
+                              };
+                              console.log(`[markChildren] Marked child ${cursor.primaryKey} in ${storeName} for deletion.`);
+                     } catch (error) {
+                              console.error(`[markChildren] Error processing cursor value for ${cursor.primaryKey} in ${storeName}:`, error);
+                              if(transaction.abort){ // Check if abort exists
+                                transaction.abort(); // Abort if processing fails badly
+                              } else {
+                                console.warn("[markChildren] Transaction abort not available on this IDBTransaction object.");
+                              }
+                         }
+                         cursor.continue();
                  }
              };
         });
@@ -1044,7 +1041,7 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
                 transaction.onerror = (event) => rejectStore((event.target as IDBRequest).error);
                 transaction.onabort = (event) => rejectStore((event.target as IDBTransaction).error || new Error('Transaction aborted'));
 
-                cursorReq.onerror = (event) => reject(error);
+                cursorReq.onerror = (event: Event) => rejectStore((event.target as IDBRequest).error);
                 cursorReq.onsuccess = (event) => {
                     const cursor = (event.target as IDBRequest).result;
                     if (cursor) {
@@ -1062,7 +1059,9 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
                               }
                          } catch (error) {
                               console.error(`[Cleanup] Error processing cursor value for ${cursor.primaryKey} in ${storeName}:`, error);
-                              transaction.abort(); // Abort if processing fails badly
+                              if (transaction.abort) {
+                                transaction.abort(); // Abort if processing fails badly
+                              }
                          }
                          cursor.continue();
                     }
@@ -1085,27 +1084,52 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
 
 // Function to seed initial users with hashed passwords
 const seedInitialUsers = async () => {
-     const store = await getLocalDbStore(STORE_USERS, 'readwrite');
-     const countReq = store.count();
-     const count = await new Promise<number>((res, rej) => {
-          countReq.onsuccess = () => res(countReq.result);
-          countReq.onerror = () => rej(countReq.error);
-     });
+    const dbInstance = await openDB(); // Ensure DB is open
+    const transaction = dbInstance.transaction(STORE_USERS, 'readwrite');
+    const store = transaction.objectStore(STORE_USERS);
 
-     if (count === 0) {
-          console.log("[seedInitialUsers] Seeding initial users...");
-          const hashPromises = seedUsers.map(async (user) => {
-               const hash = await bcrypt.hash(user.password, 10);
-               const { password, ...userData } = user;
-               return { ...userData, passwordHash: hash };
-          });
-          const usersToSeed = await Promise.all(hashPromises);
-          const addPromises = usersToSeed.map(user => store.add(user));
-          await Promise.all(addPromises);
-          console.log("[seedInitialUsers] Seeding complete.");
-     } else {
-          console.log("[seedInitialUsers] User store not empty, skipping seed.");
-     }
+    const countReq = store.count();
+    const count = await new Promise<number>((res, rej) => {
+        countReq.onsuccess = () => res(countReq.result);
+        countReq.onerror = () => rej(countReq.error);
+    });
+
+    if (count === 0) {
+        console.log("[seedInitialUsers] Seeding initial users...");
+        const hashPromises = seedUsersData.map(async (user) => {
+            const hash = await bcrypt.hash(user.password, 10);
+            const { password, ...userData } = user;
+            return { ...userData, passwordHash: hash };
+        });
+        const usersToSeed = await Promise.all(hashPromises);
+
+        // Add users within the same transaction
+        const addPromises = usersToSeed.map(user => {
+            return new Promise<void>((resolveAdd, rejectAdd) => {
+                const addReq = store.add(user);
+                addReq.onsuccess = () => resolveAdd();
+                addReq.onerror = () => {
+                    console.error(`[seedInitialUsers] Error adding user ${user.email}:`, addReq.error);
+                    rejectAdd(addReq.error);
+                };
+            });
+        });
+
+        try {
+            await Promise.all(addPromises);
+            await new Promise((resolve, reject) => { // Wait for transaction to complete
+                transaction.oncomplete = () => resolve(null);
+                transaction.onerror = (event) => reject((event.target as IDBTransaction).error);
+                transaction.onabort = (event) => reject((event.target as IDBTransaction).error || new Error("Seed transaction aborted"));
+            });
+            console.log("[seedInitialUsers] Seeding complete.");
+        } catch (seedError) {
+            console.error("[seedInitialUsers] Error during seeding user additions:", seedError);
+             // Transaction should automatically roll back on error
+        }
+    } else {
+        console.log("[seedInitialUsers] User store not empty, skipping seed.");
+    }
 };
 
 
