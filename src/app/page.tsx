@@ -1,64 +1,63 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react'; // Added useState for a local loading state if needed
 import { useAuth } from '@/contexts/AuthContext';
 import AppLayout from '@/components/AppLayout';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 
 export default function Home() {
-  const { user, loading, checkLocalLogin } = useAuth(); // Get checkLocalLogin
+  const { user, loading: authContextLoading, checkLocalLogin } = useAuth();
   const router = useRouter();
+  const [isChecking, setIsChecking] = useState(true); // Local loading state for initial checks
 
   useEffect(() => {
     let isMounted = true;
     const effectStartTime = performance.now();
-    console.log(`[Home Page Effect ${effectStartTime}] Running. Initial Loading: ${loading}, User: ${!!user}`);
+    console.log(`[Home Page Effect ${effectStartTime}] Running. AuthContextLoading: ${authContextLoading}, User: ${!!user}`);
 
-    checkLocalLogin().then(isLocalLoggedIn => {
-        if (!isMounted) {
-             console.log(`[Home Page Effect ${effectStartTime}] Cleanup ran before local check completed.`);
-             return;
-        }
+    const performChecks = async () => {
+        setIsChecking(true); // Start local checking indication
+        const localUserExists = await checkLocalLogin();
         const localCheckEndTime = performance.now();
-        console.log(`[Home Page Effect ${effectStartTime}] Local login check result: ${isLocalLoggedIn}. Time: ${localCheckEndTime - effectStartTime} ms`);
+        console.log(`[Home Page Effect ${effectStartTime}] Local login check result: ${localUserExists}. Time: ${localCheckEndTime - effectStartTime} ms`);
 
-        if (!isLocalLoggedIn && !loading && !user) {
-            console.log(`[Home Page Effect ${effectStartTime}] No local or Firebase user, redirecting to /login`);
-            router.push('/login');
-        } else if (!isLocalLoggedIn && loading) {
-             console.log(`[Home Page Effect ${effectStartTime}] No local user, waiting for Firebase auth state...`);
-             // setLoading(true) should already be handled in AuthContext
-        } else if (isLocalLoggedIn && loading) {
-              console.log(`[Home Page Effect ${effectStartTime}] Local user found, but Firebase still loading. Waiting...`);
-              // UI shows spinner based on 'loading' state
-        } else if (isLocalLoggedIn && !loading && !user) {
-              console.warn(`[Home Page Effect ${effectStartTime}] Local user found, but Firebase listener returned no user. This might indicate a sync issue or deleted user. Redirecting to /login.`);
-              router.push('/login');
-        } else {
-              console.log(`[Home Page Effect ${effectStartTime}] User session found (local or Firebase). Staying on page.`);
-              // Ensure loading is false if we are staying
-              // setLoading(false); // Should be handled by AuthContext listener
+        if (!isMounted) {
+            console.log(`[Home Page Effect ${effectStartTime}] Cleanup ran before checks completed.`);
+            setIsChecking(false);
+            return;
         }
-    }).catch(err => {
-        console.error(`[Home Page Effect ${effectStartTime}] Error during checkLocalLogin:`, err);
-         if (isMounted && !loading && !user) {
-             console.log(`[Home Page Effect ${effectStartTime}] Redirecting to /login after local check error.`);
+
+        // If there's no local user, and Firebase auth is still loading, we wait for Firebase.
+        // If there's no local user, and Firebase auth is NOT loading, and there's NO Firebase user, redirect.
+        if (!localUserExists && !authContextLoading && !user) {
+            console.log(`[Home Page Effect ${effectStartTime}] No local user, auth not loading, no Firebase user. Redirecting to /login.`);
+            router.push('/login');
+        } else if (localUserExists && !authContextLoading && !user) {
+             // This case means local user existed, but onAuthStateChanged returned no Firebase user.
+             // Could be a desync, or user was deleted from Firebase.
+             console.warn(`[Home Page Effect ${effectStartTime}] Local user found, but Firebase listener returned no user. Redirecting to /login.`);
              router.push('/login');
-         }
-    });
+        } else {
+            console.log(`[Home Page Effect ${effectStartTime}] Conditions met to stay or wait for Firebase. Local: ${localUserExists}, AuthLoading: ${authContextLoading}, User: ${!!user}`);
+        }
+        setIsChecking(false); // Finish local checking indication
+    };
 
-     return () => {
-       const cleanupStartTime = performance.now();
-       console.log(`[Home Page Effect Cleanup ${effectStartTime}] Unmounting. Total effect duration: ${cleanupStartTime - effectStartTime} ms.`);
-       isMounted = false;
-     };
-    // Dependencies: checkLocalLogin, router, loading, user
-  }, [user, loading, router, checkLocalLogin]);
+    performChecks();
 
-  // Show loading spinner while initial check OR Firebase listener is working
-  if (loading) {
-     console.log("[Home Page Render] Showing loading spinner because loading state is true.");
+    return () => {
+      const cleanupStartTime = performance.now();
+      console.log(`[Home Page Effect Cleanup ${effectStartTime}] Unmounting. Total effect duration: ${cleanupStartTime - effectStartTime} ms.`);
+      isMounted = false;
+    };
+  }, [checkLocalLogin, router, authContextLoading, user]); // Dependencies
+
+  // Combine AuthContext loading with local page check loading
+  const isLoading = authContextLoading || isChecking;
+
+  if (isLoading) {
+    console.log(`[Home Page Render] Showing loading spinner. AuthContextLoading: ${authContextLoading}, isChecking: ${isChecking}`);
     return (
       <div className="flex h-screen w-screen items-center justify-center">
         <LoadingSpinner />
@@ -66,14 +65,15 @@ export default function Home() {
     );
   }
 
-  // If loading is finished but there's no user
   if (!user) {
-     console.log("[Home Page Render] No user after loading. Rendering null (should have redirected).");
-     // Redirect should happen in useEffect, this is a fallback UI state
-     return null;
+    // This should ideally be caught by the useEffect and redirected,
+    // but it's a fallback. If it reaches here, redirection logic might have issues.
+    console.log("[Home Page Render] No user after all loading checks. Rendering null (expecting redirect from effect).");
+    // To prevent rendering AppLayout without a user, explicitly return null or redirect again.
+    // router.push('/login'); // Can cause infinite loops if not careful
+    return null;
   }
 
-   // If user exists and loading is false, render the layout
-   console.log("[Home Page Render] User found and loading is false. Rendering AppLayout.");
-   return <AppLayout />;
+  console.log("[Home Page Render] User found and loading is false. Rendering AppLayout.");
+  return <AppLayout />;
 }
