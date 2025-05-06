@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { Loader2, UserPlus, ArrowLeft } from 'lucide-react';
+import { Loader2, UserPlus, ArrowLeft, Building } from 'lucide-react'; // Added Building Icon
 
 export default function SignupPage() {
   const [name, setName] = useState('');
@@ -18,6 +18,7 @@ export default function SignupPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [base, setBase] = useState(''); // Added base state
   const [isLoading, setIsLoading] = useState(false);
   const { signup } = useAuth(); // Use signup function from context
   const router = useRouter();
@@ -38,10 +39,15 @@ export default function SignupPage() {
         toast({ variant: 'destructive', title: 'Erro', description: 'Nome Completo é obrigatório.' });
         return;
     }
+    if (!base.trim()) { // Added validation for base
+        toast({ variant: 'destructive', title: 'Erro', description: 'Base Operacional é obrigatória.' });
+        return;
+    }
     // Add username validation if needed
 
     setIsLoading(true);
-    const success = await signup(email, password, name, username); // Pass name and username
+    // Pass base to the signup function
+    const success = await signup(email, password, name, username, base);
     setIsLoading(false);
 
     if (success) {
@@ -98,6 +104,18 @@ export default function SignupPage() {
                 required
                 disabled={isLoading}
               />
+            </div>
+            <div className="space-y-2">
+                <Label htmlFor="base">Base Operacional*</Label>
+                <Input
+                    id="base"
+                    type="text"
+                    placeholder="Ex: SP, RJ, MG"
+                    value={base}
+                    onChange={(e) => setBase(e.target.value.toUpperCase())} // Optional: Convert to uppercase
+                    required
+                    disabled={isLoading}
+                />
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Senha*</Label>

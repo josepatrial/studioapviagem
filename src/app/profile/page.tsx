@@ -8,14 +8,14 @@ import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { ArrowLeft, Loader2, User, Mail, Lock } from 'lucide-react'; // Import icons for sections
+import { ArrowLeft, Loader2, User, Mail, Lock, Building } from 'lucide-react'; // Import icons for sections
 import { useAuth } from '@/contexts/AuthContext';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"; // Import Tabs
 
 const ProfilePage: React.FC = () => {
-  const { user, loading, updateEmail, updatePassword, updateProfileName } = useAuth();
+  const { user, loading, updateEmail, updatePassword, updateProfileName, updateBase } = useAuth(); // Added updateBase
   const router = useRouter();
   const { toast } = useToast();
 
@@ -26,10 +26,12 @@ const ProfilePage: React.FC = () => {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [newBase, setNewBase] = useState(user?.base || ''); // Added state for new base
 
   const [isUpdatingName, setIsUpdatingName] = useState(false);
   const [isUpdatingEmail, setIsUpdatingEmail] = useState(false);
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+  const [isUpdatingBase, setIsUpdatingBase] = useState(false); // Added loading state for base update
 
   const [activeTab, setActiveTab] = useState('name'); // State for active tab
 
@@ -112,6 +114,27 @@ const ProfilePage: React.FC = () => {
      setIsUpdatingPassword(false);
    };
 
+    const handleUpdateBase = async (e: React.FormEvent) => { // Added handler for base update
+        e.preventDefault();
+        if (!newBase || newBase === user.base) {
+            toast({ variant: 'default', title: 'Nenhuma alteração', description: 'A base não foi alterada.'});
+            return;
+        }
+        if (user.role === 'admin') {
+            toast({ variant: 'destructive', title: 'Operação não permitida', description: 'A base do administrador não pode ser alterada.'});
+            return;
+        }
+        setIsUpdatingBase(true);
+        const success = await updateBase(newBase);
+        if (success) {
+            // Toast handled in context
+        } else {
+            // Toast handled in context
+            setNewBase(user.base || ''); // Reset on failure
+        }
+        setIsUpdatingBase(false);
+    };
+
 
   return (
     <div className="flex min-h-screen flex-col items-center bg-secondary p-4 md:p-6">
@@ -135,13 +158,15 @@ const ProfilePage: React.FC = () => {
              <Input id="currentEmailDisplay" value={user.email} readOnly className="bg-muted/50 cursor-not-allowed" />
              <Label htmlFor="currentNameDisplay">Nome Atual</Label>
              <Input id="currentNameDisplay" value={user.name || 'Não definido'} readOnly className="bg-muted/50 cursor-not-allowed" />
+             <Label htmlFor="currentBaseDisplay">Base Atual</Label>
+             <Input id="currentBaseDisplay" value={user.base || 'Não definida'} readOnly className="bg-muted/50 cursor-not-allowed" />
           </div>
 
           <Separator />
 
            {/* Tabs for Update Sections */}
            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-             <TabsList className="grid w-full grid-cols-3">
+             <TabsList className="grid w-full grid-cols-4"> {/* Changed to grid-cols-4 */}
                <TabsTrigger value="name">
                   <User className="mr-2 h-4 w-4" /> Alterar Nome
                </TabsTrigger>
@@ -150,6 +175,9 @@ const ProfilePage: React.FC = () => {
                </TabsTrigger>
                <TabsTrigger value="password">
                   <Lock className="mr-2 h-4 w-4" /> Alterar Senha
+               </TabsTrigger>
+               <TabsTrigger value="base"> {/* Added Base Tab */}
+                  <Building className="mr-2 h-4 w-4" /> Alterar Base
                </TabsTrigger>
              </TabsList>
 
@@ -187,8 +215,12 @@ const ProfilePage: React.FC = () => {
                       onChange={(e) => setNewEmail(e.target.value)}
                       placeholder="seu.novo@email.com"
                       required
-                      disabled={isUpdatingEmail}
+                      disabled={isUpdatingEmail || user.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br'}
+                      title={user.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br' ? "E-mail do super administrador não pode ser alterado." : ""}
                     />
+                     {user.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br' && (
+                        <p className="text-xs text-destructive">E-mail do super administrador não pode ser alterado.</p>
+                     )}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="currentPasswordForEmail">Senha Atual</Label>
@@ -199,11 +231,11 @@ const ProfilePage: React.FC = () => {
                       onChange={(e) => setCurrentPasswordForEmail(e.target.value)}
                       placeholder="Digite sua senha atual"
                       required
-                      disabled={isUpdatingEmail}
+                      disabled={isUpdatingEmail || user.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br'}
                     />
                     <p className="text-xs text-muted-foreground">Necessário para confirmar a alteração do e-mail.</p>
                   </div>
-                  <Button type="submit" disabled={isUpdatingEmail || !currentPasswordForEmail || !newEmail || newEmail === user.email} className="bg-primary hover:bg-primary/90">
+                  <Button type="submit" disabled={isUpdatingEmail || !currentPasswordForEmail || !newEmail || newEmail === user.email || user.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br'} className="bg-primary hover:bg-primary/90">
                     {isUpdatingEmail && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                     {isUpdatingEmail ? 'Atualizando...' : 'Salvar E-mail'}
                   </Button>
@@ -256,6 +288,32 @@ const ProfilePage: React.FC = () => {
                   </Button>
                 </form>
              </TabsContent>
+
+             {/* Update Base Section */}
+             <TabsContent value="base" className="mt-6">
+                <form onSubmit={handleUpdateBase} className="space-y-4">
+                  <h3 className="text-lg font-semibold">Alterar Base Operacional</h3>
+                  <div className="space-y-2">
+                    <Label htmlFor="base">Nova Base</Label>
+                    <Input
+                      id="base"
+                      value={newBase}
+                      onChange={(e) => setNewBase(e.target.value.toUpperCase())}
+                      placeholder="Ex: SP, RJ, MG"
+                      disabled={isUpdatingBase || user.role === 'admin'}
+                      title={user.role === 'admin' ? "Base do administrador não pode ser alterada." : ""}
+                    />
+                     {user.role === 'admin' && (
+                        <p className="text-xs text-destructive">Base do administrador não pode ser alterada.</p>
+                     )}
+                  </div>
+                  <Button type="submit" disabled={isUpdatingBase || !newBase || newBase === user.base || user.role === 'admin'} className="bg-primary hover:bg-primary/90">
+                     {isUpdatingBase && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                     {isUpdatingBase ? 'Atualizando...' : 'Salvar Base'}
+                  </Button>
+                </form>
+             </TabsContent>
+
            </Tabs>
 
         </CardContent>
