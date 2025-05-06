@@ -1,79 +1,77 @@
+// src/app/page.tsx
 'use client';
 
 import { useRouter } from 'next/navigation';
-import React, { useEffect, useState } from 'react'; // Added useState for a local loading state if needed
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import AppLayout from '@/components/AppLayout';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 
 export default function Home() {
-  const { user, loading: authContextLoading, checkLocalLogin } = useAuth();
+  const { user, loading: authContextLoading } = useAuth(); // Removed checkLocalLogin as page will rely on AuthContext's final state
   const router = useRouter();
-  const [isChecking, setIsChecking] = useState(true); // Local loading state for initial checks
+  // Local loading state for this page's specific initial setup/checks,
+  // primarily to ensure we don't flash content before AuthContext is ready.
+  const [pageLoading, setPageLoading] = useState(true);
 
   useEffect(() => {
     let isMounted = true;
     const effectStartTime = performance.now();
-    console.log(`[Home Page Effect ${effectStartTime}] Running. AuthContextLoading: ${authContextLoading}, User: ${!!user}`);
+    // console.log(`[Home Page Effect ${effectStartTime}] Running. AuthContextLoading: ${authContextLoading}, User: ${!!user}, PageLoading: ${pageLoading}`);
 
-    const performChecks = async () => {
-        setIsChecking(true); // Start local checking indication
-        const localUserExists = await checkLocalLogin();
-        const localCheckEndTime = performance.now();
-        console.log(`[Home Page Effect ${effectStartTime}] Local login check result: ${localUserExists}. Time: ${localCheckEndTime - effectStartTime} ms`);
+    const determineRoute = () => {
+      // Wait for AuthContext to finish its initial loading.
+      if (authContextLoading) {
+        // console.log(`[Home Page Effect ${effectStartTime}] AuthContext is still loading. Waiting...`);
+        // No need to setPageLoading(true) here, as isLoading combines authContextLoading
+        return;
+      }
 
-        if (!isMounted) {
-            console.log(`[Home Page Effect ${effectStartTime}] Cleanup ran before checks completed.`);
-            setIsChecking(false);
-            return;
+      // AuthContext has finished loading.
+      if (!user) {
+        // console.log(`[Home Page Effect ${effectStartTime}] AuthContext finished, no user. Redirecting to /login.`);
+        if (isMounted) {
+          router.push('/login');
         }
-
-        // If there's no local user, and Firebase auth is still loading, we wait for Firebase.
-        // If there's no local user, and Firebase auth is NOT loading, and there's NO Firebase user, redirect.
-        if (!localUserExists && !authContextLoading && !user) {
-            console.log(`[Home Page Effect ${effectStartTime}] No local user, auth not loading, no Firebase user. Redirecting to /login.`);
-            router.push('/login');
-        } else if (localUserExists && !authContextLoading && !user) {
-             // This case means local user existed, but onAuthStateChanged returned no Firebase user.
-             // Could be a desync, or user was deleted from Firebase.
-             console.warn(`[Home Page Effect ${effectStartTime}] Local user found, but Firebase listener returned no user. Redirecting to /login.`);
-             router.push('/login');
-        } else {
-            console.log(`[Home Page Effect ${effectStartTime}] Conditions met to stay or wait for Firebase. Local: ${localUserExists}, AuthLoading: ${authContextLoading}, User: ${!!user}`);
+      } else {
+        // User is authenticated.
+        // console.log(`[Home Page Effect ${effectStartTime}] AuthContext finished, user present. Allowing AppLayout render.`);
+        if (isMounted) {
+          setPageLoading(false); // User is present, stop page-specific loading.
         }
-        setIsChecking(false); // Finish local checking indication
+      }
     };
 
-    performChecks();
+    determineRoute();
 
     return () => {
-      const cleanupStartTime = performance.now();
-      console.log(`[Home Page Effect Cleanup ${effectStartTime}] Unmounting. Total effect duration: ${cleanupStartTime - effectStartTime} ms.`);
       isMounted = false;
+      // const cleanupStartTime = performance.now();
+      // console.log(`[Home Page Effect Cleanup ${effectStartTime}] Unmounting. Total effect duration: ${cleanupStartTime - effectStartTime} ms.`);
     };
-  }, [checkLocalLogin, router, authContextLoading, user]); // Dependencies
+  }, [authContextLoading, user, router]); // Dependencies
 
-  // Combine AuthContext loading with local page check loading
-  const isLoading = authContextLoading || isChecking;
+  // The primary loading state depends on AuthContext.
+  // pageLoading ensures we don't render AppLayout prematurely even if AuthContext briefly sets user before fully stable.
+  const isLoading = authContextLoading || pageLoading;
 
   if (isLoading) {
-    console.log(`[Home Page Render] Showing loading spinner. AuthContextLoading: ${authContextLoading}, isChecking: ${isChecking}`);
+    // console.log(`[Home Page Render] Showing loading spinner. AuthContextLoading: ${authContextLoading}, PageLoading: ${pageLoading}`);
     return (
-      <div className="flex h-screen w-screen items-center justify-center">
+      <div className="flex h-screen w-screen items-center justify-center bg-secondary">
         <LoadingSpinner />
       </div>
     );
   }
 
   if (!user) {
-    // This should ideally be caught by the useEffect and redirected,
-    // but it's a fallback. If it reaches here, redirection logic might have issues.
-    console.log("[Home Page Render] No user after all loading checks. Rendering null (expecting redirect from effect).");
-    // To prevent rendering AppLayout without a user, explicitly return null or redirect again.
-    // router.push('/login'); // Can cause infinite loops if not careful
+    // This path should ideally be handled by the redirection in useEffect.
+    // If reached, it means the redirection hasn't happened yet or there's a logic discrepancy.
+    // console.log("[Home Page Render] No user after loading checks. Rendering null (expecting redirect from effect).");
+    // It's safer to return null here to avoid flashing AppLayout if user is momentarily null.
     return null;
   }
 
-  console.log("[Home Page Render] User found and loading is false. Rendering AppLayout.");
+  // console.log("[Home Page Render] User found and loading is false. Rendering AppLayout.");
   return <AppLayout />;
 }
