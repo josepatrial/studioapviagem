@@ -128,13 +128,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     const driverIdToFilter = isAdmin && filterDriverId ? filterDriverId : (!isAdmin && user ? user.id : null);
 
     if (driverIdToFilter) {
-        // Adjust filtering to check both potential trip.userId formats (Firebase UID or email)
-        // against the filterDriverId (which is a Firebase UID from the Select).
-        filteredTrips = filteredTrips.filter(t => {
-            const driver = drivers.find(d => d.id === filterDriverId);
-            return t.userId === filterDriverId || (driver && t.userId === driver.email);
-        });
-
+        const driver = drivers.find(d => d.id === filterDriverId);
+        filteredTrips = filteredTrips.filter(t => t.userId === filterDriverId || (driver && t.userId === driver.email));
         const tripLocalIdsForDriver = filteredTrips.map(t => t.localId);
         filteredVisits = filteredVisits.filter(v => tripLocalIdsForDriver.includes(v.tripLocalId || ''));
         filteredExpenses = filteredExpenses.filter(e => tripLocalIdsForDriver.includes(e.tripLocalId || ''));
@@ -207,6 +202,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         currentFuelingsSource = currentFuelingsSource.filter(f => tripIdsForDriver.includes(f.tripLocalId || ''));
     }
 
+    const driverNameMap = new Map(drivers.map(d => [d.id, d.name || `Desconhecido (${d.id.substring(0,6)}...)`]));
 
     const tripsByDriver: Record<string, { count: number; totalDistance: number; totalExpenses: number, name?: string }> = {};
     const expensesByType: Record<string, number> = {};
@@ -217,12 +213,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
 
     currentTripsSource.forEach(trip => {
       const driverIdFromTrip = trip.userId;
+      // Prioritize exact ID match, then email match, then use map for name.
       let driverData = drivers.find(d => d.id === driverIdFromTrip);
-      if (!driverData) { // If not found by ID, try finding by email
-        driverData = drivers.find(d => d.email === driverIdFromTrip);
-      }
-      const resolvedDriverName = driverData?.name || `Motorista Desconhecido (${driverIdFromTrip.substring(0,6)}...)`;
-      const aggregationKey = driverData?.id || driverIdFromTrip; // Use Firebase UID for aggregation if available
+      if (!driverData) driverData = drivers.find(d => d.email === driverIdFromTrip);
+
+      const aggregationKey = driverData?.id || driverIdFromTrip;
+      const resolvedDriverName = driverNameMap.get(aggregationKey) || `Motorista Desconhecido (${driverIdFromTrip.substring(0,6)}...)`;
 
 
       if (!tripsByDriver[aggregationKey]) {
@@ -253,7 +249,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     });
 
     currentFuelingsSource.forEach(fueling => {
-        const vehicleId = fueling.vehicleId; // This should be the Firebase ID of the vehicle
+        const vehicleId = fueling.vehicleId; 
         if(!fuelingsByVehicle[vehicleId]){
             const vehicle = vehicles.find(v => v.firebaseId === vehicleId || v.localId === vehicleId);
             fuelingsByVehicle[vehicleId] = {totalCost: 0, totalLiters: 0, count: 0, vehiclePlate: vehicle?.licensePlate || vehicleId};
@@ -285,8 +281,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
              try {
                 return parseISO(a.date.split('/').reverse().join('-')).getTime() - parseISO(b.date.split('/').reverse().join('-')).getTime();
              } catch { return 0; }
-        }) // Sort by date
-        .slice(-30); // Last 30 days
+        }) 
+        .slice(-30);
 
 
     return {
@@ -484,7 +480,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                     </TableHeader>
                     <TableBody>
                         {adminDashboardData.tripsByDriver.map(driverData => (
-                            <TableRow key={driverData.name}>
+                            <TableRow key={driverData.name}> {/* Assuming name is unique enough for key or use a driver ID if available */}
                                 <TableCell>{driverData.name}</TableCell>
                                 <TableCell className="text-right">{driverData.trips}</TableCell>
                                 <TableCell className="text-right">{formatKm(driverData.distance)}</TableCell>
@@ -504,3 +500,4 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     </div>
   );
 };
+
