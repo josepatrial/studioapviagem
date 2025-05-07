@@ -221,7 +221,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
       if (!driverData) { // If not found by ID, try finding by email
         driverData = drivers.find(d => d.email === driverIdFromTrip);
       }
-      const resolvedDriverName = driverData?.name || `ID: ${driverIdFromTrip}`; // Fallback to ID/email with prefix
+      const resolvedDriverName = driverData?.name || `Motorista: ${driverIdFromTrip}`; // More user-friendly fallback
       // Use Firebase UID for aggregation if available to group correctly
       const aggregationKey = driverData?.id || driverIdFromTrip;
 
@@ -282,7 +282,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
 
     const chartableKmByDay = Object.entries(kmByDay)
         .map(([date, km]) => ({ date, km }))
-        .sort((a,b) => parseISO(a.date.split('/').reverse().join('-')).getTime() - parseISO(b.date.split('/').reverse().join('-')).getTime()) // Sort by date
+        .sort((a,b) => {
+             try {
+                return parseISO(a.date.split('/').reverse().join('-')).getTime() - parseISO(b.date.split('/').reverse().join('-')).getTime();
+             } catch { return 0; }
+        }) // Sort by date
         .slice(-30); // Last 30 days
 
 
@@ -322,7 +326,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                                 <SelectItem value="all">Todos os Motoristas</SelectItem>
                                 {drivers.length > 0 ? (
                                     drivers.map(driver => (
-                                        <SelectItem key={driver.id} value={driver.id}>{driver.name} ({driver.base})</SelectItem>
+                                        <SelectItem key={driver.id} value={driver.id}>{driver.name || `Motorista ${driver.id.substring(0,6)}...`} ({driver.base})</SelectItem>
                                     ))
                                 ) : (
                                     <SelectItem value="no-drivers" disabled>Nenhum motorista</SelectItem>
