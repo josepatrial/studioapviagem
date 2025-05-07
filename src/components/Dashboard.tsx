@@ -153,7 +153,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
 
     let filterContext = 'Todas as Atividades';
     if (isAdmin) {
-        filterContext = `${filterDriverId ? `Motorista: ${drivers.find(d => d.id === filterDriverId)?.name}` : 'Todos os Motoristas'}`;
+        filterContext = `${filterDriverId ? `Motorista: ${drivers.find(d => d.id === filterDriverId)?.name || filterDriverId}` : 'Todos os Motoristas'}`;
     } else {
         filterContext = `Suas Atividades`;
     }
@@ -430,94 +430,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                     Os filtros de motorista e data acima se aplicam a todos os gráficos e tabelas nesta seção.
                 </AlertDescription>
             </Alert>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Viagens por Motorista</CardTitle>
-              <CardDescription>
-                {summaryData.filterContext}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {adminDashboardData.tripsByDriver.length > 0 ? (
-                <ResponsiveContainer width="100%" height={350}>
-                  <BarChart data={adminDashboardData.tripsByDriver} margin={{ top: 5, right: 20, left: 20, bottom: 50 }}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="name" angle={-45} textAnchor="end" interval={0} height={80}/>
-                    <YAxis yAxisId="left" orientation="left" stroke="hsl(var(--primary))" label={{ value: 'Nº Viagens', angle: -90, position: 'insideLeft' }}/>
-                    <YAxis yAxisId="right" orientation="right" stroke="hsl(var(--chart-2))" label={{ value: 'Distância / Despesas', angle: 90, position: 'insideRight' }}/>
-                    <Tooltip formatter={(value, name) => (name === 'distance' ? formatKm(value as number) : (name === 'expenses' ? formatCurrency(value as number) : value) )} />
-                    <Legend verticalAlign="top" />
-                    <Bar yAxisId="left" dataKey="trips" fill="hsl(var(--primary))" name="Nº Viagens" />
-                    <Bar yAxisId="right" dataKey="distance" fill="hsl(var(--chart-2))" name="Distância Total (Km)" />
-                    <Bar yAxisId="right" dataKey="expenses" fill="hsl(var(--chart-3))" name="Despesas Totais (R$)" />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <p className="text-muted-foreground">Nenhum dado de viagem por motorista para exibir com os filtros atuais.</p>
-              )}
-            </CardContent>
-          </Card>
-
-          <div className="grid md:grid-cols-2 gap-6">
-            <Card>
-                <CardHeader>
-                <CardTitle>Despesas por Tipo</CardTitle>
-                <CardDescription>{summaryData.filterContext}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                {adminDashboardData.expensesByType.length > 0 ? (
-                    <ResponsiveContainer width="100%" height={300}>
-                    <BarChart data={adminDashboardData.expensesByType} layout="vertical" margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis type="number" formatter={(value) => formatCurrency(value as number)} />
-                        <YAxis dataKey="name" type="category" width={100} interval={0} />
-                        <Tooltip formatter={(value) => formatCurrency(value as number)} />
-                        <Legend />
-                        <Bar dataKey="value" fill="hsl(var(--chart-1))" name="Valor Total (R$)" />
-                    </BarChart>
-                    </ResponsiveContainer>
-                ) : (
-                    <p className="text-muted-foreground">Nenhum dado de despesa por tipo para exibir com os filtros atuais.</p>
-                )}
-                </CardContent>
-            </Card>
-
-             <Card>
-                <CardHeader>
-                    <CardTitle>Status das Viagens</CardTitle>
-                    <CardDescription>{summaryData.filterContext}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    {adminDashboardData.tripsByStatus.some(s => s.value > 0) ? (
-                        <ResponsiveContainer width="100%" height={300}>
-                            <PieChart>
-                                <Pie
-                                    data={adminDashboardData.tripsByStatus}
-                                    cx="50%"
-                                    cy="50%"
-                                    labelLine={false}
-                                    label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                                    outerRadius={80}
-                                    fill="#8884d8"
-                                    dataKey="value"
-                                >
-                                    {adminDashboardData.tripsByStatus.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                                    ))}
-                                </Pie>
-                                <Tooltip />
-                                <Legend />
-                            </PieChart>
-                        </ResponsiveContainer>
-                    ) : (
-                         <p className="text-muted-foreground">Nenhum dado de status de viagem para exibir com os filtros atuais.</p>
-                    )}
-                </CardContent>
-            </Card>
-          </div>
-
-
+          
           <Card>
             <CardHeader>
                 <CardTitle>Abastecimentos por Veículo</CardTitle>
@@ -606,3 +519,4 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     </div>
   );
 };
+
