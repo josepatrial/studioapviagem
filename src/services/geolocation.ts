@@ -57,3 +57,47 @@ export function getCurrentLocation(): Promise<Coordinate> {
     );
   });
 }
+
+/**
+ * Asynchronously retrieves the current city name based on the device's geographical location.
+ * Uses Nominatim (OpenStreetMap) for reverse geocoding.
+ *
+ * @returns A promise that resolves to the city name string.
+ * @throws An error if geolocation fails or city cannot be determined.
+ */
+export async function getCurrentCity(): Promise<string> {
+  console.warn(
+    "Using Nominatim API for reverse geocoding. Please be mindful of their usage policy (max 1 req/sec). For production, consider a dedicated geocoding service."
+  );
+  try {
+    const coords = await getCurrentLocation();
+    const { latitude, longitude } = coords;
+
+    const response = await fetch(
+      `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}`
+    );
+
+    if (!response.ok) {
+      throw new Error(`Nominatim API request failed: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+
+    if (data && data.address) {
+      const city = data.address.city || data.address.town || data.address.village || data.address.hamlet || data.address.county;
+      if (city) {
+        return city;
+      } else {
+        throw new Error("City name not found in geocoding response.");
+      }
+    } else {
+      throw new Error("Invalid geocoding response format.");
+    }
+  } catch (error) {
+    console.error("Error getting current city:", error);
+    if (error instanceof Error) {
+      throw new Error(`Failed to determine city: ${error.message}`);
+    }
+    throw new Error("Failed to determine city due to an unknown error.");
+  }
+}

@@ -4,13 +4,13 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Eye, Edit, Trash2, MapPin, Milestone, Info, LocateFixed, AlertTriangle, Loader2, TrendingUp } from 'lucide-react'; // Added TrendingUp
+import { PlusCircle, Eye, Edit, Trash2, MapPin, Milestone, Info, LocateFixed, AlertTriangle, Loader2, TrendingUp } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
-import { getCurrentLocation, Coordinate } from '@/services/geolocation';
+import { getCurrentLocation, getCurrentCity, Coordinate } from '@/services/geolocation';
 import { useToast } from "@/hooks/use-toast";
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { addLocalVisit, updateLocalVisit, deleteLocalVisit, getLocalVisits, LocalVisit } from '@/services/localDbService';
@@ -82,15 +82,18 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
   const handleGetLocation = async () => {
     setIsFetchingLocation(true);
     try {
+      // First, get precise coordinates
       const coords: Coordinate = await getCurrentLocation();
-      setLocation(`Lat: ${coords.latitude.toFixed(4)}, Lon: ${coords.longitude.toFixed(4)}`);
       setLatitude(coords.latitude);
       setLongitude(coords.longitude);
-      toast({ title: "Localização capturada!" });
+      // Then, get city name
+      const city = await getCurrentCity();
+      setLocation(city);
+      toast({ title: "Localização capturada!", description: `Cidade: ${city}. Coordenadas salvas.` });
     } catch (error) {
       console.error("Error getting location:", error);
       toast({ variant: "destructive", title: "Erro ao buscar localização", description: (error as Error).message || "Tente novamente ou digite manualmente." });
-      setLocation('');
+      setLocation(''); // Clear location field on error
       setLatitude(undefined);
       setLongitude(undefined);
     } finally {
@@ -125,9 +128,9 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
     const newVisitData: Omit<LocalVisit, 'localId' | 'syncStatus'> = {
       tripLocalId: tripLocalId,
       clientName,
-      location,
-      latitude,
-      longitude,
+      location, // This will now store the city name
+      latitude, // Still store precise coordinates if available
+      longitude, // Still store precise coordinates if available
       initialKm: kmValue,
       reason,
       timestamp: new Date().toISOString(),
@@ -194,9 +197,9 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
       const updatedLocalVisitData: LocalVisit = {
             ...originalLocalVisit,
             clientName,
-            location,
-            latitude,
-            longitude,
+            location, // City name
+            latitude, // Coordinates
+            longitude, // Coordinates
             initialKm: kmValue,
             reason,
             syncStatus: originalLocalVisit.syncStatus === 'synced' ? 'pending' : originalLocalVisit.syncStatus,
@@ -270,7 +273,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
   const openEditModal = (visit: Visit) => {
     setCurrentVisit(visit);
     setClientName(visit.clientName);
-    setLocation(visit.location);
+    setLocation(visit.location); // This will be the city name if already geocoded
     setLatitude(visit.latitude);
     setLongitude(visit.longitude);
     setInitialKm(visit.initialKm);
@@ -327,15 +330,15 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
                     </div>
 
                     <div className="space-y-2">
-                        <Label htmlFor="location">Localização*</Label>
+                        <Label htmlFor="location">Localização (Cidade)*</Label>
                         <div className="flex items-center gap-2">
-                            <Input id="location" value={location} onChange={(e) => setLocation(e.target.value)} required placeholder="Endereço ou Coordenadas" className="flex-grow" disabled={isSaving}/>
-                            <Button type="button" variant="outline" size="icon" onClick={handleGetLocation} disabled={isFetchingLocation || isSaving} title="Usar GPS">
+                            <Input id="location" value={location} onChange={(e) => setLocation(e.target.value)} required placeholder="Nome da cidade ou use GPS" className="flex-grow" disabled={isSaving || isFetchingLocation}/>
+                            <Button type="button" variant="outline" size="icon" onClick={handleGetLocation} disabled={isFetchingLocation || isSaving} title="Usar GPS para buscar cidade">
                                 {isFetchingLocation ? <LoadingSpinner className="h-4 w-4" /> : <LocateFixed className="h-4 w-4" />}
                             </Button>
                         </div>
                         {latitude && longitude && (
-                            <p className="text-xs text-muted-foreground">Lat: {latitude.toFixed(4)}, Lon: {longitude.toFixed(4)}</p>
+                            <p className="text-xs text-muted-foreground">Coordenadas: Lat: {latitude.toFixed(4)}, Lon: {longitude.toFixed(4)} (salvas internamente)</p>
                         )}
                     </div>
 
@@ -373,7 +376,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
                 Por favor, revise os dados abaixo, especialmente a <strong>Quilometragem Inicial</strong>. Esta ação não pode ser facilmente desfeita.
                 <ul className="mt-3 list-disc list-inside space-y-1 text-sm text-foreground">
                     <li><strong>Cliente:</strong> {visitToConfirm?.clientName}</li>
-                    <li><strong>Localização:</strong> {visitToConfirm?.location}</li>
+                    <li><strong>Localização (Cidade):</strong> {visitToConfirm?.location}</li>
                     <li><strong>KM Inicial:</strong> {visitToConfirm ? formatKm(visitToConfirm.initialKm) : 'N/A'}</li>
                     <li><strong>Motivo:</strong> {visitToConfirm?.reason}</li>
                 </ul>
@@ -430,8 +433,12 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
         <div className="grid gap-4">
           {visits.map((visit, index) => {
             let distanceTraveled = null;
-            if (index < visits.length - 1) {
-                const previousChronologicalVisit = visits[index+1];
+            // Sort visits by timestamp ascending to calculate distance correctly
+            const sortedVisits = [...visits].sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+            const currentVisitIndexInSorted = sortedVisits.findIndex(v => v.id === visit.id);
+
+            if (currentVisitIndexInSorted > 0) {
+                const previousChronologicalVisit = sortedVisits[currentVisitIndexInSorted-1];
                 if (visit.initialKm && previousChronologicalVisit.initialKm) {
                     distanceTraveled = visit.initialKm - previousChronologicalVisit.initialKm;
                 }
@@ -463,8 +470,8 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
                                 </DialogHeader>
                                 <div className="py-4 space-y-3">
                                     <p><strong>Cliente:</strong> {visit.clientName}</p>
-                                    <p><strong>Localização:</strong> {visit.location}</p>
-                                    {visit.latitude && visit.longitude && <p className="text-xs">({visit.latitude.toFixed(4)}, {visit.longitude.toFixed(4)})</p>}
+                                    <p><strong>Localização (Cidade):</strong> {visit.location}</p>
+                                    {visit.latitude && visit.longitude && <p className="text-xs text-muted-foreground">Coordenadas: ({visit.latitude.toFixed(4)}, {visit.longitude.toFixed(4)})</p>}
                                     <p><strong>KM Inicial:</strong> {formatKm(visit.initialKm)}</p>
                                     {distanceTraveled !== null && distanceTraveled >=0 && (
                                         <p><strong>Distância desde última visita:</strong> {formatKm(distanceTraveled)}</p>
@@ -495,15 +502,15 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
                                         <Input id="editClientName" value={clientName} onChange={(e) => setClientName(e.target.value)} required disabled={isSaving}/>
                                     </div>
                                     <div className="space-y-2">
-                                        <Label htmlFor="editLocation">Localização*</Label>
+                                        <Label htmlFor="editLocation">Localização (Cidade)*</Label>
                                         <div className="flex items-center gap-2">
-                                            <Input id="editLocation" value={location} onChange={(e) => setLocation(e.target.value)} required className="flex-grow" disabled={isSaving}/>
-                                            <Button type="button" variant="outline" size="icon" onClick={handleGetLocation} disabled={isFetchingLocation || isSaving} title="Usar GPS">
+                                            <Input id="editLocation" value={location} onChange={(e) => setLocation(e.target.value)} required className="flex-grow" disabled={isSaving || isFetchingLocation}/>
+                                            <Button type="button" variant="outline" size="icon" onClick={handleGetLocation} disabled={isFetchingLocation || isSaving} title="Usar GPS para buscar cidade">
                                                 {isFetchingLocation ? <LoadingSpinner className="h-4 w-4" /> : <LocateFixed className="h-4 w-4" />}
                                             </Button>
                                         </div>
                                         {latitude && longitude && (
-                                            <p className="text-xs text-muted-foreground">Lat: {latitude.toFixed(4)}, Lon: {longitude.toFixed(4)}</p>
+                                            <p className="text-xs text-muted-foreground">Coordenadas: Lat: {latitude.toFixed(4)}, Lon: {longitude.toFixed(4)} (salvas internamente)</p>
                                         )}
                                     </div>
                                     <div className="space-y-2">
@@ -566,3 +573,4 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
   );
 };
 export default Visits;
+
