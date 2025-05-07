@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { MapPin, Wallet, Fuel, Truck, Milestone, Filter, Calendar, Info } from 'lucide-react'; // Added Calendar and Info icon
+import { MapPin, Wallet, Fuel, Truck, Milestone, Filter, Calendar, Info, Car } from 'lucide-react'; // Added Calendar, Info and Car icon
 import { useAuth, User } from '@/contexts/AuthContext'; // Import User type
 import type { Trip } from './Trips/Trips';
 import {getLocalVisits as fetchLocalVisits, getLocalExpenses, getLocalFuelings, getLocalTrips, getLocalVehicles, LocalVehicle, LocalExpense, LocalFueling, LocalTrip, LocalVisit, getLocalRecordsByRole} from '@/services/localDbService';
@@ -39,7 +39,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
 
   const [expenses, setExpenses] = useState<LocalExpense[]>([]);
-  const [fuelings, setFuelings] = useState<LocalFueling[]>([]);
+  const [fuelings, setFuelingsData] = useState<LocalFueling[]>([]); // Renamed to avoid conflict
   const [trips, setTrips] = useState<LocalTrip[]>([]);
   const [vehicles, setVehicles] = useState<LocalVehicle[]>([]);
   const [visits, setVisits] = useState<LocalVisit[]>([]);
@@ -67,7 +67,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         setTrips(localTrips);
         setVehicles(localVehiclesData);
         setExpenses(allLocalExpenses);
-        setFuelings(allLocalFuelings);
+        setFuelingsData(allLocalFuelings);
         setVisits(allLocalVisits);
 
 
@@ -127,7 +127,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     let currentFilteredTrips = trips;
     let allVisitsFromDb = visits;
     let allExpensesFromDb = expenses;
-    let allFuelingsFromDb = fuelings;
+    let allFuelingsFromDb = fuelingsData;
 
     if (dateRange?.from) {
         const startDate = startOfDay(dateRange.from);
@@ -188,7 +188,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         filterApplied: !!filterDriverId || !!dateRange,
         filterContext,
     };
-  }, [isAdmin, filterDriverId, dateRange, drivers, expenses, fuelings, trips, vehicles, visits]);
+  }, [isAdmin, filterDriverId, dateRange, drivers, expenses, fuelingsData, trips, vehicles, visits]);
 
   const adminDashboardData = useMemo(() => {
     if (!isAdmin || user?.email !== 'grupo2irmaos@grupo2irmaos.com.br' || loadingDrivers) {
@@ -200,6 +200,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         : trips;
 
     let currentExpensesSource = expenses;
+    let currentFuelingsSource = fuelingsData;
 
     if (dateRange?.from) {
         const startDate = startOfDay(dateRange.from);
@@ -208,10 +209,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
 
         currentTripsSource = currentTripsSource.filter(t => { try { return isWithinInterval(parseISO(t.createdAt), interval); } catch { return false; } });
         currentExpensesSource = currentExpensesSource.filter(e => { try { return isWithinInterval(parseISO(e.expenseDate), interval); } catch { return false; } });
+        currentFuelingsSource = currentFuelingsSource.filter(f => { try { return isWithinInterval(parseISO(f.date), interval); } catch { return false; } });
     }
-
+    
     const relevantTripIdsForCharts = new Set(currentTripsSource.map(t => t.localId));
     currentExpensesSource = currentExpensesSource.filter(e => e.tripLocalId && relevantTripIdsForCharts.has(e.tripLocalId));
+    // No need to filter fuelings by trip for vehicle performance, but filter if for driver ranking
+    const fuelingsForDriverRanking = currentFuelingsSource.filter(f => f.tripLocalId && relevantTripIdsForCharts.has(f.tripLocalId));
+
 
     const driverNameMap = new Map(drivers.map(d => [d.id, d.name || d.email || `Motorista Desconhecido`]));
 
@@ -262,12 +267,61 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         })
         .slice(-30);
 
+    // Vehicle Performance Calculation
+    const vehiclePerformance = vehicles.map(vehicle => {
+        const vehicleFuelings = currentFuelingsSource.filter(f => f.vehicleId === (vehicle.firebaseId || vehicle.localId));
+        const vehicleTrips = currentTripsSource.filter(t => t.vehicleId === (vehicle.firebaseId || vehicle.localId));
+
+        const totalFuelingCost = vehicleFuelings.reduce((sum, f) => sum + f.totalCost, 0);
+        const totalLiters = vehicleFuelings.reduce((sum, f) => sum + f.liters, 0);
+        
+        // Calculate total KM driven for this vehicle from its fuelings (odometer difference)
+        // Sort fuelings by date and odometer to calculate KM driven between fuelings
+        const sortedFuelings = [...vehicleFuelings].sort((a, b) => {
+            const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
+            if (dateDiff !== 0) return dateDiff;
+            return a.odometerKm - b.odometerKm;
+        });
+
+        let totalKmFromFuelings = 0;
+        if (sortedFuelings.length > 1) {
+            totalKmFromFuelings = sortedFuelings[sortedFuelings.length - 1].odometerKm - sortedFuelings[0].odometerKm;
+        } else if (sortedFuelings.length === 1 && vehicleTrips.length === 0) {
+             // If only one fueling and no trips, cannot determine km accurately
+             // Or, could use trip distance if available, but that might double count.
+             // For now, prioritize odometer if multiple fuelings exist.
+        }
+        
+        // Fallback or complement with trip distances if odometer data is insufficient
+        const totalKmFromTrips = vehicleTrips
+            .filter(t => t.status === 'Finalizado' && t.totalDistance != null)
+            .reduce((sum, t) => sum + (t.totalDistance || 0), 0);
+
+        // Prefer odometer-based KM if available and significant
+        const kmDriven = totalKmFromFuelings > 0 ? totalKmFromFuelings : totalKmFromTrips;
+
+
+        const avgCostPerKm = kmDriven > 0 ? totalFuelingCost / kmDriven : 0;
+        const avgKmPerLiter = totalLiters > 0 && kmDriven > 0 ? kmDriven / totalLiters : 0;
+
+        return {
+            id: vehicle.firebaseId || vehicle.localId,
+            name: `${vehicle.model} (${vehicle.licensePlate})`,
+            totalFuelingCost,
+            totalLiters,
+            kmDriven,
+            avgCostPerKm,
+            avgKmPerLiter,
+        };
+    }).sort((a,b) => b.kmDriven - a.kmDriven);
+
 
     return {
       tripsByDriver: chartableTripsByDriver,
       kmByDay: chartableKmByDay,
+      vehiclePerformance,
     };
-  }, [isAdmin, user?.email, trips, expenses, vehicles, drivers, dateRange, filterDriverId, loadingDrivers]);
+  }, [isAdmin, user?.email, trips, expenses, vehicles, drivers, dateRange, filterDriverId, loadingDrivers, fuelingsData]);
 
 
   return (
@@ -372,7 +426,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                <Card className="shadow-md transition-shadow hover:shadow-lg">
                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                    <CardTitle className="text-sm font-medium">Veículos</CardTitle>
-                    <Truck className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => setActiveTab(null)} />
+                    <Car className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => setActiveTab(null)} />
                  </CardHeader>
                  <CardContent>
                    <div className="text-2xl font-bold">{summaryData.totalVehicles}</div>
@@ -442,6 +496,43 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
               ) : (
                  <p className="text-muted-foreground">Nenhum dado para exibir no ranking de motoristas com os filtros atuais.</p>
               )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+                <CardTitle>Performance de Veículos</CardTitle>
+                <CardDescription>{summaryData.filterContext}</CardDescription>
+            </CardHeader>
+            <CardContent>
+                {adminDashboardData.vehiclePerformance.length > 0 ? (
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Veículo</TableHead>
+                                <TableHead className="text-right">Custo Abastec. Total</TableHead>
+                                <TableHead className="text-right">Litros Totais</TableHead>
+                                <TableHead className="text-right">KM Total</TableHead>
+                                <TableHead className="text-right">Custo Médio / KM</TableHead>
+                                <TableHead className="text-right">Média KM / Litro</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {adminDashboardData.vehiclePerformance.map(vehicleData => (
+                                <TableRow key={vehicleData.id}>
+                                    <TableCell>{vehicleData.name}</TableCell>
+                                    <TableCell className="text-right">{formatCurrency(vehicleData.totalFuelingCost)}</TableCell>
+                                    <TableCell className="text-right">{vehicleData.totalLiters.toFixed(2)} L</TableCell>
+                                    <TableCell className="text-right">{formatKm(vehicleData.kmDriven)}</TableCell>
+                                    <TableCell className="text-right">{formatCurrency(vehicleData.avgCostPerKm)}</TableCell>
+                                    <TableCell className="text-right">{vehicleData.avgKmPerLiter.toFixed(2)} Km/L</TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                ) : (
+                    <p className="text-muted-foreground">Nenhum dado de performance de veículos para exibir com os filtros atuais.</p>
+                )}
             </CardContent>
           </Card>
 
