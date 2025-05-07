@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Eye, Edit, Trash2, MapPin, Milestone, Info, LocateFixed, AlertTriangle, Loader2 } from 'lucide-react'; // Added Loader2
+import { PlusCircle, Eye, Edit, Trash2, MapPin, Milestone, Info, LocateFixed, AlertTriangle, Loader2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,36 +13,34 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { getCurrentLocation, Coordinate } from '@/services/geolocation';
 import { useToast } from "@/hooks/use-toast";
 import { LoadingSpinner } from '@/components/LoadingSpinner';
-import { addLocalVisit, updateLocalVisit, deleteLocalVisit, getLocalVisits, LocalVisit } from '@/services/localDbService'; // Import local DB functions
-import { cn } from '@/lib/utils'; // Import cn function
+import { addLocalVisit, updateLocalVisit, deleteLocalVisit, getLocalVisits, LocalVisit } from '@/services/localDbService';
+import { cn } from '@/lib/utils';
 
-// Interface still used for UI and props, but data comes from LocalVisit
 export interface Visit extends Omit<LocalVisit, 'localId' | 'tripLocalId'> {
-  id: string; // Represents localId or firebaseId
-  tripId: string; // Represents tripLocalId or firebase tripId
-  syncStatus?: 'pending' | 'synced' | 'error'; // Add syncStatus for UI indication
+  id: string;
+  tripId: string;
+  syncStatus?: 'pending' | 'synced' | 'error';
 }
 
 interface VisitsProps {
-  tripId: string; // Now represents tripLocalId
+  tripId: string;
   tripName?: string;
 }
 
 export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName }) => {
-  const [visits, setVisits] = useState<Visit[]>([]); // UI state uses Visit interface
+  const [visits, setVisits] = useState<Visit[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [currentVisit, setCurrentVisit] = useState<Visit | null>(null); // Use Visit for UI state
-  const [visitToConfirm, setVisitToConfirm] = useState<Omit<LocalVisit, 'localId' | 'syncStatus'> | null>(null); // Use LocalVisit base for confirmation
+  const [currentVisit, setCurrentVisit] = useState<Visit | null>(null);
+  const [visitToConfirm, setVisitToConfirm] = useState<Omit<LocalVisit, 'localId' | 'syncStatus'> | null>(null);
   const [visitToDelete, setVisitToDelete] = useState<Visit | null>(null);
   const [isFetchingLocation, setIsFetchingLocation] = useState(false);
   const { toast } = useToast();
 
-  // --- Form State ---
   const [clientName, setClientName] = useState('');
   const [location, setLocation] = useState('');
   const [latitude, setLatitude] = useState<number | undefined>(undefined);
@@ -50,19 +48,17 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
   const [initialKm, setInitialKm] = useState<number | ''>('');
   const [reason, setReason] = useState('');
 
-   // Fetch visits for the specific tripLocalId
    useEffect(() => {
     const fetchVisitsData = async () => {
       if (!tripLocalId) return;
       setLoading(true);
       try {
         const localVisits = await getLocalVisits(tripLocalId);
-        // Map LocalVisit to Visit for UI
         const uiVisits = localVisits.map(lv => ({
             ...lv,
-            id: lv.firebaseId || lv.localId, // Use firebaseId if available
-            tripId: lv.tripLocalId, // Keep tripId pointing to the local trip relation
-            syncStatus: lv.syncStatus // Include syncStatus in UI object
+            id: lv.firebaseId || lv.localId,
+            tripId: lv.tripLocalId,
+            syncStatus: lv.syncStatus
         }));
         setVisits(uiVisits);
       } catch (error) {
@@ -75,15 +71,12 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
     fetchVisitsData();
   }, [tripLocalId, toast]);
 
-  // --- Helpers ---
   const formatKm = (km: number) => km.toLocaleString('pt-BR');
 
   const getLastVisitKm = (): number | null => {
-      // Use the UI visits state which is already sorted
       return visits.length > 0 ? visits[0].initialKm : null;
   };
 
-  // --- Handlers ---
   const handleGetLocation = async () => {
     setIsFetchingLocation(true);
     try {
@@ -127,16 +120,15 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
         return;
     }
 
-    // Prepare data for confirmation (using LocalVisit structure)
     const newVisitData: Omit<LocalVisit, 'localId' | 'syncStatus'> = {
-      tripLocalId: tripLocalId, // Use tripLocalId
+      tripLocalId: tripLocalId,
       clientName,
       location,
       latitude,
       longitude,
       initialKm: kmValue,
       reason,
-      timestamp: new Date().toISOString(), // Set timestamp now
+      timestamp: new Date().toISOString(),
     };
 
     setVisitToConfirm(newVisitData);
@@ -150,14 +142,13 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
       setIsSaving(true);
 
       try {
-          const localId = await addLocalVisit(visitToConfirm); // Add to local DB
+          const localId = await addLocalVisit(visitToConfirm);
           console.log(`[Visits] Visit added locally with localId: ${localId}`);
 
-          // Update UI state optimistically
           const newUIVisit: Visit = {
              ...visitToConfirm,
-             localId: localId, // Add localId to the UI object
-             id: localId, // Use localId as the primary ID until synced
+             localId: localId,
+             id: localId,
              tripId: tripLocalId,
              syncStatus: 'pending'
           };
@@ -189,9 +180,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
             toast({ variant: "destructive", title: "Erro", description: "Quilometragem inicial deve ser maior que zero." });
             return;
        }
-       // Add sequential validation for edit if necessary, considering the visit's position
 
-      // Find the original LocalVisit data if needed (e.g., for firebaseId)
        const originalLocalVisit = await getLocalVisits(tripLocalId).then(visits => visits.find(v => v.localId === currentVisit.id || v.firebaseId === currentVisit.id));
 
         if (!originalLocalVisit) {
@@ -201,28 +190,26 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
 
 
       const updatedLocalVisitData: LocalVisit = {
-            ...originalLocalVisit, // Start with original local data
+            ...originalLocalVisit,
             clientName,
             location,
             latitude,
             longitude,
             initialKm: kmValue,
             reason,
-            syncStatus: originalLocalVisit.syncStatus === 'synced' ? 'pending' : originalLocalVisit.syncStatus, // Mark as pending if edited after sync
-            // timestamp usually not updated
+            syncStatus: originalLocalVisit.syncStatus === 'synced' ? 'pending' : originalLocalVisit.syncStatus,
       };
 
       setIsSaving(true);
       try {
-          await updateLocalVisit(updatedLocalVisitData); // Update local DB
+          await updateLocalVisit(updatedLocalVisitData);
           console.log(`[Visits] Visit updated locally: ${originalLocalVisit.localId}`);
 
-          // Update UI state
            const updatedUIVisit: Visit = {
                 ...updatedLocalVisitData,
                 id: updatedLocalVisitData.firebaseId || updatedLocalVisitData.localId,
                 tripId: tripLocalId,
-                syncStatus: updatedLocalVisitData.syncStatus // Update sync status in UI
+                syncStatus: updatedLocalVisitData.syncStatus
             };
 
           setVisits(prevVisits => prevVisits.map(v => v.id === currentVisit.id ? updatedUIVisit : v)
@@ -252,13 +239,10 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
   const confirmDeleteVisit = async () => {
     if (!visitToDelete) return;
 
-     // ID in visitToDelete could be localId or firebaseId, use it to find the local record
-     const localIdToDelete = visitToDelete.id; // Assuming id holds the localId or firebaseId which is also the primary key for UI
-
+     const localIdToDelete = visitToDelete.id;
 
     setIsSaving(true);
     try {
-        // Find the actual localId if visitToDelete.id is a firebaseId
         const visitsInDb = await getLocalVisits(tripLocalId);
         const visitRecordToDelete = visitsInDb.find(v => v.localId === localIdToDelete || v.firebaseId === localIdToDelete);
 
@@ -266,10 +250,9 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
              throw new Error("Registro local da visita não encontrado para exclusão.");
         }
 
-        await deleteLocalVisit(visitRecordToDelete.localId); // Mark for deletion locally using its localId
+        await deleteLocalVisit(visitRecordToDelete.localId);
         console.log(`[Visits] Visit marked for deletion locally: ${visitRecordToDelete.localId}`);
 
-        // Update UI state
         setVisits(visits.filter(v => v.id !== visitToDelete.id));
 
         toast({ title: "Visita marcada para exclusão na próxima sincronização." });
@@ -315,7 +298,6 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
    const closeConfirmModal = () => {
         setIsConfirmModalOpen(false);
         setVisitToConfirm(null);
-        // Reopen create modal with current form state
         setIsCreateModalOpen(true);
     }
 
@@ -325,59 +307,60 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
         <h3 className="text-xl font-semibold">
           {tripName ? `Visitas da Viagem: ${tripName}` : 'Visitas'}
         </h3>
-        <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
-             <DialogTrigger asChild>
-               <Button onClick={() => {resetForm(); setIsCreateModalOpen(true);}} className="bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isSaving}>
-                 <PlusCircle className="mr-2 h-4 w-4" /> Registrar Visita
-               </Button>
-             </DialogTrigger>
-             <DialogContent className="sm:max-w-lg">
-               <DialogHeader>
-                 <DialogTitle>Registrar Nova Visita{tripName ? ` para ${tripName}` : ''}</DialogTitle>
-               </DialogHeader>
-               <form onSubmit={handlePrepareVisitForConfirmation} className="grid gap-4 py-4">
-                   <div className="space-y-2">
-                      <Label htmlFor="clientName">Nome do Cliente*</Label>
-                      <Input id="clientName" value={clientName} onChange={(e) => setClientName(e.target.value)} required placeholder="Nome ou Empresa" disabled={isSaving}/>
-                   </div>
+        {tripLocalId && ( // Only show button if a trip context is provided
+            <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
+                <DialogTrigger asChild>
+                <Button onClick={() => {resetForm(); setIsCreateModalOpen(true);}} className="bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isSaving}>
+                    <PlusCircle className="mr-2 h-4 w-4" /> Registrar Visita
+                </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-lg">
+                <DialogHeader>
+                    <DialogTitle>Registrar Nova Visita{tripName ? ` para ${tripName}` : ''}</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handlePrepareVisitForConfirmation} className="grid gap-4 py-4">
+                    <div className="space-y-2">
+                        <Label htmlFor="clientName">Nome do Cliente*</Label>
+                        <Input id="clientName" value={clientName} onChange={(e) => setClientName(e.target.value)} required placeholder="Nome ou Empresa" disabled={isSaving}/>
+                    </div>
 
-                   <div className="space-y-2">
-                      <Label htmlFor="location">Localização*</Label>
-                      <div className="flex items-center gap-2">
-                          <Input id="location" value={location} onChange={(e) => setLocation(e.target.value)} required placeholder="Endereço ou Coordenadas" className="flex-grow" disabled={isSaving}/>
-                          <Button type="button" variant="outline" size="icon" onClick={handleGetLocation} disabled={isFetchingLocation || isSaving} title="Usar GPS">
-                             {isFetchingLocation ? <LoadingSpinner className="h-4 w-4" /> : <LocateFixed className="h-4 w-4" />}
-                           </Button>
-                      </div>
-                      {latitude && longitude && (
-                         <p className="text-xs text-muted-foreground">Lat: {latitude.toFixed(4)}, Lon: {longitude.toFixed(4)}</p>
-                      )}
-                   </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="location">Localização*</Label>
+                        <div className="flex items-center gap-2">
+                            <Input id="location" value={location} onChange={(e) => setLocation(e.target.value)} required placeholder="Endereço ou Coordenadas" className="flex-grow" disabled={isSaving}/>
+                            <Button type="button" variant="outline" size="icon" onClick={handleGetLocation} disabled={isFetchingLocation || isSaving} title="Usar GPS">
+                                {isFetchingLocation ? <LoadingSpinner className="h-4 w-4" /> : <LocateFixed className="h-4 w-4" />}
+                            </Button>
+                        </div>
+                        {latitude && longitude && (
+                            <p className="text-xs text-muted-foreground">Lat: {latitude.toFixed(4)}, Lon: {longitude.toFixed(4)}</p>
+                        )}
+                    </div>
 
-                   <div className="space-y-2">
-                      <Label htmlFor="initialKm">Quilometragem Inicial (Km)*</Label>
-                      <Input id="initialKm" type="number" value={initialKm} onChange={(e) => setInitialKm(Number(e.target.value) >= 0 ? Number(e.target.value) : '')} required placeholder="Km no início da visita" min="0" disabled={isSaving}/>
-                      <p className="text-xs text-muted-foreground">Confira este valor com atenção antes de salvar.</p>
-                   </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="initialKm">Quilometragem Inicial (Km)*</Label>
+                        <Input id="initialKm" type="number" value={initialKm} onChange={(e) => setInitialKm(Number(e.target.value) >= 0 ? Number(e.target.value) : '')} required placeholder="Km no início da visita" min="0" disabled={isSaving}/>
+                        <p className="text-xs text-muted-foreground">Confira este valor com atenção antes de salvar.</p>
+                    </div>
 
-                   <div className="space-y-2">
-                      <Label htmlFor="reason">Motivo da Visita*</Label>
-                      <Textarea id="reason" value={reason} onChange={(e) => setReason(e.target.value)} required placeholder="Ex: Entrega, Coleta, Reunião..." disabled={isSaving}/>
-                   </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="reason">Motivo da Visita*</Label>
+                        <Textarea id="reason" value={reason} onChange={(e) => setReason(e.target.value)} required placeholder="Ex: Entrega, Coleta, Reunião..." disabled={isSaving}/>
+                    </div>
 
-                   <DialogFooter>
-                     <DialogClose asChild><Button type="button" variant="outline" onClick={closeCreateModal} disabled={isSaving}>Cancelar</Button></DialogClose>
-                     <Button type="submit" disabled={isFetchingLocation || isSaving} className="bg-primary hover:bg-primary/90">
-                        {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                        Confirmar Dados
-                     </Button>
-                   </DialogFooter>
-               </form>
-             </DialogContent>
-           </Dialog>
+                    <DialogFooter>
+                        <DialogClose asChild><Button type="button" variant="outline" onClick={closeCreateModal} disabled={isSaving}>Cancelar</Button></DialogClose>
+                        <Button type="submit" disabled={isFetchingLocation || isSaving} className="bg-primary hover:bg-primary/90">
+                            {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            Confirmar Dados
+                        </Button>
+                    </DialogFooter>
+                </form>
+                </DialogContent>
+            </Dialog>
+        )}
       </div>
 
-        {/* Confirmation Dialog */}
         <AlertDialog open={isConfirmModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeConfirmModal(); }}>
           <AlertDialogContent>
             <AlertDialogHeader>
@@ -397,7 +380,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
             <AlertDialogFooter>
               <AlertDialogCancel onClick={() => {
                   setIsConfirmModalOpen(false);
-                  setIsCreateModalOpen(true); // Re-open create modal
+                  setIsCreateModalOpen(true);
               }} disabled={isSaving}>Voltar e Editar</AlertDialogCancel>
               <AlertDialogAction onClick={confirmAndSaveVisit} className="bg-primary hover:bg-primary/90" disabled={isSaving}>
                  {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -407,7 +390,6 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
           </AlertDialogContent>
         </AlertDialog>
 
-        {/* Delete Confirmation Dialog is now moved outside the map loop */}
         <AlertDialog open={isDeleteModalOpen} onOpenChange={closeDeleteConfirmation}>
             <AlertDialogContent>
                 <AlertDialogHeader>
@@ -427,7 +409,6 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
         </AlertDialog>
 
 
-      {/* Visits List */}
       {loading ? (
            <div className="flex justify-center items-center h-20">
                <LoadingSpinner />
@@ -436,9 +417,11 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
          <Card className="text-center py-10 bg-card border border-border shadow-sm rounded-lg">
            <CardContent>
              <p className="text-muted-foreground">Nenhuma visita registrada {tripLocalId ? 'localmente para esta viagem' : ''}.</p>
-             <Button variant="link" onClick={() => {resetForm(); setIsCreateModalOpen(true);}} className="mt-2 text-primary">
-                 Registrar a primeira visita
-             </Button>
+             {tripLocalId && (
+                <Button variant="link" onClick={() => {resetForm(); setIsCreateModalOpen(true);}} className="mt-2 text-primary">
+                    Registrar a primeira visita
+                </Button>
+             )}
            </CardContent>
          </Card>
        ) : (
@@ -528,15 +511,13 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
                             </form>
                          </DialogContent>
                        </Dialog>
-                        {/* Place AlertDialog trigger correctly */}
-                        <AlertDialog>
+                       <AlertDialog>
                            <AlertDialogTrigger asChild>
                              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => openDeleteConfirmation(visit)} disabled={isSaving}>
                                <Trash2 className="h-4 w-4" />
                                <span className="sr-only">Excluir</span>
                              </Button>
                            </AlertDialogTrigger>
-                           {/* AlertDialogContent remains outside the map, controlled by isDeleteModalOpen */}
                        </AlertDialog>
                     </div>
                 </div>
@@ -562,3 +543,4 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
     </div>
   );
 };
+export default Visits;

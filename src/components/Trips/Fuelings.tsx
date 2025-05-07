@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Edit, Trash2, Droplet, Paperclip, Camera, Upload, Check, X, Eye, Loader2 } from 'lucide-react'; // Added Loader2
+import { PlusCircle, Edit, Trash2, Droplet, Paperclip, Camera, Upload, Check, X, Eye, Loader2 } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,7 +14,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -29,75 +28,66 @@ import {
     deleteLocalFueling,
     getLocalFuelings,
     LocalFueling
-} from '@/services/localDbService'; // Import local DB functions
-import { uploadReceipt, deleteReceipt } from '@/services/storageService'; // Storage functions needed for sync
-import { cn } from '@/lib/utils'; // Import cn function
+} from '@/services/localDbService';
+import { uploadReceipt, deleteReceipt } from '@/services/storageService';
+import { cn } from '@/lib/utils';
 
-
-// UI Interface, maps from LocalFueling
 export interface Fueling extends Omit<LocalFueling, 'localId' | 'tripLocalId'> {
-  id: string; // Represents localId or firebaseId
-  tripId: string; // Represents tripLocalId or firebase tripId
-  syncStatus?: 'pending' | 'synced' | 'error'; // Add syncStatus for UI indication
+  id: string;
+  tripId: string;
+  syncStatus?: 'pending' | 'synced' | 'error';
 }
 
 interface FuelingsProps {
-  tripId: string; // Now represents tripLocalId
+  tripId: string;
   tripName?: string;
 }
 
 export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripName }) => {
-  const [fuelings, setFuelings] = useState<Fueling[]>([]); // UI state uses Fueling interface
+  const [fuelings, setFuelings] = useState<Fueling[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false); // Saving/Deleting state
+  const [isSaving, setIsSaving] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [currentFueling, setCurrentFueling] = useState<Fueling | null>(null); // Use Fueling for UI state
+  const [currentFueling, setCurrentFueling] = useState<Fueling | null>(null);
   const [fuelingToDelete, setFuelingToDelete] = useState<Fueling | null>(null);
   const { toast } = useToast();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
-  // --- Form State ---
   const [date, setDate] = useState('');
   const [liters, setLiters] = useState<number | ''>('');
   const [pricePerLiter, setPricePerLiter] = useState<number | ''>('');
   const [location, setLocation] = useState('');
   const [comments, setComments] = useState('');
-  const [vehicleId, setVehicleId] = useState(''); // Need to get this from trip or context
+  const [vehicleId, setVehicleId] = useState('');
 
-  // --- Attachment State ---
   const [attachment, setAttachment] = useState<File | string | null>(null);
   const [attachmentFilename, setAttachmentFilename] = useState<string | null>(null);
-  const [isUploading, setIsUploading] = useState(false); // Only for sync process
+  const [isUploading, setIsUploading] = useState(false);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
 
-   // Fetch fuelings for the specific tripLocalId
    useEffect(() => {
     const fetchFuelingsData = async () => {
         if (!tripLocalId) return;
         setLoading(true);
         try {
             const localFuelings = await getLocalFuelings(tripLocalId);
-            // Map LocalFueling to Fueling for UI
             const uiFuelings = localFuelings.map(lf => ({
                 ...lf,
                 id: lf.firebaseId || lf.localId,
                 tripId: lf.tripLocalId,
-                syncStatus: lf.syncStatus // Include syncStatus
+                syncStatus: lf.syncStatus
             }));
             setFuelings(uiFuelings);
 
-             // TODO: Ideally, fetch the vehicleId associated with the tripLocalId
-             // For now, using a placeholder or the first fueling's vehicleId if available
             if (uiFuelings.length > 0 && !vehicleId) {
                 setVehicleId(uiFuelings[0].vehicleId);
             } else if (!vehicleId) {
-                // If no fuelings, try to get vehicleId from the parent trip data (needs passing down or context)
                  console.warn("Vehicle ID for fueling not determined. Using placeholder.");
-                 setVehicleId('placeholder-vehicle-id'); // Fallback
+                 setVehicleId('placeholder-vehicle-id');
             }
 
         } catch (error) {
@@ -108,11 +98,9 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
         }
     };
     fetchFuelingsData();
-  }, [tripLocalId, toast, vehicleId]); // Added vehicleId dependency
+  }, [tripLocalId, toast, vehicleId]);
 
-   // Camera Permission Effect (remains the same)
     useEffect(() => {
-        // ... (camera permission logic - no changes needed)
         if (!isCameraOpen) {
             if (videoRef.current && videoRef.current.srcObject) {
                 const stream = videoRef.current.srcObject as MediaStream;
@@ -150,8 +138,6 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
         };
     }, [isCameraOpen, toast]);
 
-
-  // --- Helpers ---
   const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
    const formatDate = (dateString: string) => {
        try {
@@ -161,7 +147,6 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
        }
    };
 
-   // handleFileChange, handleCaptureImage, clearAttachment remain the same
     const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
         const file = event.target.files?.[0];
         if (file) {
@@ -202,9 +187,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
         const editFileInput = document.getElementById('editReceiptPdf') as HTMLInputElement | null;
         if (editFileInput) editFileInput.value = '';
     };
-    // handleUpload is handled by sync process
 
-  // --- Handlers ---
   const handleCreateFueling = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!date || liters === '' || pricePerLiter === '' || !location || !vehicleId) {
@@ -218,20 +201,18 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
         return;
      }
 
-
      setIsSaving(true);
 
      const newFuelingData: Omit<LocalFueling, 'localId' | 'syncStatus' | 'receiptUrl' | 'receiptPath'> = {
        tripLocalId: tripLocalId,
-       vehicleId: vehicleId, // Use the determined vehicleId
-       date: new Date(date).toISOString(), // Ensure ISO string format
+       vehicleId: vehicleId,
+       date: new Date(date).toISOString(),
        liters: litersNum,
        pricePerLiter: priceNum,
        totalCost: litersNum * priceNum,
        location,
        comments,
        receiptFilename: attachmentFilename || undefined,
-       // Store dataURL directly if applicable, sync handles upload
        receiptUrl: typeof attachment === 'string' ? attachment : undefined,
      };
 
@@ -239,7 +220,6 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
          const localId = await addLocalFueling(newFuelingData);
          console.log(`[Fuelings] Fueling added locally with localId: ${localId}`);
 
-         // Optimistically update UI
           const newUIFueling: Fueling = {
              ...newFuelingData,
              localId: localId,
@@ -275,7 +255,6 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
          return;
       }
 
-     // Find original local record
        const originalLocalFueling = await getLocalFuelings(tripLocalId).then(fuelings => fuelings.find(f => f.localId === currentFueling.id || f.firebaseId === currentFueling.id));
 
         if (!originalLocalFueling) {
@@ -293,11 +272,9 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
         totalCost: litersNum * priceNum,
         location,
         comments,
-        vehicleId, // Update vehicle ID if it changed (though unlikely in this UI)
-        // Update attachment info
+        vehicleId,
         receiptUrl: typeof attachment === 'string' ? attachment : undefined,
-        receiptFilename: attachmentFilename || undefined, // Use || undefined to ensure clear
-        // receiptPath updated during sync
+        receiptFilename: attachmentFilename || undefined,
         syncStatus: originalLocalFueling.syncStatus === 'synced' ? 'pending' : originalLocalFueling.syncStatus,
      };
 
@@ -305,12 +282,11 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
         await updateLocalFueling(updatedLocalFuelingData);
          console.log(`[Fuelings] Fueling updated locally: ${originalLocalFueling.localId}`);
 
-        // Update UI state
         const updatedUIFueling: Fueling = {
              ...updatedLocalFuelingData,
              id: updatedLocalFuelingData.firebaseId || updatedLocalFuelingData.localId,
              tripId: tripLocalId,
-             syncStatus: updatedLocalFuelingData.syncStatus // Update sync status in UI
+             syncStatus: updatedLocalFuelingData.syncStatus
         };
 
         setFuelings(prevFuelings => prevFuelings.map(f => f.id === currentFueling.id ? updatedUIFueling : f).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
@@ -352,10 +328,9 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
              throw new Error("Registro local do abastecimento não encontrado para exclusão.");
          }
 
-        await deleteLocalFueling(fuelingRecordToDelete.localId); // Mark for deletion
+        await deleteLocalFueling(fuelingRecordToDelete.localId);
          console.log(`[Fuelings] Fueling marked for deletion locally: ${fuelingRecordToDelete.localId}`);
 
-        // Update UI
         setFuelings(fuelings.filter(f => f.id !== fuelingToDelete.id));
 
         toast({ title: 'Abastecimento marcado para exclusão na próxima sincronização.' });
@@ -375,11 +350,10 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
     setPricePerLiter(fueling.pricePerLiter);
     setLocation(fueling.location);
     setComments(fueling.comments || '');
-    setVehicleId(fueling.vehicleId); // Set vehicle ID for editing context
+    setVehicleId(fueling.vehicleId);
 
-    // Set attachment state
     if (fueling.receiptUrl) {
-        setAttachment(fueling.receiptUrl); // Could be dataURL or Firebase URL
+        setAttachment(fueling.receiptUrl);
         setAttachmentFilename(fueling.receiptFilename || 'Arquivo Anexado');
     } else {
         setAttachment(null);
@@ -395,7 +369,6 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
     setPricePerLiter('');
     setLocation('');
     setComments('');
-    // Don't reset vehicleId as it's likely tied to the trip
     clearAttachment();
   };
 
@@ -410,7 +383,6 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
     setCurrentFueling(null);
   };
 
-   // renderAttachmentInput remains the same
     const renderAttachmentInput = (idPrefix: string) => (
         <div className="space-y-2">
             <Label htmlFor={`${idPrefix}Receipt`}>Anexar Comprovante (PDF ou Imagem)</Label>
@@ -449,7 +421,6 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
                     </Button>
                 </div>
             )}
-             {/* Uploading indicator removed */}
         </div>
     );
 
@@ -463,6 +434,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
         <h3 className="text-xl font-semibold">
           {tripName ? `Abastecimentos da Viagem: ${tripName}` : 'Abastecimentos'}
         </h3>
+        {tripLocalId && (
           <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
             <DialogTrigger asChild>
               <Button onClick={() => { resetForm(); setDate(new Date().toISOString().split('T')[0]); setIsCreateModalOpen(true); }} className="bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isSaving}>
@@ -498,8 +470,6 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
                   <Label htmlFor="location">Local*</Label>
                   <Input id="location" value={location} onChange={(e) => setLocation(e.target.value)} required placeholder="Nome ou Endereço do Posto" disabled={isSaving}/>
                 </div>
-                 {/* Hidden or display-only field for vehicleId if needed for debugging */}
-                 {/* <Input type="hidden" value={vehicleId} readOnly /> */}
                 <div className="space-y-2">
                   <Label htmlFor="comments">Observações</Label>
                   <Textarea id="comments" value={comments} onChange={(e) => setComments(e.target.value)} placeholder="Detalhes adicionais (ex: Km no odômetro)" disabled={isSaving}/>
@@ -517,11 +487,10 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
               </form>
             </DialogContent>
           </Dialog>
+        )}
       </div>
 
-       {/* Camera Modal (remains the same) */}
        <Dialog open={isCameraOpen} onOpenChange={setIsCameraOpen}>
-           {/* ... Camera modal content ... */}
            <DialogContent className="sm:max-w-md">
                <DialogHeader>
                    <DialogTitle>Escanear Comprovante</DialogTitle>
@@ -557,7 +526,6 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
            </DialogContent>
        </Dialog>
 
-        {/* Delete Confirmation Dialog */}
         <AlertDialog open={isDeleteModalOpen} onOpenChange={closeDeleteConfirmation}>
             <AlertDialogContent>
                 <AlertDialogHeader>
@@ -585,9 +553,11 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
         <Card className="text-center py-10 bg-card border border-border shadow-sm rounded-lg">
           <CardContent>
             <p className="text-muted-foreground">Nenhum abastecimento registrado localmente para esta viagem.</p>
+            {tripLocalId && (
               <Button variant="link" onClick={() => { resetForm(); setDate(new Date().toISOString().split('T')[0]); setIsCreateModalOpen(true); }} className="mt-2 text-primary">
                 Registrar o primeiro abastecimento
               </Button>
+            )}
           </CardContent>
         </Card>
       ) : (
@@ -675,7 +645,6 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
                             <Label htmlFor="editLocation">Local*</Label>
                             <Input id="editLocation" value={location} onChange={(e) => setLocation(e.target.value)} required placeholder="Nome ou Endereço do Posto" disabled={isSaving}/>
                           </div>
-                           {/* Hidden or display-only field for vehicleId */}
                           <div className="space-y-2">
                             <Label htmlFor="editComments">Observações</Label>
                             <Textarea id="editComments" value={comments} onChange={(e) => setComments(e.target.value)} placeholder="Detalhes adicionais" disabled={isSaving}/>
@@ -700,7 +669,6 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
                             <span className="sr-only">Excluir</span>
                           </Button>
                         </AlertDialogTrigger>
-                        {/* Content remains outside */}
                       </AlertDialog>
                   </div>
                 </div>
@@ -739,3 +707,4 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
     </>
   );
 };
+export default Fuelings;
