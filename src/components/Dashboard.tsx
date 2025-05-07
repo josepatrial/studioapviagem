@@ -39,7 +39,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
 
   const [expenses, setExpenses] = useState<LocalExpense[]>([]);
-  const [fuelings, setFuelings] = useState<LocalFueling[]>([]); // Changed from fuelingsData to fuelings
+  const [fuelings, setFuelings] = useState<LocalFueling[]>([]);
   const [trips, setTrips] = useState<LocalTrip[]>([]);
   const [vehicles, setVehicles] = useState<LocalVehicle[]>([]);
   const [visits, setVisits] = useState<LocalVisit[]>([]);
@@ -67,7 +67,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         setTrips(localTrips);
         setVehicles(localVehiclesData);
         setExpenses(allLocalExpenses);
-        setFuelings(allLocalFuelings); // Use setFuelings
+        setFuelings(allLocalFuelings);
         setVisits(allLocalVisits);
 
 
@@ -127,7 +127,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     let currentFilteredTrips = trips;
     let allVisitsFromDb = visits;
     let allExpensesFromDb = expenses;
-    let allFuelingsFromDb = fuelings; // Use fuelings here
+    let allFuelingsFromDb = fuelings;
 
     if (dateRange?.from) {
         const startDate = startOfDay(dateRange.from);
@@ -188,7 +188,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         filterApplied: !!filterDriverId || !!dateRange,
         filterContext,
     };
-  }, [isAdmin, filterDriverId, dateRange, drivers, expenses, fuelings, trips, vehicles, visits]); // Use fuelings in dependency array
+  }, [isAdmin, filterDriverId, dateRange, drivers, expenses, fuelings, trips, vehicles, visits]);
 
   const adminDashboardData = useMemo(() => {
     if (!isAdmin || user?.email !== 'grupo2irmaos@grupo2irmaos.com.br' || loadingDrivers) {
@@ -200,7 +200,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         : trips;
 
     let currentExpensesSource = expenses;
-    let currentFuelingsSource = fuelings; // Use fuelings here
+    let currentFuelingsSource = fuelings;
 
     if (dateRange?.from) {
         const startDate = startOfDay(dateRange.from);
@@ -275,34 +275,32 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         const totalFuelingCost = vehicleFuelings.reduce((sum, f) => sum + f.totalCost, 0);
         const totalLiters = vehicleFuelings.reduce((sum, f) => sum + f.liters, 0);
         
-        // Calculate total KM driven for this vehicle from its fuelings (odometer difference)
-        // Sort fuelings by date and odometer to calculate KM driven between fuelings
+        // Sort fuelings by date and odometer to calculate KM driven between fuelings and find latest fueling date
         const sortedFuelings = [...vehicleFuelings].sort((a, b) => {
             const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
             if (dateDiff !== 0) return dateDiff;
-            return a.odometerKm - b.odometerKm;
+            return (a.odometerKm || 0) - (b.odometerKm || 0);
         });
 
         let totalKmFromFuelings = 0;
         if (sortedFuelings.length > 1) {
-            totalKmFromFuelings = sortedFuelings[sortedFuelings.length - 1].odometerKm - sortedFuelings[0].odometerKm;
-        } else if (sortedFuelings.length === 1 && vehicleTrips.length === 0) {
-             // If only one fueling and no trips, cannot determine km accurately
-             // Or, could use trip distance if available, but that might double count.
-             // For now, prioritize odometer if multiple fuelings exist.
+            const firstOdometer = sortedFuelings[0].odometerKm || 0;
+            const lastOdometer = sortedFuelings[sortedFuelings.length - 1].odometerKm || 0;
+            if (lastOdometer > firstOdometer) {
+                 totalKmFromFuelings = lastOdometer - firstOdometer;
+            }
         }
         
-        // Fallback or complement with trip distances if odometer data is insufficient
         const totalKmFromTrips = vehicleTrips
             .filter(t => t.status === 'Finalizado' && t.totalDistance != null)
             .reduce((sum, t) => sum + (t.totalDistance || 0), 0);
 
-        // Prefer odometer-based KM if available and significant
         const kmDriven = totalKmFromFuelings > 0 ? totalKmFromFuelings : totalKmFromTrips;
-
 
         const avgCostPerKm = kmDriven > 0 ? totalFuelingCost / kmDriven : 0;
         const avgKmPerLiter = totalLiters > 0 && kmDriven > 0 ? kmDriven / totalLiters : 0;
+        const latestFuelingDate = sortedFuelings.length > 0 ? formatDateFn(parseISO(sortedFuelings[sortedFuelings.length - 1].date), 'dd/MM/yyyy') : 'N/A';
+
 
         return {
             id: vehicle.firebaseId || vehicle.localId,
@@ -312,6 +310,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
             kmDriven,
             avgCostPerKm,
             avgKmPerLiter,
+            latestFuelingDate,
         };
     }).sort((a,b) => b.kmDriven - a.kmDriven);
 
@@ -321,7 +320,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
       kmByDay: chartableKmByDay,
       vehiclePerformance,
     };
-  }, [isAdmin, user?.email, trips, expenses, vehicles, drivers, dateRange, filterDriverId, loadingDrivers, fuelings]); // Use fuelings in dependency array
+  }, [isAdmin, user?.email, trips, expenses, vehicles, drivers, dateRange, filterDriverId, loadingDrivers, fuelings]);
 
 
   return (
@@ -515,6 +514,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                                 <TableHead className="text-right">KM Total</TableHead>
                                 <TableHead className="text-right">Custo Médio / KM</TableHead>
                                 <TableHead className="text-right">Média KM / Litro</TableHead>
+                                <TableHead className="text-right">Último Abastecimento</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -526,6 +526,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                                     <TableCell className="text-right">{formatKm(vehicleData.kmDriven)}</TableCell>
                                     <TableCell className="text-right">{formatCurrency(vehicleData.avgCostPerKm)}</TableCell>
                                     <TableCell className="text-right">{vehicleData.avgKmPerLiter.toFixed(2)} Km/L</TableCell>
+                                    <TableCell className="text-right">{vehicleData.latestFuelingDate}</TableCell>
                                 </TableRow>
                             ))}
                         </TableBody>
