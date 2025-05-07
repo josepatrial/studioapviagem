@@ -7,16 +7,18 @@ import { MapPin, Wallet, Fuel, Users, Truck, Milestone, Filter, Calendar, BarCha
 import { useAuth, User } from '@/contexts/AuthContext';
 import type { Trip } from './Trips/Trips';
 import {getLocalVisits as fetchLocalVisits, getLocalExpenses, getLocalFuelings, getLocalTrips, getLocalVehicles, LocalVehicle, LocalExpense, LocalFueling, LocalTrip, LocalVisit} from '@/services/localDbService';
-import { getFuelings as fetchOnlineFuelings, getVehicles as fetchOnlineVehicles, getTrips as fetchOnlineTrips } from '@/services/firestoreService';
+import { getFuelings as fetchOnlineFuelings, getVehicles as fetchOnlineVehicles, getTrips as fetchOnlineTrips, getDrivers } from '@/services/firestoreService';
 import type { VehicleInfo } from './Vehicle';
 import { DateRangePicker } from '@/components/ui/date-range-picker';
 import type { DateRange } from 'react-day-picker';
 import { isWithinInterval, parseISO, startOfDay, endOfDay } from 'date-fns';
-import { getDrivers } from '@/services/firestoreService';
 import { LoadingSpinner } from './LoadingSpinner';
+import { formatKm } from '@/lib/utils'; // Import centralized formatKm
+import { useRouter } from 'next/navigation';
+
 
 const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-const formatKm = (km?: number): string => km ? km.toLocaleString('pt-BR') + ' Km' : '0 Km';
+
 
 interface DashboardProps {
     setActiveTab: (section: 'visits' | 'expenses' | 'fuelings' | 'trips' | null) => void; // Can navigate to specific sections or just the trips tab
@@ -34,6 +36,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
   const [trips, setTrips] = useState<LocalTrip[]>([]);
   const [vehicles, setVehicles] = useState<LocalVehicle[]>([]);
   const [visits, setVisits] = useState<LocalVisit[]>([]);
+  const router = useRouter();
 
 
   useEffect(() => {
@@ -338,7 +341,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                <Card className="shadow-md transition-shadow hover:shadow-lg">
                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                    <CardTitle className="text-sm font-medium">Motoristas</CardTitle>
-                    <Users className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => router.push('/drivers')} />
+                    <Users className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => setActiveTab('drivers')} /> {/* Changed from router.push */}
                  </CardHeader>
                  <CardContent>
                    <div className="text-2xl font-bold">{summaryData.totalDrivers}</div>
@@ -351,7 +354,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                <Card className="shadow-md transition-shadow hover:shadow-lg">
                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                    <CardTitle className="text-sm font-medium">Veículos</CardTitle>
-                    <Truck className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => router.push('/vehicle')} />
+                    <Truck className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => setActiveTab('vehicle')} /> {/* Changed from router.push */}
                  </CardHeader>
                  <CardContent>
                    <div className="text-2xl font-bold">{summaryData.totalVehicles}</div>

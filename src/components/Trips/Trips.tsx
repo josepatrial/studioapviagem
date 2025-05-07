@@ -5,7 +5,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Edit, Trash2, Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Filter, Loader2, BarChart3, ChevronDown } from 'lucide-react';
+import { PlusCircle, Edit, Trash2, Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Filter, Loader2, BarChart3, ChevronDown, TrendingUp } from 'lucide-react'; // Added TrendingUp
 import {
   AlertDialog,
   AlertDialogAction,
@@ -49,6 +49,7 @@ import { LoadingSpinner } from '../LoadingSpinner';
 import { DateRangePicker } from '@/components/ui/date-range-picker';
 import type { DateRange } from 'react-day-picker';
 import { parseISO, startOfDay, endOfDay } from 'date-fns';
+import { formatKm } from '@/lib/utils'; // Import centralized formatKm
 
 const VisitsComponent = dynamic(() => import('./Visits').then(mod => mod.Visits), {
   loading: () => <LoadingSpinner className="h-5 w-5" />,
@@ -216,7 +217,6 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
        return `${vehicleDisplay}${driverDisplay}${baseDisplay}`;
    };
 
-  const formatKm = (km?: number): string => km ? km.toLocaleString('pt-BR') + ' Km' : 'N/A';
 
   const handleCreateTrip = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -459,6 +459,32 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
     setCurrentTrip(null);
   };
 
+  const getTripSummaryKm = async (tripId: string) => {
+    const visits = await getLocalVisits(tripId);
+    if (visits.length === 0) return { betweenVisits: 0, firstToLast: 0 };
+
+    visits.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()); // chronological order
+
+    let betweenVisitsKm = 0;
+    for (let i = 1; i < visits.length; i++) {
+        if (visits[i].initialKm && visits[i-1].initialKm) {
+            betweenVisitsKm += (visits[i].initialKm - visits[i-1].initialKm);
+        }
+    }
+
+    const firstVisitKm = visits[0].initialKm;
+    const currentTrip = allTrips.find(t => t.localId === tripId);
+    let firstToLastKm = 0;
+    if (currentTrip?.status === 'Finalizado' && currentTrip.finalKm && firstVisitKm) {
+        firstToLastKm = currentTrip.finalKm - firstVisitKm;
+    }
+
+    return {
+        betweenVisits: betweenVisitsKm,
+        firstToLast: firstToLastKm
+    };
+};
+
 
   return (
     <div className="space-y-6">
@@ -607,15 +633,23 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
             const isPending = trip.syncStatus === 'pending';
             const isError = trip.syncStatus === 'error';
             const isExpanded = expandedTripId === trip.localId;
+            const [tripKmSummary, setTripKmSummary] = useState<{ betweenVisits: number | null, firstToLast: number | null }>({ betweenVisits: null, firstToLast: null });
+
+            useEffect(() => {
+                if (isExpanded) { // Only calculate if expanded
+                    getTripSummaryKm(trip.localId).then(summary => setTripKmSummary(summary));
+                }
+            }, [isExpanded, trip.localId, visitsDataForFinish, trip.status, trip.finalKm]); // Re-calculate if relevant trip data changes
+
 
             return (
               <AccordionItem key={trip.localId} value={trip.localId} className="border bg-card rounded-lg shadow-sm overflow-hidden group/item data-[state=open]:border-primary/50">
-                 <AccordionHeader className={cn(
-                     "flex justify-between items-center p-4 hover:bg-accent/50 w-full data-[state=open]:border-b",
+                 <UiAccordionTrigger asChild className={cn( // Use UiAccordionTrigger for custom content area
+                     "flex justify-between items-center p-4 hover:bg-accent/50 w-full data-[state=open]:border-b cursor-pointer",
                      isPending && "bg-yellow-50 hover:bg-yellow-100/80 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/30",
                      isError && "bg-destructive/10 hover:bg-destructive/20"
                   )}>
-                    <UiAccordionTrigger className="flex-1 mr-4 space-y-1 text-left p-0 hover:no-underline">
+                    <div className="flex-1 mr-4 space-y-1 text-left"> {/* Content of the trigger */}
                         <div>
                             <div className="flex items-center gap-2 flex-wrap">
                                 <CardTitle className="text-lg">{trip.name}</CardTitle>
@@ -639,9 +673,14 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
                                 <span className="inline-flex items-center gap-1">
                                     <Fuel className="h-3 w-3" /> {fuelingCount} {fuelingCount === 1 ? 'Abastec.' : 'Abastec.'}
                                 </span>
-                                {trip.status === 'Finalizado' && trip.totalDistance !== undefined && (
+                                {trip.status === 'Finalizado' && tripKmSummary.firstToLast !== null && (
                                     <span className="text-emerald-600 font-medium inline-flex items-center gap-1">
-                                        <Milestone className="h-3 w-3" /> {formatKm(trip.totalDistance)} Percorridos
+                                        <Milestone className="h-3 w-3" /> {formatKm(tripKmSummary.firstToLast)} Total Percorrido
+                                    </span>
+                                )}
+                                 {tripKmSummary.betweenVisits !== null && tripKmSummary.betweenVisits > 0 && (
+                                    <span className="text-blue-600 font-medium inline-flex items-center gap-1">
+                                        <TrendingUp className="h-3 w-3" /> {formatKm(tripKmSummary.betweenVisits)} Entre Visitas
                                     </span>
                                 )}
                             </div>
@@ -650,8 +689,8 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
                                 <span>Atualizado: {new Date(trip.updatedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
                             </div>
                         </div>
-                    </UiAccordionTrigger>
-
+                    </div>
+                     {/* Action buttons - kept separate from the main trigger content */}
                     <div className="flex items-center gap-1 flex-shrink-0 ml-2">
                         {trip.status === 'Andamento' && (isAdmin || trip.userId === user?.id) && (
                             <Button
@@ -759,8 +798,9 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
                                 </AlertDialog>
                             </>
                         )}
+                         <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200 group-data-[state=open]/item:rotate-180" />
                     </div>
-                 </AccordionHeader>
+                 </UiAccordionTrigger>
 
                 <AccordionContent className="p-4 pt-0 bg-secondary/30">
                   {isExpanded && (

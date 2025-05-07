@@ -17,6 +17,7 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import type { Trip } from './Trips';
 import type { Visit } from './Visits';
+import { formatKm } from '@/lib/utils'; // Import centralized formatKm
 
 interface FinishTripDialogProps {
   trip: Trip | null;
@@ -43,7 +44,7 @@ export const FinishTripDialog: React.FC<FinishTripDialogProps> = ({
     if (trip && isOpen) {
       // Use the passed visitsData prop
       const tripVisits = visitsData
-        .filter(v => v.tripId === trip.id)
+        .filter(v => v.tripId === trip.localId) // Use localId for consistency within Trips component context
         .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
       if (tripVisits.length > 0) {
@@ -77,7 +78,7 @@ export const FinishTripDialog: React.FC<FinishTripDialogProps> = ({
          toast({
              variant: "destructive",
              title: "Erro de Quilometragem",
-             description: `A quilometragem final (${kmValue.toLocaleString('pt-BR')} Km) não pode ser menor que a da última visita registrada (${lastVisitKm.toLocaleString('pt-BR')} Km).`,
+             description: `A quilometragem final (${formatKm(kmValue)}) não pode ser menor que a da última visita registrada (${formatKm(lastVisitKm)}).`,
              duration: 7000,
          });
          return;
@@ -95,10 +96,9 @@ export const FinishTripDialog: React.FC<FinishTripDialogProps> = ({
         console.warn("Não foi possível calcular a distância total: Nenhuma visita encontrada.");
     }
 
-    onConfirm(trip.id, kmValue, totalDistance);
+    onConfirm(trip.localId, kmValue, totalDistance); // Use localId for consistency
   };
 
-  const formatKm = (km: number | null): string => km ? km.toLocaleString('pt-BR') + ' Km' : 'N/A';
 
   return (
     <AlertDialog open={isOpen} onOpenChange={onClose}>

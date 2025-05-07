@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Eye, Edit, Trash2, MapPin, Milestone, Info, LocateFixed, AlertTriangle, Loader2 } from 'lucide-react';
+import { PlusCircle, Eye, Edit, Trash2, MapPin, Milestone, Info, LocateFixed, AlertTriangle, Loader2, TrendingUp } from 'lucide-react'; // Added TrendingUp
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { addLocalVisit, updateLocalVisit, deleteLocalVisit, getLocalVisits, LocalVisit } from '@/services/localDbService';
 import { cn } from '@/lib/utils';
+import { formatKm } from '@/lib/utils'; // Import centralized formatKm
 
 export interface Visit extends Omit<LocalVisit, 'localId' | 'tripLocalId'> {
   id: string;
@@ -59,7 +60,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
             id: lv.firebaseId || lv.localId,
             tripId: lv.tripLocalId,
             syncStatus: lv.syncStatus
-        }));
+        })).sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()); // Ensure sorted latest first
         setVisits(uiVisits);
       } catch (error) {
         console.error(`Error fetching local visits for trip ${tripLocalId}:`, error);
@@ -71,10 +72,11 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
     fetchVisitsData();
   }, [tripLocalId, toast]);
 
-  const formatKm = (km: number) => km.toLocaleString('pt-BR');
 
   const getLastVisitKm = (): number | null => {
-      return visits.length > 0 ? visits[0].initialKm : null;
+      if (visits.length === 0) return null;
+      // Assuming visits are sorted latest first (descending timestamp)
+      return visits[0].initialKm;
   };
 
   const handleGetLocation = async () => {
@@ -114,7 +116,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
         toast({
             variant: "destructive",
             title: "Erro de Quilometragem",
-            description: `A quilometragem inicial (${formatKm(kmValue)} Km) não pode ser menor que a da última visita registrada (${formatKm(lastKm)} Km).`,
+            description: `A quilometragem inicial (${formatKm(kmValue)}) não pode ser menor que a da última visita registrada (${formatKm(lastKm)}).`,
             duration: 7000,
         });
         return;
@@ -372,7 +374,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
                 <ul className="mt-3 list-disc list-inside space-y-1 text-sm text-foreground">
                     <li><strong>Cliente:</strong> {visitToConfirm?.clientName}</li>
                     <li><strong>Localização:</strong> {visitToConfirm?.location}</li>
-                    <li><strong>KM Inicial:</strong> {visitToConfirm ? formatKm(visitToConfirm.initialKm) : 'N/A'} Km</li>
+                    <li><strong>KM Inicial:</strong> {visitToConfirm ? formatKm(visitToConfirm.initialKm) : 'N/A'}</li>
                     <li><strong>Motivo:</strong> {visitToConfirm?.reason}</li>
                 </ul>
               </AlertDialogDescription>
@@ -390,7 +392,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
           </AlertDialogContent>
         </AlertDialog>
 
-        <AlertDialog open={isDeleteModalOpen} onOpenChange={closeDeleteConfirmation}>
+        <AlertDialog open={isDeleteModalOpen} onOpenChange={(isOpen) => !isOpen && closeDeleteConfirmation()}>
             <AlertDialogContent>
                 <AlertDialogHeader>
                     <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
@@ -426,118 +428,138 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
          </Card>
        ) : (
         <div className="grid gap-4">
-          {visits.map((visit) => (
-            <Card key={visit.id} className={cn("shadow-sm transition-shadow hover:shadow-md bg-card border border-border", visit.syncStatus === 'pending' && 'border-yellow-500', visit.syncStatus === 'error' && 'border-destructive')}>
-              <CardHeader>
-                <div className="flex justify-between items-start">
-                    <div>
-                       <CardTitle>{visit.clientName}</CardTitle>
-                       <CardDescription>
-                         {new Date(visit.timestamp).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
-                         {visit.syncStatus === 'pending' && <span className="ml-2 text-xs text-yellow-600">(Pendente)</span>}
-                         {visit.syncStatus === 'error' && <span className="ml-2 text-xs text-destructive">(Erro Sinc)</span>}
-                       </CardDescription>
-                    </div>
-                    <div className="flex gap-1">
-                        <Dialog>
-                           <DialogTrigger asChild>
-                                <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary h-8 w-8">
-                                  <Eye className="h-4 w-4" />
-                                  <span className="sr-only">Visualizar Detalhes</span>
-                                </Button>
-                            </DialogTrigger>
-                            <DialogContent>
-                               <DialogHeader>
-                                   <DialogTitle>Detalhes da Visita</DialogTitle>
-                               </DialogHeader>
-                               <div className="py-4 space-y-3">
-                                   <p><strong>Cliente:</strong> {visit.clientName}</p>
-                                   <p><strong>Localização:</strong> {visit.location}</p>
-                                   {visit.latitude && visit.longitude && <p className="text-xs">({visit.latitude.toFixed(4)}, {visit.longitude.toFixed(4)})</p>}
-                                   <p><strong>KM Inicial:</strong> {formatKm(visit.initialKm)} Km</p>
-                                   <p><strong>Motivo:</strong> {visit.reason}</p>
-                                   <p className="text-xs text-muted-foreground">Registrado em: {new Date(visit.timestamp).toLocaleString('pt-BR')}</p>
-                                   <p className="text-xs text-muted-foreground">Status Sinc: {visit.syncStatus || 'N/A'}</p>
-                               </div>
-                               <DialogFooter>
-                                   <DialogClose asChild>
-                                       <Button variant="outline">Fechar</Button>
-                                   </DialogClose>
-                               </DialogFooter>
-                            </DialogContent>
-                        </Dialog>
-                       <Dialog open={isEditModalOpen && currentVisit?.id === visit.id} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); else openEditModal(visit); }}>
-                         <DialogTrigger asChild>
-                           <Button variant="ghost" size="icon" onClick={() => openEditModal(visit)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving}>
-                             <Edit className="h-4 w-4" />
-                             <span className="sr-only">Editar</span>
-                           </Button>
-                         </DialogTrigger>
-                         <DialogContent className="sm:max-w-lg">
-                            <DialogHeader><DialogTitle>Editar Visita</DialogTitle></DialogHeader>
-                            <form onSubmit={handleEditVisit} className="grid gap-4 py-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="editClientName">Nome do Cliente*</Label>
-                                    <Input id="editClientName" value={clientName} onChange={(e) => setClientName(e.target.value)} required disabled={isSaving}/>
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="editLocation">Localização*</Label>
-                                     <div className="flex items-center gap-2">
-                                         <Input id="editLocation" value={location} onChange={(e) => setLocation(e.target.value)} required className="flex-grow" disabled={isSaving}/>
-                                         <Button type="button" variant="outline" size="icon" onClick={handleGetLocation} disabled={isFetchingLocation || isSaving} title="Usar GPS">
-                                            {isFetchingLocation ? <LoadingSpinner className="h-4 w-4" /> : <LocateFixed className="h-4 w-4" />}
-                                          </Button>
-                                     </div>
-                                      {latitude && longitude && (
-                                         <p className="text-xs text-muted-foreground">Lat: {latitude.toFixed(4)}, Lon: {longitude.toFixed(4)}</p>
-                                      )}
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="editInitialKm">Km Inicial*</Label>
-                                    <Input id="editInitialKm" type="number" value={initialKm} onChange={(e) => setInitialKm(Number(e.target.value) >= 0 ? Number(e.target.value) : '')} required min="0" disabled={isSaving}/>
-                                     <p className="text-xs text-muted-foreground">Confira este valor com atenção.</p>
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="editReason">Motivo*</Label>
-                                    <Textarea id="editReason" value={reason} onChange={(e) => setReason(e.target.value)} required disabled={isSaving}/>
+          {visits.map((visit, index) => {
+            let distanceTraveled = null;
+            if (index < visits.length - 1) {
+                const previousChronologicalVisit = visits[index+1];
+                if (visit.initialKm && previousChronologicalVisit.initialKm) {
+                    distanceTraveled = visit.initialKm - previousChronologicalVisit.initialKm;
+                }
+            }
+
+            return (
+                <Card key={visit.id} className={cn("shadow-sm transition-shadow hover:shadow-md bg-card border border-border", visit.syncStatus === 'pending' && 'border-yellow-500', visit.syncStatus === 'error' && 'border-destructive')}>
+                <CardHeader>
+                    <div className="flex justify-between items-start">
+                        <div>
+                        <CardTitle>{visit.clientName}</CardTitle>
+                        <CardDescription>
+                            {new Date(visit.timestamp).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
+                            {visit.syncStatus === 'pending' && <span className="ml-2 text-xs text-yellow-600">(Pendente)</span>}
+                            {visit.syncStatus === 'error' && <span className="ml-2 text-xs text-destructive">(Erro Sinc)</span>}
+                        </CardDescription>
+                        </div>
+                        <div className="flex gap-1">
+                            <Dialog>
+                            <DialogTrigger asChild>
+                                    <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary h-8 w-8">
+                                    <Eye className="h-4 w-4" />
+                                    <span className="sr-only">Visualizar Detalhes</span>
+                                    </Button>
+                                </DialogTrigger>
+                                <DialogContent>
+                                <DialogHeader>
+                                    <DialogTitle>Detalhes da Visita</DialogTitle>
+                                </DialogHeader>
+                                <div className="py-4 space-y-3">
+                                    <p><strong>Cliente:</strong> {visit.clientName}</p>
+                                    <p><strong>Localização:</strong> {visit.location}</p>
+                                    {visit.latitude && visit.longitude && <p className="text-xs">({visit.latitude.toFixed(4)}, {visit.longitude.toFixed(4)})</p>}
+                                    <p><strong>KM Inicial:</strong> {formatKm(visit.initialKm)}</p>
+                                    {distanceTraveled !== null && distanceTraveled >=0 && (
+                                        <p><strong>Distância desde última visita:</strong> {formatKm(distanceTraveled)}</p>
+                                    )}
+                                    <p><strong>Motivo:</strong> {visit.reason}</p>
+                                    <p className="text-xs text-muted-foreground">Registrado em: {new Date(visit.timestamp).toLocaleString('pt-BR')}</p>
+                                    <p className="text-xs text-muted-foreground">Status Sinc: {visit.syncStatus || 'N/A'}</p>
                                 </div>
                                 <DialogFooter>
-                                    <DialogClose asChild><Button type="button" variant="outline" onClick={closeEditModal} disabled={isSaving}>Cancelar</Button></DialogClose>
-                                    <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isSaving}>
-                                        {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                        {isSaving ? 'Salvando...' : 'Salvar Alterações Locais'}
-                                    </Button>
+                                    <DialogClose asChild>
+                                        <Button variant="outline">Fechar</Button>
+                                    </DialogClose>
                                 </DialogFooter>
-                            </form>
-                         </DialogContent>
-                       </Dialog>
-                       <AlertDialog>
-                           <AlertDialogTrigger asChild>
-                             <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => openDeleteConfirmation(visit)} disabled={isSaving}>
-                               <Trash2 className="h-4 w-4" />
-                               <span className="sr-only">Excluir</span>
-                             </Button>
-                           </AlertDialogTrigger>
-                       </AlertDialog>
+                                </DialogContent>
+                            </Dialog>
+                        <Dialog open={isEditModalOpen && currentVisit?.id === visit.id} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); else openEditModal(visit); }}>
+                            <DialogTrigger asChild>
+                            <Button variant="ghost" size="icon" onClick={() => openEditModal(visit)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving}>
+                                <Edit className="h-4 w-4" />
+                                <span className="sr-only">Editar</span>
+                            </Button>
+                            </DialogTrigger>
+                            <DialogContent className="sm:max-w-lg">
+                                <DialogHeader><DialogTitle>Editar Visita</DialogTitle></DialogHeader>
+                                <form onSubmit={handleEditVisit} className="grid gap-4 py-4">
+                                    <div className="space-y-2">
+                                        <Label htmlFor="editClientName">Nome do Cliente*</Label>
+                                        <Input id="editClientName" value={clientName} onChange={(e) => setClientName(e.target.value)} required disabled={isSaving}/>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="editLocation">Localização*</Label>
+                                        <div className="flex items-center gap-2">
+                                            <Input id="editLocation" value={location} onChange={(e) => setLocation(e.target.value)} required className="flex-grow" disabled={isSaving}/>
+                                            <Button type="button" variant="outline" size="icon" onClick={handleGetLocation} disabled={isFetchingLocation || isSaving} title="Usar GPS">
+                                                {isFetchingLocation ? <LoadingSpinner className="h-4 w-4" /> : <LocateFixed className="h-4 w-4" />}
+                                            </Button>
+                                        </div>
+                                        {latitude && longitude && (
+                                            <p className="text-xs text-muted-foreground">Lat: {latitude.toFixed(4)}, Lon: {longitude.toFixed(4)}</p>
+                                        )}
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="editInitialKm">Km Inicial*</Label>
+                                        <Input id="editInitialKm" type="number" value={initialKm} onChange={(e) => setInitialKm(Number(e.target.value) >= 0 ? Number(e.target.value) : '')} required min="0" disabled={isSaving}/>
+                                        <p className="text-xs text-muted-foreground">Confira este valor com atenção.</p>
+                                    </div>
+                                    <div className="space-y-2">
+                                        <Label htmlFor="editReason">Motivo*</Label>
+                                        <Textarea id="editReason" value={reason} onChange={(e) => setReason(e.target.value)} required disabled={isSaving}/>
+                                    </div>
+                                    <DialogFooter>
+                                        <DialogClose asChild><Button type="button" variant="outline" onClick={closeEditModal} disabled={isSaving}>Cancelar</Button></DialogClose>
+                                        <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isSaving}>
+                                            {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                            {isSaving ? 'Salvando...' : 'Salvar Alterações Locais'}
+                                        </Button>
+                                    </DialogFooter>
+                                </form>
+                            </DialogContent>
+                        </Dialog>
+                        <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                                <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => openDeleteConfirmation(visit)} disabled={isSaving}>
+                                <Trash2 className="h-4 w-4" />
+                                <span className="sr-only">Excluir</span>
+                                </Button>
+                            </AlertDialogTrigger>
+                            {/* AlertDialogContent for delete is defined once globally */}
+                        </AlertDialog>
+                        </div>
                     </div>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-2 text-sm">
-                <div className="flex items-center gap-2 text-muted-foreground">
-                    <MapPin className="h-4 w-4 flex-shrink-0" />
-                    <span>{visit.location}</span>
-                </div>
-                 <div className="flex items-center gap-2 text-muted-foreground">
-                    <Milestone className="h-4 w-4 flex-shrink-0" />
-                    <span>Km Inicial: {formatKm(visit.initialKm)} Km</span>
-                 </div>
-                 <div className="flex items-center gap-2">
-                    <Info className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
-                    <span>{visit.reason}</span>
-                 </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm">
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                        <MapPin className="h-4 w-4 flex-shrink-0" />
+                        <span>{visit.location}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                        <Milestone className="h-4 w-4 flex-shrink-0" />
+                        <span>Km Inicial: {formatKm(visit.initialKm)}</span>
+                    </div>
+                    {distanceTraveled !== null && distanceTraveled >=0 && (
+                         <div className="flex items-center gap-2 text-muted-foreground">
+                             <TrendingUp className="h-4 w-4 flex-shrink-0 text-blue-500" />
+                             <span>Distância da visita anterior: {formatKm(distanceTraveled)}</span>
+                         </div>
+                    )}
+                    <div className="flex items-center gap-2">
+                        <Info className="h-4 w-4 flex-shrink-0 text-muted-foreground" />
+                        <span>{visit.reason}</span>
+                    </div>
+                </CardContent>
+                </Card>
+            );
+          })}
         </div>
        )}
     </div>
