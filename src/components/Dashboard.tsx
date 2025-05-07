@@ -23,7 +23,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 interface DashboardProps {
-    setActiveTab: (section: 'visits' | 'expenses' | 'fuelings' | 'trips' | null) => void;
+    setActiveTab: (section: 'visits' | 'expenses' | 'fuelings' | null) => void;
 }
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82ca9d', '#ffc658'];
@@ -221,9 +221,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
       if (!driverData) { // If not found by ID, try finding by email
         driverData = drivers.find(d => d.email === driverIdFromTrip);
       }
-      const resolvedDriverName = driverData?.name || `Motorista: ${driverIdFromTrip}`; // More user-friendly fallback
-      // Use Firebase UID for aggregation if available to group correctly
-      const aggregationKey = driverData?.id || driverIdFromTrip;
+      const resolvedDriverName = driverData?.name || `Motorista Desconhecido (${driverIdFromTrip.substring(0,6)}...)`;
+      const aggregationKey = driverData?.id || driverIdFromTrip; // Use Firebase UID for aggregation if available
 
 
       if (!tripsByDriver[aggregationKey]) {
@@ -326,10 +325,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                                 <SelectItem value="all">Todos os Motoristas</SelectItem>
                                 {drivers.length > 0 ? (
                                     drivers.map(driver => (
-                                        <SelectItem key={driver.id} value={driver.id}>{driver.name || `Motorista ${driver.id.substring(0,6)}...`} ({driver.base})</SelectItem>
+                                        <SelectItem key={driver.id} value={driver.id}>{driver.name || `Motorista Desconhecido (${driver.id.substring(0,6)}...)`} ({driver.base})</SelectItem>
                                     ))
                                 ) : (
-                                    <SelectItem value="no-drivers" disabled>Nenhum motorista</SelectItem>
+                                    <SelectItem value="no-drivers" disabled>Nenhum motorista encontrado</SelectItem>
                                 )}
                                 </>
                             )}
@@ -348,7 +347,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
           <Card className="shadow-md transition-shadow hover:shadow-lg">
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Viagens Ativas</CardTitle>
-              <Truck className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => setActiveTab('trips')} />
+              <Truck className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => setActiveTab(null)} />
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold text-primary">{summaryData.activeTrips}</div>
@@ -368,7 +367,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
            <Card className="shadow-md transition-shadow hover:shadow-lg">
              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                <CardTitle className="text-sm font-medium">Distância Percorrida</CardTitle>
-               <Milestone className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => setActiveTab('trips')} />
+               <Milestone className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => setActiveTab(null)} />
              </CardHeader>
              <CardContent>
                <div className="text-2xl font-bold">{formatKm(summaryData.totalDistance)}</div>
