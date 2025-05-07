@@ -304,7 +304,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
               <ExpensesComponent tripId={trip.localId} tripName={trip.name} />
             </TabsContent>
             <TabsContent value="fuelings" className="mt-4">
-              <FuelingsComponent tripId={trip.localId} tripName={trip.name} />
+              <FuelingsComponent tripId={trip.localId} tripName={trip.name} vehicleId={trip.vehicleId} />
             </TabsContent>
           </Tabs>
         )}

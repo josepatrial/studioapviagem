@@ -14,7 +14,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger, // Added AlertDialogTrigger
+  AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -40,11 +40,12 @@ export interface Fueling extends Omit<LocalFueling, 'localId' | 'tripLocalId'> {
 }
 
 interface FuelingsProps {
-  tripId: string;
+  tripId: string; // This is tripLocalId
   tripName?: string;
+  vehicleId: string; // VehicleId associated with the trip
 }
 
-export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripName }) => {
+export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripName, vehicleId: tripVehicleId }) => {
   const [fuelings, setFuelings] = useState<Fueling[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -62,7 +63,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
   const [pricePerLiter, setPricePerLiter] = useState<number | ''>('');
   const [location, setLocation] = useState('');
   const [comments, setComments] = useState('');
-  const [vehicleId, setVehicleId] = useState(''); // Should be derived from trip or passed
+  // Removed vehicleId state, will use tripVehicleId prop
 
   const [attachment, setAttachment] = useState<File | string | null>(null);
   const [attachmentFilename, setAttachmentFilename] = useState<string | null>(null);
@@ -83,19 +84,6 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
                 syncStatus: lf.syncStatus
             }));
             setFuelings(uiFuelings);
-
-            // Attempt to set vehicleId from the first fueling if not already set
-            if (uiFuelings.length > 0 && !vehicleId) {
-                setVehicleId(uiFuelings[0].vehicleId); // Assuming vehicleId is consistent for all fuelings of a trip
-            } else if (!vehicleId) {
-                 // This case means no fuelings found or vehicleId could not be determined.
-                 // It might be better to fetch the trip details to get the vehicleId.
-                 // For now, logging a warning.
-                 console.warn(`[Fuelings] Vehicle ID for trip ${tripLocalId} not determined from existing fuelings.`);
-                 // Consider fetching trip details here to get the correct vehicleId.
-                 // setVehicleId('placeholder-vehicle-id-from-trip');
-            }
-
         } catch (error) {
             console.error(`Error fetching local fuelings for trip ${tripLocalId}:`, error);
             toast({ variant: "destructive", title: "Erro Local", description: "Não foi possível carregar os abastecimentos locais." });
@@ -104,7 +92,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
         }
     };
     fetchFuelingsData();
-  }, [tripLocalId, toast, vehicleId]); // vehicleId added to dependencies, might cause re-fetch if it changes.
+  }, [tripLocalId, toast]);
 
     useEffect(() => {
         if (!isCameraOpen) {
@@ -196,15 +184,12 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
 
   const handleCreateFueling = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Vehicle ID should be derived from the current trip, not rely on potentially empty 'vehicleId' state
-    // This requires passing vehicleId of the trip to this component or fetching it.
-    // For now, we'll check for vehicleId and show an error if it's missing.
-    if (!vehicleId) {
+    if (!tripVehicleId) { // Use the prop tripVehicleId
         toast({ variant: 'destructive', title: 'Erro', description: 'ID do Veículo não encontrado para este abastecimento.' });
         return;
     }
 
-    if (!date || liters === '' || pricePerLiter === '' || !location ) { // Removed vehicleId check from here
+    if (!date || liters === '' || pricePerLiter === '' || !location ) {
       toast({ variant: 'destructive', title: 'Erro', description: 'Data, litros, preço/L e local são obrigatórios.' });
       return;
     }
@@ -219,7 +204,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
 
      const newFuelingData: Omit<LocalFueling, 'localId' | 'syncStatus' | 'receiptUrl' | 'receiptPath'> = {
        tripLocalId: tripLocalId,
-       vehicleId: vehicleId, // Use the determined vehicleId
+       vehicleId: tripVehicleId, // Use the prop tripVehicleId
        date: new Date(date).toISOString(),
        liters: litersNum,
        pricePerLiter: priceNum,
@@ -228,7 +213,6 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
        comments,
        receiptFilename: attachmentFilename || undefined,
        receiptUrl: typeof attachment === 'string' ? attachment : undefined,
-       // receiptPath is handled by sync logic
      };
 
      try {
@@ -238,7 +222,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
           const newUIFueling: Fueling = {
              ...newFuelingData,
              localId: localId,
-             id: localId,
+             id: localId, // UI id is localId for new items
              tripId: tripLocalId,
              syncStatus: 'pending'
           };
@@ -258,13 +242,13 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
   const handleEditFueling = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentFueling) return;
-    // Similarly, ensure vehicleId is correct for edit
-    if (!vehicleId) {
+    
+    if (!tripVehicleId) { // Ensure tripVehicleId is available for edit context as well
         toast({ variant: 'destructive', title: 'Erro', description: 'ID do Veículo não encontrado para este abastecimento.' });
         return;
     }
 
-    if (!date || liters === '' || pricePerLiter === '' || !location) { // Removed vehicleId check
+    if (!date || liters === '' || pricePerLiter === '' || !location) {
       toast({ variant: 'destructive', title: 'Erro', description: 'Data, litros, preço/L e local são obrigatórios.' });
       return;
     }
@@ -292,7 +276,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
         totalCost: litersNum * priceNum,
         location,
         comments,
-        vehicleId: vehicleId, // Ensure this is the correct vehicleId for the trip
+        vehicleId: tripVehicleId, // Use prop vehicleId for consistency during edit
         receiptUrl: typeof attachment === 'string' ? attachment : (attachment === null ? undefined : originalLocalFueling.receiptUrl),
         receiptFilename: attachmentFilename || (attachment === null ? undefined : originalLocalFueling.receiptFilename),
         syncStatus: originalLocalFueling.syncStatus === 'synced' ? 'pending' : originalLocalFueling.syncStatus,
@@ -370,7 +354,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
     setPricePerLiter(fueling.pricePerLiter);
     setLocation(fueling.location);
     setComments(fueling.comments || '');
-    setVehicleId(fueling.vehicleId); // Set vehicleId from the fueling being edited
+    // VehicleId is now passed as a prop, so no need to set it from fueling.vehicleId in form state
 
     if (fueling.receiptUrl) {
         setAttachment(fueling.receiptUrl);
@@ -389,7 +373,6 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
     setPricePerLiter('');
     setLocation('');
     setComments('');
-    // Do not reset vehicleId here as it should persist for the trip context
     clearAttachment();
   };
 
