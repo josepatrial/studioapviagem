@@ -11,7 +11,7 @@ import { Dashboard } from '@/components/Dashboard';
 import { Trips } from './Trips/Trips';
 import { Vehicle } from '@/components/Vehicle';
 import { Drivers } from './Drivers/Drivers'; // Import Drivers component
-import { LogOut, User as UserIcon, LayoutDashboard, Plane, Car, UserCog, RefreshCw, WifiOff } from 'lucide-react'; // Added Car, UserCog, RefreshCw, WifiOff icons
+import { LogOut, User as UserIcon, LayoutDashboard, Truck, Car, UserCog, RefreshCw, WifiOff } from 'lucide-react'; // Changed Plane to Truck, Added Truck
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -145,7 +145,7 @@ const AppLayout: React.FC = () => {
                      <LayoutDashboard className="mr-2 h-4 w-4 sm:hidden md:inline-block" /> Dashboard
                    </TabsTrigger>
                    <TabsTrigger value="trips" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
-                      <Plane className="mr-2 h-4 w-4 sm:hidden md:inline-block" /> Viagens
+                      <Truck className="mr-2 h-4 w-4 sm:hidden md:inline-block" /> Viagens
                    </TabsTrigger>
                    <TabsTrigger value="vehicle" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
                       <Car className="mr-2 h-4 w-4 sm:hidden md:inline-block" /> Veículo
