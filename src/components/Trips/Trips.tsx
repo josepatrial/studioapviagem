@@ -5,7 +5,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Edit, Trash2, Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Filter, Loader2, BarChart3, ChevronDown, TrendingUp } from 'lucide-react'; // Added TrendingUp
+import { PlusCircle, Edit, Trash2, Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Filter, Loader2, BarChart3, ChevronDown, TrendingUp } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -49,8 +49,8 @@ import { LoadingSpinner } from '../LoadingSpinner';
 import { DateRangePicker } from '@/components/ui/date-range-picker';
 import type { DateRange } from 'react-day-picker';
 import { parseISO, startOfDay, endOfDay } from 'date-fns';
-import { formatKm } from '@/lib/utils'; // Import centralized formatKm
-import { TripAccordionItem } from './TripAccordionItem'; // Import the new component
+import { formatKm } from '@/lib/utils';
+import { TripAccordionItem } from './TripAccordionItem';
 
 const VisitsComponent = dynamic(() => import('./Visits').then(mod => mod.Visits), {
   loading: () => <LoadingSpinner className="h-5 w-5" />,
@@ -81,11 +81,11 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
   const [vehicles, setVehicles] = useState<LocalVehicle[]>([]);
   const [drivers, setDrivers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
-  const [loadingVehicles, setLoadingVehicles] = useState(true); // Added for vehicle select loading
+  const [loadingVehicles, setLoadingVehicles] = useState(true);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isFinishModalOpen, setIsFinishModalOpen] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(isDeleting);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [currentTrip, setCurrentTrip] = useState<Trip | null>(null);
   const [tripToFinish, setTripToFinish] = useState<Trip | null>(null);
@@ -656,7 +656,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
                 setSelectedVehicleIdForEdit={setSelectedVehicleId}
                 openDeleteConfirmation={openDeleteConfirmation}
                 tripToDelete={tripToDelete}
-                isDeleteModalOpen={!!tripToDelete && tripToDelete.localId === trip.localId && isDeleteModalOpen} // Pass true only if this item is the one to be deleted
+                isDeleteModalOpen={!!tripToDelete && tripToDelete.localId === trip.localId}
                 closeDeleteConfirmation={closeDeleteConfirmation}
                 confirmDeleteTrip={confirmDeleteTrip}
                 isSaving={isSaving}
