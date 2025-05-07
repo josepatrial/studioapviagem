@@ -34,6 +34,7 @@ import {
     AlertDialogFooter,
     AlertDialogHeader,
     AlertDialogTitle,
+    AlertDialogTrigger, // Added AlertDialogTrigger
   } from '@/components/ui/alert-dialog';
 import {
     Button
@@ -238,7 +239,7 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
             timestamp: new Date().toISOString(),
             expenseType,
             receiptFilename: attachmentFilename || undefined,
-            receiptUrl: typeof attachment === 'string' ? attachment : undefined,
+            // receiptUrl is handled in confirmAndSaveExpense
         };
 
         setExpenseToConfirm({ ...newExpenseData, attachment: attachment });
@@ -255,7 +256,7 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
         const dataToSave: Omit<LocalExpense, 'localId' | 'syncStatus'> = {
             ...dataToSaveBase,
              receiptUrl: typeof tempAttachment === 'string' ? tempAttachment : undefined,
-             receiptPath: undefined,
+             receiptPath: undefined, // Will be set during sync if uploaded to storage
              receiptFilename: attachmentFilename || undefined,
         };
 
@@ -315,8 +316,9 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
             value: valueNumber,
             expenseDate: expenseDate.toISOString(),
             expenseType,
-            receiptUrl: typeof attachment === 'string' ? attachment : undefined,
-            receiptFilename: attachmentFilename || undefined,
+            receiptUrl: typeof attachment === 'string' ? attachment : (attachment === null ? undefined : originalLocalExpense.receiptUrl), // Handle null for removal
+            receiptFilename: attachmentFilename || (attachment === null ? undefined : originalLocalExpense.receiptFilename),
+            // receiptPath will be updated by sync logic if a new file is uploaded/removed
             syncStatus: originalLocalExpense.syncStatus === 'synced' ? 'pending' : originalLocalExpense.syncStatus,
         };
 
@@ -423,6 +425,7 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
     const closeConfirmModal = () => {
         setIsConfirmModalOpen(false);
         setExpenseToConfirm(null);
+        // Reopen create modal to allow further entries or corrections
         setIsCreateModalOpen(true);
     }
 
@@ -570,7 +573,7 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
                     <AlertDialogFooter>
                         <AlertDialogCancel onClick={() => {
                             setIsConfirmModalOpen(false);
-                            setIsCreateModalOpen(true);
+                            setIsCreateModalOpen(true); // Reopen create modal
                         }} disabled={isSaving}>Voltar e Editar</AlertDialogCancel>
                         <AlertDialogAction onClick={confirmAndSaveExpense} className="bg-primary hover:bg-primary/90" disabled={isSaving}>
                             {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -773,7 +776,7 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
                                                     <span className="sr-only">Excluir</span>
                                                 </Button>
                                             </AlertDialogTrigger>
-                                            {/* Content remains outside */}
+                                            {/* AlertDialogContent moved to a single instance */}
                                         </AlertDialog>
                                     </div>
                                 </div>
