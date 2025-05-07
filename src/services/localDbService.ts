@@ -60,6 +60,14 @@ const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin'> & {password:
     password: '123456',
    },
    {
+    id: 'fernando.rocha@grupo2irmaos.com.br', // Use email as ID for direct mapping
+    email: 'fernando.rocha@grupo2irmaos.com.br',
+    name: 'Fernando Rocha',
+    role: 'driver',
+    base: 'SP', // Example base
+    password: '123456', // Example password
+   },
+   {
      id: 'grupo2irmaos@grupo2irmaos.com.br', // Forced Admin - also use email as ID
      email: 'grupo2irmaos@grupo2irmaos.com.br',
      name: 'Grupo 2 Irmãos Admin',
