@@ -60,7 +60,7 @@ const convertISOToTimestamps = (data: any, fields: string[]) => {
 
 
 // --- User (Driver) Service ---
-const usersCollectionRef = collection(db, 'users');
+const usersCollectionRef = db ? collection(db, 'users') : null;
 
 // Potential Index: users collection - index on 'role'
 export const getUserData = async (userId: string): Promise<User | null> => {
@@ -81,6 +81,11 @@ export const getUserData = async (userId: string): Promise<User | null> => {
       if (!userData.role) {
            console.warn(`[firestoreService getUserData ${getUserStartTime}] User ${userId} missing role, defaulting to 'driver'.`);
            userData.role = 'driver';
+      }
+      // Ensure base is 'ALL' if role is 'admin'
+      if (userData.role === 'admin' && userData.base !== 'ALL') {
+        console.warn(`[firestoreService getUserData ${getUserStartTime}] Admin user ${userId} has base ${userData.base}, correcting to 'ALL'.`);
+        userData.base = 'ALL';
       }
       console.log(`[firestoreService getUserData ${getUserStartTime}] User data found. Time: ${getUserEndTime - getUserStartTime} ms`);
       return userData;
@@ -197,8 +202,11 @@ export const deleteUser = async (userId: string) => {
 export const getDrivers = async (): Promise<DriverInfo[]> => {
     const getDriversStartTime = performance.now();
     console.log(`[firestoreService getDrivers ${getDriversStartTime}] Fetching drivers...`);
+    if (!usersCollectionRef) {
+      console.error(`[firestoreService getDrivers ${getDriversStartTime}] Users collection ref not initialized.`);
+      return [];
+    }
     try {
-         if (!db) throw new Error("Firestore DB not initialized.");
         const q = query(usersCollectionRef, where('role', '==', 'driver'));
         const querySnapshot = await getDocs(q);
         const drivers = querySnapshot.docs.map(doc => convertTimestampsToISO({ id: doc.id, ...doc.data() }) as DriverInfo);
@@ -307,8 +315,12 @@ export const getTrips = async (filters: TripFilter = {}): Promise<Trip[]> => {
      }
     try {
         const constraints: QueryConstraint[] = [];
-        if (filters.userId) constraints.push(where('userId', '==', filters.userId));
-        if (filters.startDate) constraints.push(where('createdAt', '>=', Timestamp.fromDate(new Date(filters.startDate))));
+        if (filters.userId) {
+            constraints.push(where('userId', '==', filters.userId));
+        }
+        if (filters.startDate) {
+            constraints.push(where('createdAt', '>=', Timestamp.fromDate(new Date(filters.startDate))));
+        }
         if (filters.endDate) {
              const endDatePlusOne = new Date(filters.endDate);
              endDatePlusOne.setDate(endDatePlusOne.getDate() + 1);
@@ -547,29 +559,35 @@ export const deleteExpense = async (expenseId: string) => {
 };
 
 // --- Fueling Service ---
-const fuelingsCollectionRef = db ? collection(db, 'fuelings') : null; // Handle potential null db
+const fuelingsCollectionRef = db ? collection(db, 'fuelings') : null;
 
-export const getFuelings = async (tripId: string): Promise<Fueling[]> => {
+export const getFuelings = async (tripId?: string): Promise<Fueling[]> => {
     const getFuelingsStartTime = performance.now();
-    console.log(`[firestoreService getFuelings ${getFuelingsStartTime}] Fetching fuelings for trip ID: ${tripId}`);
-     if (!fuelingsCollectionRef) {
-          console.error(`[firestoreService getFuelings ${getFuelingsStartTime}] Fuelings collection ref not initialized.`);
-          return [];
-     }
+    console.log(`[firestoreService getFuelings ${getFuelingsStartTime}] Fetching fuelings for trip ID: ${tripId || 'all'}`);
+    if (!fuelingsCollectionRef) {
+        console.error(`[firestoreService getFuelings ${getFuelingsStartTime}] Fuelings collection ref not initialized.`);
+        return [];
+    }
     try {
-        const q = query(fuelingsCollectionRef, where('tripId', '==', tripId), orderBy('date', 'desc'));
+        const constraints: QueryConstraint[] = [];
+        if (tripId) {
+            constraints.push(where('tripId', '==', tripId));
+        }
+        constraints.push(orderBy('date', 'desc'));
+
+        const q = query(fuelingsCollectionRef, ...constraints);
         const querySnapshot = await getDocs(q);
         const fuelings = querySnapshot.docs.map(doc => convertTimestampsToISO({ id: doc.id, ...doc.data() }) as Fueling);
         const getFuelingsEndTime = performance.now();
         console.log(`[firestoreService getFuelings ${getFuelingsStartTime}] Found ${fuelings.length} fuelings. Time: ${getFuelingsEndTime - getFuelingsStartTime} ms`);
         return fuelings;
     } catch (error) {
-         const getFuelingsEndTime = performance.now();
-         console.error(`[firestoreService getFuelings ${getFuelingsStartTime}] Error fetching fuelings. Time: ${getFuelingsEndTime - getFuelingsStartTime} ms`, error);
-          if ((error as any).code === 'unavailable') {
-              console.warn('Firestore is offline. Cannot fetch fuelings.');
-          }
-         return [];
+        const getFuelingsEndTime = performance.now();
+        console.error(`[firestoreService getFuelings ${getFuelingsStartTime}] Error fetching fuelings. Time: ${getFuelingsEndTime - getFuelingsStartTime} ms`, error);
+        if ((error as any).code === 'unavailable') {
+            console.warn('Firestore is offline. Cannot fetch fuelings.');
+        }
+        return [];
     }
 };
 
