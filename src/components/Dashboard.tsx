@@ -221,7 +221,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
       if (!driverData) { // If not found by ID, try finding by email
         driverData = drivers.find(d => d.email === driverIdFromTrip);
       }
-      const resolvedDriverName = driverData?.name || driverIdFromTrip; // Fallback to ID/email
+      const resolvedDriverName = driverData?.name || `ID: ${driverIdFromTrip}`; // Fallback to ID/email with prefix
       // Use Firebase UID for aggregation if available to group correctly
       const aggregationKey = driverData?.id || driverIdFromTrip;
 
@@ -501,4 +501,3 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     </div>
   );
 };
-
