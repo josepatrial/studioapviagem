@@ -3,25 +3,27 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { MapPin, Wallet, Fuel, Users, Truck, Milestone, Filter, Calendar } from 'lucide-react'; // Added Calendar icon
+import { MapPin, Wallet, Fuel, Users, Truck, Milestone, Filter, Calendar, Info } from 'lucide-react'; // Added Calendar and Info icon
 import { useAuth, User } from '@/contexts/AuthContext'; // Import User type
-import type { Trip } from './Trips/Trips'; // Assuming these are still mock or fetched elsewhere
-import {getLocalVisits as fetchLocalVisits, getLocalExpenses, getLocalFuelings, getLocalTrips, getLocalVehicles, LocalVehicle, LocalExpense, LocalFueling, LocalTrip, LocalVisit} from '@/services/localDbService'; // Import local fetch functions
-// Removed incorrect import: import { getExpenses } from './Trips/Expenses';
-import { getFuelings as fetchOnlineFuelings, getVehicles as fetchOnlineVehicles, getTrips as fetchOnlineTrips, getDrivers } from '@/services/firestoreService';// Assuming these are still mock or fetched elsewhere
+import type { Trip } from './Trips/Trips';
+import {getLocalVisits as fetchLocalVisits, getLocalExpenses, getLocalFuelings, getLocalTrips, getLocalVehicles, LocalVehicle, LocalExpense, LocalFueling, LocalTrip, LocalVisit} from '@/services/localDbService';
+import { getFuelings as fetchOnlineFuelings, getVehicles as fetchOnlineVehicles, getTrips as fetchOnlineTrips, getDrivers } from '@/services/firestoreService';
 import type { VehicleInfo } from './Vehicle';
-import { DateRangePicker } from '@/components/ui/date-range-picker'; // Import DateRangePicker
+import { DateRangePicker } from '@/components/ui/date-range-picker';
 import type { DateRange } from 'react-day-picker';
 import { isWithinInterval, parseISO, startOfDay, endOfDay, format as formatDateFn } from 'date-fns';
 import { LoadingSpinner } from './LoadingSpinner';
 import { formatKm } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 
 const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 interface DashboardProps {
-    setActiveTab: (section: 'visits' | 'expenses' | 'fuelings' | 'trips' | 'null') => void;
+    setActiveTab: (section: 'visits' | 'expenses' | 'fuelings' | 'trips' | null) => void;
 }
 
 
@@ -34,7 +36,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
   const [filterDriverId, setFilterDriverId] = useState<string>('');
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
 
-  // States for fetched local data
   const [expenses, setExpenses] = useState<LocalExpense[]>([]);
   const [fuelings, setFuelings] = useState<LocalFueling[]>([]);
   const [trips, setTrips] = useState<LocalTrip[]>([]);
@@ -45,16 +46,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
   useEffect(() => {
     const fetchAllLocalData = async () => {
       try {
-        // Fetch all data relevant to the dashboard from localDB
-        // These functions need to be adapted:
-        // - For admin: fetch all records.
-        // - For driver: fetch only their records (based on user.id).
         const [localTrips, localVehiclesData, localExpensesData, localFuelingsData, localVisitsData] = await Promise.all([
           getLocalTrips(isAdmin ? undefined : user?.id),
-          getLocalVehicles(), // Vehicles are global
-          getLocalExpenses(user?.id || ''), // Assuming getLocalExpenses now returns all if no arg for admin, or filters for user
-          getLocalFuelings(user?.id || '', isAdmin ? 'userId' : 'userId'), // Assuming getLocalFuelings now returns all if no arg for admin
-          fetchLocalVisits(user?.id || '')   // Assuming getLocalVisits now returns all if no arg for admin
+          getLocalVehicles(),
+          getLocalExpenses(user?.id || ''),
+          getLocalFuelings(user?.id || '', isAdmin ? 'userId' : 'userId'),
+          fetchLocalVisits(user?.id || '')
         ]);
 
         setTrips(localTrips);
@@ -63,9 +60,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         setFuelings(localFuelingsData);
         setVisits(localVisitsData);
 
-
-        // If local data is empty and user is admin & online, try to fetch from Firestore
-        // This is a fallback, ideally sync mechanism handles this more robustly
         if (isAdmin && navigator.onLine) {
             if (localTrips.length === 0) {
                 const onlineTrips = (await fetchOnlineTrips()).map(t => ({ ...t, localId: t.id, syncStatus: 'synced' } as LocalTrip));
@@ -75,10 +69,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                 const onlineVehicles = (await fetchOnlineVehicles()).map(v => ({ ...v, localId: v.id, syncStatus: 'synced' } as LocalVehicle));
                 setVehicles(onlineVehicles);
             }
-            // Add similar fallbacks for expenses, fuelings, visits if necessary
              if (localFuelingsData.length === 0) {
-                // For admin, fetch all fuelings if local is empty
-                const onlineFuelings = (await fetchOnlineFuelings()).map(f => ({ ...f, localId: f.id, syncStatus: 'synced', odometerKm: f.odometerKm || 0 } as LocalFueling));
+                const onlineFuelings = (await fetchOnlineFuelings(undefined)).map(f => ({ ...f, localId: f.id, syncStatus: 'synced', odometerKm: f.odometerKm || 0 } as LocalFueling));
                 setFuelings(onlineFuelings);
             }
         }
@@ -95,7 +87,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
       const fetchDriversData = async () => {
         setLoadingDrivers(true);
         try {
-          const fetchedDrivers = await getDrivers(); // Fetch all users and filter client-side for 'driver'
+          const fetchedDrivers = await getDrivers();
           setDrivers(fetchedDrivers.filter(d => d.role === 'driver'));
         } catch (error) {
           console.error("Error fetching drivers:", error);
@@ -106,7 +98,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
       };
       fetchDriversData();
     } else {
-        setLoadingDrivers(false); // Not admin, no need to load other drivers
+        setLoadingDrivers(false);
     }
   }, [isAdmin, user?.id, toast]);
 
@@ -115,16 +107,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     let filteredTrips = trips;
     let filteredVisits = visits;
     let filteredExpenses = expenses;
-    let currentFuelings = fuelings; // Renamed to avoid conflict with outer scope
+    let currentFuelings = fuelings;
 
-    // Apply date range filter if selected
     if (dateRange?.from && dateRange?.to) {
         const interval = { start: startOfDay(dateRange.from), end: endOfDay(dateRange.to) };
         filteredTrips = trips.filter(t => { try { return isWithinInterval(parseISO(t.createdAt), interval); } catch { return false; } });
         filteredVisits = visits.filter(v => { try { return isWithinInterval(parseISO(v.timestamp), interval); } catch { return false; } });
         filteredExpenses = expenses.filter(e => { try { return isWithinInterval(parseISO(e.expenseDate), interval); } catch { return false; } });
         currentFuelings = fuelings.filter(f => { try { return isWithinInterval(parseISO(f.date), interval); } catch { return false; } });
-    } else if (dateRange?.from) { // Filter by start date only if no end date
+    } else if (dateRange?.from) {
         const startDate = startOfDay(dateRange.from);
         filteredTrips = trips.filter(t => { try { return parseISO(t.createdAt) >= startDate; } catch { return false; } });
         filteredVisits = visits.filter(v => { try { return parseISO(v.timestamp) >= startDate; } catch { return false; } });
@@ -132,12 +123,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         currentFuelings = fuelings.filter(f => { try { return parseISO(f.date) >= startDate; } catch { return false; } });
     }
 
-
-    // Determine the driver ID to filter by
     const driverIdToFilter = isAdmin && filterDriverId ? filterDriverId : (!isAdmin && user ? user.id : null);
 
-
-    // If a driver is selected (either by admin or if it's the logged-in driver), filter their data
     if (driverIdToFilter) {
         filteredTrips = filteredTrips.filter(t => t.userId === driverIdToFilter);
         const tripLocalIdsForDriver = filteredTrips.map(t => t.localId);
@@ -146,7 +133,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         currentFuelings = currentFuelings.filter(f => tripLocalIdsForDriver.includes(f.tripLocalId || ''));
     }
 
-
     const activeTripsCount = filteredTrips.filter(t => t.status === 'Andamento').length;
     const totalVisitsCount = filteredVisits.length;
     const totalExpensesCount = filteredExpenses.length;
@@ -154,8 +140,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     const totalFuelingsCount = currentFuelings.length;
     const totalFuelingsCost = currentFuelings.reduce((sum, f) => sum + f.totalCost, 0);
     const totalDistanceValue = filteredTrips
-        .filter(t => t.status === 'Finalizado' && t.totalDistance != null) // Ensure totalDistance is not null
-        .reduce((sum, t) => sum + (t.totalDistance || 0), 0); // Add null check for t.totalDistance
+        .filter(t => t.status === 'Finalizado' && t.totalDistance != null)
+        .reduce((sum, t) => sum + (t.totalDistance || 0), 0);
 
     let filterContext = 'Todas as Atividades';
     if (isAdmin) {
@@ -167,7 +153,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         filterContext += ` (${formatDateFn(dateRange.from, 'dd/MM/yy')}${dateRange.to ? ` - ${formatDateFn(dateRange.to, 'dd/MM/yy')}` : ' em diante'})`;
     }
 
-
     return {
         activeTrips: activeTripsCount,
         totalVisits: totalVisitsCount,
@@ -177,11 +162,96 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         totalFuelingsCost,
         totalDistance: totalDistanceValue,
         totalDrivers: isAdmin ? (filterDriverId ? 1 : drivers.length) : 0,
-        totalVehicles: isAdmin ? vehicles.length : 0, // Assuming admin sees all vehicles
+        totalVehicles: isAdmin ? vehicles.length : 0,
         filterApplied: !!filterDriverId || !!dateRange,
         filterContext,
     };
   }, [isAdmin, user?.id, filterDriverId, dateRange, drivers, expenses, fuelings, trips, vehicles, visits]);
+
+  const adminDashboardData = useMemo(() => {
+    if (!isAdmin || user?.email !== 'grupo2irmaos@grupo2irmaos.com.br') {
+      return null;
+    }
+
+    let currentTripsSource = trips;
+    let currentExpensesSource = expenses;
+    let currentFuelingsSource = fuelings;
+    
+    // Apply date range filter if selected
+    if (dateRange?.from && dateRange?.to) {
+        const interval = { start: startOfDay(dateRange.from), end: endOfDay(dateRange.to) };
+        currentTripsSource = trips.filter(t => { try { return isWithinInterval(parseISO(t.createdAt), interval); } catch { return false; } });
+        currentExpensesSource = expenses.filter(e => { try { return isWithinInterval(parseISO(e.expenseDate), interval); } catch { return false; } });
+        currentFuelingsSource = fuelings.filter(f => { try { return isWithinInterval(parseISO(f.date), interval); } catch { return false; } });
+    } else if (dateRange?.from) {
+        const startDate = startOfDay(dateRange.from);
+        currentTripsSource = trips.filter(t => { try { return parseISO(t.createdAt) >= startDate; } catch { return false; } });
+        currentExpensesSource = expenses.filter(e => { try { return parseISO(e.expenseDate) >= startDate; } catch { return false; } });
+        currentFuelingsSource = fuelings.filter(f => { try { return parseISO(f.date) >= startDate; } catch { return false; } });
+    }
+    
+    // Apply driver filter if selected
+    if (filterDriverId) {
+        currentTripsSource = currentTripsSource.filter(t => t.userId === filterDriverId);
+        const tripIdsForDriver = currentTripsSource.map(t => t.localId);
+        currentExpensesSource = currentExpensesSource.filter(e => tripIdsForDriver.includes(e.tripLocalId || ''));
+        currentFuelingsSource = currentFuelingsSource.filter(f => tripIdsForDriver.includes(f.tripLocalId || ''));
+    }
+
+
+    const tripsByDriver: Record<string, { count: number; totalDistance: number; totalExpenses: number, name?: string }> = {};
+    const expensesByType: Record<string, number> = {};
+    const fuelingsByVehicle: Record<string, { totalCost: number; totalLiters: number; count: number, vehiclePlate?: string }> = {};
+
+    currentTripsSource.forEach(trip => {
+      const driverId = trip.userId;
+      if (!tripsByDriver[driverId]) {
+        tripsByDriver[driverId] = { count: 0, totalDistance: 0, totalExpenses: 0, name: drivers.find(d => d.id === driverId)?.name || driverId };
+      }
+      tripsByDriver[driverId].count++;
+      tripsByDriver[driverId].totalDistance += trip.totalDistance || 0;
+
+      const tripExpenses = currentExpensesSource.filter(e => e.tripLocalId === trip.localId);
+      tripExpenses.forEach(expense => {
+        tripsByDriver[driverId].totalExpenses += expense.value;
+      });
+    });
+
+    currentExpensesSource.forEach(expense => {
+        expensesByType[expense.expenseType] = (expensesByType[expense.expenseType] || 0) + expense.value;
+    });
+
+    currentFuelingsSource.forEach(fueling => {
+        const vehicleId = fueling.vehicleId;
+        if(!fuelingsByVehicle[vehicleId]){
+            const vehicle = vehicles.find(v => v.localId === vehicleId || v.firebaseId === vehicleId || v.id === vehicleId);
+            fuelingsByVehicle[vehicleId] = {totalCost: 0, totalLiters: 0, count: 0, vehiclePlate: vehicle?.licensePlate || vehicleId};
+        }
+        fuelingsByVehicle[vehicleId].totalCost += fueling.totalCost;
+        fuelingsByVehicle[vehicleId].totalLiters += fueling.liters;
+        fuelingsByVehicle[vehicleId].count++;
+    });
+
+    const chartableTripsByDriver = Object.values(tripsByDriver)
+      .map(data => ({ name: data.name || 'Desconhecido', trips: data.count, distance: data.totalDistance, expenses: data.totalExpenses }))
+      .sort((a,b) => b.trips - a.trips) 
+      .slice(0, 10); 
+
+    const chartableExpensesByType = Object.entries(expensesByType)
+      .map(([type, value]) => ({ name: type, value }))
+      .sort((a,b) => b.value - a.value);
+
+    const chartableFuelingsByVehicle = Object.values(fuelingsByVehicle)
+        .map(data => ({name: data.vehiclePlate || 'Desconhecido', cost: data.totalCost, liters: data.totalLiters, count: data.count}))
+        .sort((a,b) => b.cost - a.cost)
+        .slice(0,10);
+
+    return {
+      tripsByDriver: chartableTripsByDriver,
+      expensesByType: chartableExpensesByType,
+      fuelingsByVehicle: chartableFuelingsByVehicle,
+    };
+  }, [isAdmin, user?.email, trips, expenses, fuelings, vehicles, drivers, dateRange, filterDriverId]);
 
 
   return (
@@ -286,7 +356,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                <Card className="shadow-md transition-shadow hover:shadow-lg">
                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                    <CardTitle className="text-sm font-medium">Motoristas</CardTitle>
-                    <Users className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => setActiveTab('drivers')} />
+                    <Users className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => setActiveTab('trips')} /> {/* Assuming trips tab shows driver related info or a future 'drivers' tab */}
                  </CardHeader>
                  <CardContent>
                    <div className="text-2xl font-bold">{summaryData.totalDrivers}</div>
@@ -296,7 +366,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                <Card className="shadow-md transition-shadow hover:shadow-lg">
                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                    <CardTitle className="text-sm font-medium">Veículos</CardTitle>
-                    <Truck className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => setActiveTab('vehicle')} />
+                    <Truck className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => setActiveTab(null)} /> {/* Assuming no specific vehicle tab */}
                  </CardHeader>
                  <CardContent>
                    <div className="text-2xl font-bold">{summaryData.totalVehicles}</div>
@@ -307,16 +377,130 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
            )}
         </div>
 
-      {/* TODO: Admin specific charts and detailed views can be added here if isAdmin */}
-      {/* Example:
-        {isAdmin && (
-          <div className="mt-6 space-y-4">
-            <h3 className="text-lg font-semibold">Desempenho Geral</h3>
-            { Add charts here }
-          </div>
-        )}
-      */}
+      {isAdmin && user?.email === 'grupo2irmaos@grupo2irmaos.com.br' && adminDashboardData && (
+        <div className="mt-8 space-y-6">
+          <h2 className="text-2xl font-semibold text-primary">Painel do Administrador</h2>
+          <Alert>
+            <Info className="h-4 w-4" />
+            <AlertTitle>Nota</AlertTitle>
+            <AlertDescription>
+              Não consigo ver a imagem que você mencionou. Este é um painel de exemplo.
+              Por favor, descreva os gráficos e tabelas que você gostaria de ver para que eu possa implementá-los com precisão.
+            </AlertDescription>
+          </Alert>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Viagens por Motorista</CardTitle>
+              <CardDescription>
+                {summaryData.filterContext}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {adminDashboardData.tripsByDriver.length > 0 ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={adminDashboardData.tripsByDriver}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" angle={-30} textAnchor="end" height={70} interval={0} />
+                    <YAxis yAxisId="left" orientation="left" stroke="hsl(var(--primary))" />
+                    <YAxis yAxisId="right" orientation="right" stroke="hsl(var(--chart-2))" />
+                    <Tooltip formatter={(value, name) => (name === 'distance' ? formatKm(value as number) : (name === 'expenses' ? formatCurrency(value as number) : value) )} />
+                    <Legend />
+                    <Bar yAxisId="left" dataKey="trips" fill="hsl(var(--primary))" name="Nº Viagens" />
+                    <Bar yAxisId="right" dataKey="distance" fill="hsl(var(--chart-2))" name="Distância Total (Km)" />
+                    <Bar yAxisId="right" dataKey="expenses" fill="hsl(var(--chart-3))" name="Despesas Totais (R$)" />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-muted-foreground">Nenhum dado de viagem por motorista para exibir com os filtros atuais.</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Despesas por Tipo</CardTitle>
+              <CardDescription>{summaryData.filterContext}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {adminDashboardData.expensesByType.length > 0 ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={adminDashboardData.expensesByType} layout="vertical">
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis type="number" formatter={(value) => formatCurrency(value as number)} />
+                    <YAxis dataKey="name" type="category" width={120} interval={0} />
+                    <Tooltip formatter={(value) => formatCurrency(value as number)} />
+                    <Legend />
+                    <Bar dataKey="value" fill="hsl(var(--chart-1))" name="Valor Total (R$)" />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-muted-foreground">Nenhum dado de despesa por tipo para exibir com os filtros atuais.</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+                <CardTitle>Abastecimentos por Veículo</CardTitle>
+                <CardDescription>{summaryData.filterContext}</CardDescription>
+            </CardHeader>
+            <CardContent>
+                {adminDashboardData.fuelingsByVehicle.length > 0 ? (
+                    <ResponsiveContainer width="100%" height={300}>
+                        <BarChart data={adminDashboardData.fuelingsByVehicle}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="name" angle={-30} textAnchor="end" height={70} interval={0} />
+                            <YAxis yAxisId="left" orientation="left" stroke="hsl(var(--chart-4))" name="Custo"/>
+                            <YAxis yAxisId="right" orientation="right" stroke="hsl(var(--chart-5))" name="Litros"/>
+                            <Tooltip formatter={(value, name) => (name === 'cost' ? formatCurrency(value as number) : (name === 'liters' ? `${(value as number).toFixed(2)} L` : value) )} />
+                            <Legend />
+                            <Bar yAxisId="left" dataKey="cost" fill="hsl(var(--chart-4))" name="Custo Total (R$)" />
+                            <Bar yAxisId="right" dataKey="liters" fill="hsl(var(--chart-5))" name="Litros Totais" />
+                            <Bar yAxisId="left" dataKey="count" fill="hsl(var(--muted-foreground))" name="Nº Abastec." />
+                        </BarChart>
+                    </ResponsiveContainer>
+                ) : (
+                    <p className="text-muted-foreground">Nenhum dado de abastecimento por veículo para exibir com os filtros atuais.</p>
+                )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Ranking de Motoristas (Exemplo)</CardTitle>
+              <CardDescription>{summaryData.filterContext}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              {adminDashboardData.tripsByDriver.length > 0 ? (
+                <Table>
+                    <TableHeader>
+                        <TableRow>
+                            <TableHead>Motorista</TableHead>
+                            <TableHead className="text-right">Viagens</TableHead>
+                            <TableHead className="text-right">Distância Total</TableHead>
+                            <TableHead className="text-right">Despesas Totais</TableHead>
+                        </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                        {adminDashboardData.tripsByDriver.map(driverData => (
+                            <TableRow key={driverData.name}>
+                                <TableCell>{driverData.name}</TableCell>
+                                <TableCell className="text-right">{driverData.trips}</TableCell>
+                                <TableCell className="text-right">{formatKm(driverData.distance)}</TableCell>
+                                <TableCell className="text-right">{formatCurrency(driverData.expenses)}</TableCell>
+                            </TableRow>
+                        ))}
+                    </TableBody>
+                </Table>
+              ) : (
+                 <p className="text-muted-foreground">Nenhum dado para exibir no ranking de motoristas com os filtros atuais.</p>
+              )}
+            </CardContent>
+          </Card>
+
+        </div>
+      )}
     </div>
   );
 };
-
