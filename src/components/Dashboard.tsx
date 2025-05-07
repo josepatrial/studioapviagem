@@ -23,7 +23,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 interface DashboardProps {
-    setActiveTab: (section: 'visits' | 'expenses' | 'fuelings' | 'trips' | null) => void;
+    setActiveTab: (section: 'visits' | 'expenses' | 'fuelings' | null) => void;
 }
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82ca9d', '#ffc658'];
@@ -400,10 +400,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                    <CardTitle className="text-sm font-medium">Motoristas</CardTitle>
                     <Users className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary" onClick={() => setActiveTab(null)} />
                  </CardHeader>
-                 <CardContent>
-                   <div className="text-2xl font-bold">{summaryData.totalDrivers}</div>
-                   <p className="text-xs text-muted-foreground">{filterDriverId ? 'Motorista selecionado' : (drivers.length > 0 ? 'Total de motoristas' : 'Nenhum motorista')}</p>
-                 </CardContent>
+                 {/* Conditionally render CardContent for Motoristas card */}
+                 { (filterDriverId || drivers.length > 0) && (
+                    <CardContent>
+                        <div className="text-2xl font-bold">{summaryData.totalDrivers}</div>
+                        <p className="text-xs text-muted-foreground">
+                            {filterDriverId ? 'Motorista selecionado' : (drivers.length > 0 ? 'Total de motoristas' : 'Nenhum motorista')}
+                        </p>
+                    </CardContent>
+                 )}
                </Card>
                <Card className="shadow-md transition-shadow hover:shadow-lg">
                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
