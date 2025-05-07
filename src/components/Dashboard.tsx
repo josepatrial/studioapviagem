@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { MapPin, Wallet, Fuel, Users, Truck, Milestone, Filter, Calendar, Info } from 'lucide-react'; // Added Calendar and Info icon
 import { useAuth, User } from '@/contexts/AuthContext'; // Import User type
 import type { Trip } from './Trips/Trips';
-import {getLocalVisits as fetchLocalVisits, getLocalExpenses, getLocalFuelings, getLocalTrips, getLocalVehicles, LocalVehicle, LocalExpense, LocalFueling, LocalTrip, LocalVisit} from '@/services/localDbService';
+import {getLocalVisits as fetchLocalVisits, getLocalExpenses, getLocalFuelings, getLocalTrips, getLocalVehicles, LocalVehicle, LocalExpense, LocalFueling, LocalTrip, LocalVisit, getLocalRecordsByRole} from '@/services/localDbService';
 import { getFuelings as fetchOnlineFuelings, getVehicles as fetchOnlineVehicles, getTrips as fetchOnlineTrips, getDrivers } from '@/services/firestoreService';
 import type { VehicleInfo } from './Vehicle';
 import { DateRangePicker } from '@/components/ui/date-range-picker';
@@ -89,8 +89,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
       const fetchDriversData = async () => {
         setLoadingDrivers(true);
         try {
-          const fetchedDrivers = await getDrivers();
-          setDrivers(fetchedDrivers.filter(d => d.role === 'driver'));
+          // Fetch drivers from local DB first for admin
+          let localDrivers = await getLocalRecordsByRole('driver');
+          if (localDrivers.length === 0 && navigator.onLine) {
+            console.log("[Dashboard Admin] No local drivers, fetching online...");
+            const onlineDrivers = await getDrivers();
+            // TODO: Save online drivers to local DB for consistency
+            localDrivers = onlineDrivers.map(d => ({
+              ...d,
+              // Add any missing fields required by User type if DriverInfo is a subset
+              lastLogin: new Date().toISOString(), // Or fetch appropriately if available
+            }));
+          }
+          setDrivers(localDrivers.filter(d => d.role === 'driver')); // Ensure role is driver
         } catch (error) {
           console.error("Error fetching drivers:", error);
           toast({ variant: "destructive", title: "Erro ao Carregar Motoristas", description: "Não foi possível buscar a lista de motoristas." });
@@ -126,10 +137,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     }
 
     const driverIdToFilter = isAdmin && filterDriverId ? filterDriverId : (!isAdmin && user ? user.id : null);
+    let driverNameForFilterContext = 'Todos os Motoristas';
 
     if (driverIdToFilter) {
         const driver = drivers.find(d => d.id === filterDriverId);
-        filteredTrips = filteredTrips.filter(t => t.userId === filterDriverId || (driver && t.userId === driver.email));
+        if(driver && driver.name) driverNameForFilterContext = driver.name;
+
+        filteredTrips = filteredTrips.filter(t => t.userId === driverIdToFilter || (driver && t.userId === driver.email));
         const tripLocalIdsForDriver = filteredTrips.map(t => t.localId);
         filteredVisits = filteredVisits.filter(v => tripLocalIdsForDriver.includes(v.tripLocalId || ''));
         filteredExpenses = filteredExpenses.filter(e => tripLocalIdsForDriver.includes(e.tripLocalId || ''));
@@ -148,7 +162,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
 
     let filterContext = 'Todas as Atividades';
     if (isAdmin) {
-        filterContext = `${filterDriverId ? `Motorista: ${drivers.find(d => d.id === filterDriverId)?.name || filterDriverId}` : 'Todos os Motoristas'}`;
+        filterContext = `Motorista: ${filterDriverId ? driverNameForFilterContext : 'Todos os Motoristas'}`;
     } else {
         filterContext = `Suas Atividades`;
     }
@@ -202,7 +216,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         currentFuelingsSource = currentFuelingsSource.filter(f => tripIdsForDriver.includes(f.tripLocalId || ''));
     }
 
-    const driverNameMap = new Map(drivers.map(d => [d.id, d.name || `Desconhecido (${d.id.substring(0,6)}...)`]));
+    const driverNameMap = new Map(drivers.map(d => [d.id, d.name || d.email || `Desconhecido (${d.id.substring(0,6)}...)`]));
 
     const tripsByDriver: Record<string, { count: number; totalDistance: number; totalExpenses: number, name?: string }> = {};
     const expensesByType: Record<string, number> = {};
@@ -213,12 +227,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
 
     currentTripsSource.forEach(trip => {
       const driverIdFromTrip = trip.userId;
-      // Prioritize exact ID match, then email match, then use map for name.
       let driverData = drivers.find(d => d.id === driverIdFromTrip);
       if (!driverData) driverData = drivers.find(d => d.email === driverIdFromTrip);
 
       const aggregationKey = driverData?.id || driverIdFromTrip;
-      const resolvedDriverName = driverNameMap.get(aggregationKey) || `Motorista Desconhecido (${driverIdFromTrip.substring(0,6)}...)`;
+      // Use the name from driverNameMap, if found. Otherwise, use the email or a fallback.
+      const resolvedDriverName = driverNameMap.get(aggregationKey) || (driverData?.email ? `Usuário: ${driverData.email}` : `ID: ${aggregationKey.substring(0,6)}...`);
 
 
       if (!tripsByDriver[aggregationKey]) {
@@ -249,7 +263,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     });
 
     currentFuelingsSource.forEach(fueling => {
-        const vehicleId = fueling.vehicleId; 
+        const vehicleId = fueling.vehicleId;
         if(!fuelingsByVehicle[vehicleId]){
             const vehicle = vehicles.find(v => v.firebaseId === vehicleId || v.localId === vehicleId);
             fuelingsByVehicle[vehicleId] = {totalCost: 0, totalLiters: 0, count: 0, vehiclePlate: vehicle?.licensePlate || vehicleId};
@@ -279,10 +293,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         .map(([date, km]) => ({ date, km }))
         .sort((a,b) => {
              try {
-                return parseISO(a.date.split('/').reverse().join('-')).getTime() - parseISO(b.date.split('/').reverse().join('-')).getTime();
+                // Ensure dates are parsed correctly for sorting (assuming dd/MM/yyyy format)
+                const dateA = parseISO(a.date.split('/').reverse().join('-'));
+                const dateB = parseISO(b.date.split('/').reverse().join('-'));
+                return dateA.getTime() - dateB.getTime();
              } catch { return 0; }
-        }) 
-        .slice(-30);
+        })
+        .slice(-30); // Take last 30 days with activity
 
 
     return {
@@ -321,7 +338,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                                 <SelectItem value="all">Todos os Motoristas</SelectItem>
                                 {drivers.length > 0 ? (
                                     drivers.map(driver => (
-                                        <SelectItem key={driver.id} value={driver.id}>{driver.name || `Motorista Desconhecido (${driver.id.substring(0,6)}...)`} ({driver.base})</SelectItem>
+                                        <SelectItem key={driver.id} value={driver.id}>{driver.name || driver.email || `ID: ${driver.id.substring(0,6)}...`} ({driver.base})</SelectItem>
                                     ))
                                 ) : (
                                     <SelectItem value="no-drivers" disabled>Nenhum motorista encontrado</SelectItem>
@@ -480,7 +497,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                     </TableHeader>
                     <TableBody>
                         {adminDashboardData.tripsByDriver.map(driverData => (
-                            <TableRow key={driverData.name}> {/* Assuming name is unique enough for key or use a driver ID if available */}
+                            <TableRow key={driverData.name}>
                                 <TableCell>{driverData.name}</TableCell>
                                 <TableCell className="text-right">{driverData.trips}</TableCell>
                                 <TableCell className="text-right">{formatKm(driverData.distance)}</TableCell>
