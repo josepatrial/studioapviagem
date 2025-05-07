@@ -51,9 +51,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         const [localTrips, localVehiclesData, localExpensesData, localFuelingsData, localVisitsData] = await Promise.all([
           getLocalTrips(isAdmin ? undefined : user?.id),
           getLocalVehicles(),
-          getLocalExpenses(user?.id || ''),
-          getLocalFuelings(user?.id || '', isAdmin ? 'userId' : 'userId'),
-          fetchLocalVisits(user?.id || '')
+          getLocalExpenses(user?.id || ''), // This likely needs to be tripLocalId based, or all if admin
+          getLocalFuelings(user?.id || '', isAdmin ? undefined : 'userId'), // Similarly needs review
+          fetchLocalVisits(user?.id || '') // This also seems user-specific, might need to be trip specific
         ]);
 
         setTrips(localTrips);
@@ -128,7 +128,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     const driverIdToFilter = isAdmin && filterDriverId ? filterDriverId : (!isAdmin && user ? user.id : null);
 
     if (driverIdToFilter) {
-        filteredTrips = filteredTrips.filter(t => t.userId === driverIdToFilter);
+        // Adjust filtering to check both potential trip.userId formats (Firebase UID or email)
+        // against the filterDriverId (which is a Firebase UID from the Select).
+        filteredTrips = filteredTrips.filter(t => {
+            const driver = drivers.find(d => d.id === filterDriverId);
+            return t.userId === filterDriverId || (driver && t.userId === driver.email);
+        });
+
         const tripLocalIdsForDriver = filteredTrips.map(t => t.localId);
         filteredVisits = filteredVisits.filter(v => tripLocalIdsForDriver.includes(v.tripLocalId || ''));
         filteredExpenses = filteredExpenses.filter(e => tripLocalIdsForDriver.includes(e.tripLocalId || ''));
@@ -171,14 +177,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
   }, [isAdmin, user?.id, filterDriverId, dateRange, drivers, expenses, fuelings, trips, vehicles, visits]);
 
   const adminDashboardData = useMemo(() => {
-    if (!isAdmin || user?.email !== 'grupo2irmaos@grupo2irmaos.com.br') {
+    if (!isAdmin || user?.email !== 'grupo2irmaos@grupo2irmaos.com.br' || loadingDrivers) {
       return null;
     }
 
     let currentTripsSource = trips;
     let currentExpensesSource = expenses;
     let currentFuelingsSource = fuelings;
-    
+
     if (dateRange?.from && dateRange?.to) {
         const interval = { start: startOfDay(dateRange.from), end: endOfDay(dateRange.to) };
         currentTripsSource = trips.filter(t => { try { return isWithinInterval(parseISO(t.createdAt), interval); } catch { return false; } });
@@ -190,9 +196,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         currentExpensesSource = expenses.filter(e => { try { return parseISO(e.expenseDate) >= startDate; } catch { return false; } });
         currentFuelingsSource = fuelings.filter(f => { try { return parseISO(f.date) >= startDate; } catch { return false; } });
     }
-    
+
     if (filterDriverId) {
-        currentTripsSource = currentTripsSource.filter(t => t.userId === filterDriverId);
+        const selectedDriver = drivers.find(d => d.id === filterDriverId);
+        currentTripsSource = currentTripsSource.filter(t =>
+            t.userId === filterDriverId || (selectedDriver && t.userId === selectedDriver.email)
+        );
         const tripIdsForDriver = currentTripsSource.map(t => t.localId);
         currentExpensesSource = currentExpensesSource.filter(e => tripIdsForDriver.includes(e.tripLocalId || ''));
         currentFuelingsSource = currentFuelingsSource.filter(f => tripIdsForDriver.includes(f.tripLocalId || ''));
@@ -207,23 +216,36 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
 
 
     currentTripsSource.forEach(trip => {
-      const driverId = trip.userId;
-      if (!tripsByDriver[driverId]) {
-        tripsByDriver[driverId] = { count: 0, totalDistance: 0, totalExpenses: 0, name: drivers.find(d => d.id === driverId)?.name || driverId };
+      const driverIdFromTrip = trip.userId;
+      let driverData = drivers.find(d => d.id === driverIdFromTrip);
+      if (!driverData) { // If not found by ID, try finding by email
+        driverData = drivers.find(d => d.email === driverIdFromTrip);
       }
-      tripsByDriver[driverId].count++;
-      tripsByDriver[driverId].totalDistance += trip.totalDistance || 0;
+      const resolvedDriverName = driverData?.name || driverIdFromTrip; // Fallback to ID/email
+      // Use Firebase UID for aggregation if available to group correctly
+      const aggregationKey = driverData?.id || driverIdFromTrip;
+
+
+      if (!tripsByDriver[aggregationKey]) {
+        tripsByDriver[aggregationKey] = { count: 0, totalDistance: 0, totalExpenses: 0, name: resolvedDriverName };
+      }
+      tripsByDriver[aggregationKey].count++;
+      tripsByDriver[aggregationKey].totalDistance += trip.totalDistance || 0;
 
       const tripExpenses = currentExpensesSource.filter(e => e.tripLocalId === trip.localId);
       tripExpenses.forEach(expense => {
-        tripsByDriver[driverId].totalExpenses += expense.value;
+        tripsByDriver[aggregationKey].totalExpenses += expense.value;
       });
 
       tripsByStatus[trip.status] = (tripsByStatus[trip.status] || 0) + 1;
 
       if (trip.status === 'Finalizado' && trip.totalDistance) {
-        const tripDate = formatDateFn(parseISO(trip.createdAt), 'dd/MM/yyyy');
-        kmByDay[tripDate] = (kmByDay[tripDate] || 0) + trip.totalDistance;
+        try {
+            const tripDate = formatDateFn(parseISO(trip.createdAt), 'dd/MM/yyyy');
+            kmByDay[tripDate] = (kmByDay[tripDate] || 0) + trip.totalDistance;
+        } catch (e) {
+            console.warn("Could not parse trip createdAt for kmByDay:", trip.createdAt, e);
+        }
       }
     });
 
@@ -232,9 +254,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     });
 
     currentFuelingsSource.forEach(fueling => {
-        const vehicleId = fueling.vehicleId;
+        const vehicleId = fueling.vehicleId; // This should be the Firebase ID of the vehicle
         if(!fuelingsByVehicle[vehicleId]){
-            const vehicle = vehicles.find(v => v.localId === vehicleId || v.firebaseId === vehicleId || v.id === vehicleId);
+            const vehicle = vehicles.find(v => v.firebaseId === vehicleId || v.localId === vehicleId);
             fuelingsByVehicle[vehicleId] = {totalCost: 0, totalLiters: 0, count: 0, vehiclePlate: vehicle?.licensePlate || vehicleId};
         }
         fuelingsByVehicle[vehicleId].totalCost += fueling.totalCost;
@@ -271,7 +293,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
       tripsByStatus: chartableTripsByStatus,
       kmByDay: chartableKmByDay,
     };
-  }, [isAdmin, user?.email, trips, expenses, fuelings, vehicles, drivers, dateRange, filterDriverId]);
+  }, [isAdmin, user?.email, trips, expenses, fuelings, vehicles, drivers, dateRange, filterDriverId, loadingDrivers]);
 
 
   return (
@@ -521,7 +543,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                 )}
             </CardContent>
           </Card>
-          
+
           <Card>
                 <CardHeader>
                     <CardTitle>KM Percorridos por Dia (Últimos 30 dias com viagens)</CardTitle>
