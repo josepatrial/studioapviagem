@@ -2,8 +2,8 @@
 
 import * as React from "react"
 import * as AccordionPrimitive from "@radix-ui/react-accordion"
-import { ChevronDown } from "lucide-react"
-import { Slot } from "@radix-ui/react-slot" // Import Slot
+import { ChevronDown } from "lucide-react" // Ensure ChevronDown is imported
+import { Slot } from "@radix-ui/react-slot" 
 
 import { cn } from "@/lib/utils"
 
@@ -21,14 +21,13 @@ const AccordionItem = React.forwardRef<
 ))
 AccordionItem.displayName = "AccordionItem"
 
-// Export AccordionHeader
 const AccordionHeader = React.forwardRef<
   React.ElementRef<typeof AccordionPrimitive.Header>,
   React.ComponentPropsWithoutRef<typeof AccordionPrimitive.Header>
 >(({ className, ...props }, ref) => (
   <AccordionPrimitive.Header
     ref={ref}
-    className={cn("flex", className)} // Basic styling, adjust as needed
+    className={cn("flex", className)} 
     {...props}
   />
 ));
@@ -36,21 +35,20 @@ AccordionHeader.displayName = AccordionPrimitive.Header.displayName
 
 const AccordionTrigger = React.forwardRef<
   React.ElementRef<typeof AccordionPrimitive.Trigger>,
-  React.ComponentPropsWithoutRef<typeof AccordionPrimitive.Trigger> & { asChild?: boolean } // Add asChild prop
+  React.ComponentPropsWithoutRef<typeof AccordionPrimitive.Trigger> & { asChild?: boolean }
 >(({ className, children, asChild = false, ...props }, ref) => {
-  const Comp = asChild ? Slot : AccordionPrimitive.Trigger; // Use Slot if asChild is true
+  const Comp = asChild ? Slot : AccordionPrimitive.Trigger;
   return (
     <Comp
       ref={ref}
       className={cn(
-        "flex flex-1 items-center justify-between py-4 font-medium transition-all hover:underline [&[data-state=open]>svg]:rotate-180",
-        !asChild && 'p-0', // Remove padding if it's not rendering the button itself
+        "flex flex-1 items-center justify-between py-4 font-medium transition-all",
+        !asChild && "hover:underline [&[data-state=open]>svg]:rotate-180", // Apply hover and rotate only if not asChild
         className
       )}
       {...props}
     >
       {children}
-      {/* Only render the Chevron if not using asChild */}
       {!asChild && <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200" />}
     </Comp>
   );
@@ -72,4 +70,4 @@ const AccordionContent = React.forwardRef<
 
 AccordionContent.displayName = AccordionPrimitive.Content.displayName
 
-export { Accordion, AccordionItem, AccordionHeader, AccordionTrigger, AccordionContent } // Export AccordionHeader
+export { Accordion, AccordionItem, AccordionHeader, AccordionTrigger, AccordionContent }

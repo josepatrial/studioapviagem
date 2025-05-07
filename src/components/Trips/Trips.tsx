@@ -5,7 +5,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Edit, Trash2, Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Filter, Loader2 } from 'lucide-react';
+import { PlusCircle, Edit, Trash2, Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Filter, Loader2, BarChart3, ChevronDown } from 'lucide-react'; // Changed Plane to BarChart3 for Active Trips
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,12 +15,13 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  AlertDialogTrigger, // Added AlertDialogTrigger import
 } from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger, AccordionHeader } from '@/components/ui/accordion';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'; // Import Tabs
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { Visit } from './Visits';
 import type { Expense } from './Expenses';
@@ -132,10 +133,10 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
              setVehicles(localVehicles);
              console.log(`[Trips] Loaded ${localVehicles.length} vehicles locally.`);
 
-            const localTrips = await getLocalTrips(isAdmin ? undefined : user?.id);
-            console.log(`[Trips] Loaded ${localTrips.length} trips locally for user ${user?.id}`);
+            const localTripsData = await getLocalTrips(isAdmin ? undefined : user?.id);
+            console.log(`[Trips] Loaded ${localTripsData.length} trips locally for user ${user?.id}`);
 
-            const countsPromises = localTrips.map(async (trip) => {
+            const countsPromises = localTripsData.map(async (trip) => {
                  const [visits, expenses, fuelings] = await Promise.all([
                     getLocalVisits(trip.localId).catch(() => []),
                     getLocalExpenses(trip.localId).catch(() => []),
@@ -169,7 +170,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
             setFuelingCounts(newFuelingCounts);
             setVisitsDataForFinish(allVisitsForFinish);
 
-            const uiTrips = localTrips.map(lt => ({
+            const uiTrips = localTripsData.map(lt => ({
                 ...lt,
                 id: lt.firebaseId || lt.localId,
             })).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -193,8 +194,6 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
 
     useEffect(() => {
       if (activeSubTab && allTrips.length > 0 && !expandedTripId) {
-        // If a sub-tab is active and no trip is expanded, expand the first trip by default
-        // This is a simple heuristic; a more robust solution might involve storing the last active trip ID.
         setExpandedTripId(allTrips[0].localId);
       }
     }, [activeSubTab, allTrips, expandedTripId]);
@@ -262,7 +261,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
          const newUITrip: Trip = {
             ...newTripData,
             localId,
-            id: localId,
+            id: localId, // Make sure id is set for UI
             syncStatus: 'pending'
          };
         setAllTrips(prevTrips => [newUITrip, ...prevTrips].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
@@ -302,7 +301,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
        vehicleId: selectedVehicleId,
        updatedAt: new Date().toISOString(),
        syncStatus: originalLocalTrip.syncStatus === 'synced' ? 'pending' : originalLocalTrip.syncStatus,
-       id: originalLocalTrip.id,
+       id: originalLocalTrip.id, // Ensure id is preserved correctly
      };
 
     setIsSaving(true);
@@ -356,7 +355,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
         totalDistance: totalDistance,
         updatedAt: new Date().toISOString(),
         syncStatus: tripToUpdate.syncStatus === 'synced' ? 'pending' : tripToUpdate.syncStatus,
-        id: tripToUpdate.id,
+        id: tripToUpdate.id, // Ensure id is preserved
       };
 
     try {
@@ -617,8 +616,10 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
                      isError && "bg-destructive/10 hover:bg-destructive/20"
                   )}>
                     <AccordionTrigger
+                         asChild
                          className="flex-1 mr-4 space-y-1 text-left p-0 hover:no-underline"
                     >
+                      <button className="flex-1 flex justify-between items-center p-0 hover:no-underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm">
                         <div>
                             <div className="flex items-center gap-2 flex-wrap">
                                 <CardTitle className="text-lg">{trip.name}</CardTitle>
@@ -653,6 +654,8 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
                                 <span>Atualizado: {new Date(trip.updatedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
                             </div>
                         </div>
+                        <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200 group-data-[state=open]/item:rotate-180" />
+                      </button>
                     </AccordionTrigger>
 
                     <div className="flex items-center gap-1 flex-shrink-0 ml-2">
