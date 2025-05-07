@@ -39,7 +39,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
 
   const [expenses, setExpenses] = useState<LocalExpense[]>([]);
-  const [fuelings, setFuelingsData] = useState<LocalFueling[]>([]); // Renamed to avoid conflict
+  const [fuelings, setFuelings] = useState<LocalFueling[]>([]); // Changed from fuelingsData to fuelings
   const [trips, setTrips] = useState<LocalTrip[]>([]);
   const [vehicles, setVehicles] = useState<LocalVehicle[]>([]);
   const [visits, setVisits] = useState<LocalVisit[]>([]);
@@ -67,7 +67,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         setTrips(localTrips);
         setVehicles(localVehiclesData);
         setExpenses(allLocalExpenses);
-        setFuelingsData(allLocalFuelings);
+        setFuelings(allLocalFuelings); // Use setFuelings
         setVisits(allLocalVisits);
 
 
@@ -127,7 +127,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     let currentFilteredTrips = trips;
     let allVisitsFromDb = visits;
     let allExpensesFromDb = expenses;
-    let allFuelingsFromDb = fuelingsData;
+    let allFuelingsFromDb = fuelings; // Use fuelings here
 
     if (dateRange?.from) {
         const startDate = startOfDay(dateRange.from);
@@ -188,7 +188,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         filterApplied: !!filterDriverId || !!dateRange,
         filterContext,
     };
-  }, [isAdmin, filterDriverId, dateRange, drivers, expenses, fuelingsData, trips, vehicles, visits]);
+  }, [isAdmin, filterDriverId, dateRange, drivers, expenses, fuelings, trips, vehicles, visits]); // Use fuelings in dependency array
 
   const adminDashboardData = useMemo(() => {
     if (!isAdmin || user?.email !== 'grupo2irmaos@grupo2irmaos.com.br' || loadingDrivers) {
@@ -200,7 +200,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         : trips;
 
     let currentExpensesSource = expenses;
-    let currentFuelingsSource = fuelingsData;
+    let currentFuelingsSource = fuelings; // Use fuelings here
 
     if (dateRange?.from) {
         const startDate = startOfDay(dateRange.from);
@@ -321,7 +321,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
       kmByDay: chartableKmByDay,
       vehiclePerformance,
     };
-  }, [isAdmin, user?.email, trips, expenses, vehicles, drivers, dateRange, filterDriverId, loadingDrivers, fuelingsData]);
+  }, [isAdmin, user?.email, trips, expenses, vehicles, drivers, dateRange, filterDriverId, loadingDrivers, fuelings]); // Use fuelings in dependency array
 
 
   return (
