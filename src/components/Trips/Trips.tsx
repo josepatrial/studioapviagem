@@ -32,7 +32,7 @@ import type { VehicleInfo } from '../Vehicle';
 import { Badge } from '@/components/ui/badge';
 import { FinishTripDialog } from './FinishTripDialog';
 import { cn } from '@/lib/utils';
-import { getDrivers, getTrips as fetchOnlineTrips, getVehicles as fetchOnlineVehicles } from '@/services/firestoreService';
+import { getDrivers as fetchFirestoreDrivers, getTrips as fetchOnlineTrips, getVehicles as fetchOnlineVehicles } from '@/services/firestoreService';
 import {
   addLocalTrip,
   updateLocalTrip,
@@ -44,6 +44,7 @@ import {
   LocalTrip,
   getLocalVehicles,
   LocalVehicle,
+  getLocalRecordsByRole, // For fetching drivers locally
 } from '@/services/localDbService';
 import { LoadingSpinner } from '../LoadingSpinner';
 import { DateRangePicker } from '@/components/ui/date-range-picker';
@@ -82,7 +83,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
   const [drivers, setDrivers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingVehicles, setLoadingVehicles] = useState(true);
-  const [loadingDrivers, setLoadingDrivers] = useState(isAdmin); // New state for loading drivers
+  const [loadingDrivers, setLoadingDrivers] = useState(isAdmin);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isFinishModalOpen, setIsFinishModalOpen] = useState(false);
@@ -99,18 +100,31 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
   const [filterDriver, setFilterDriver] = useState<string>('');
   const [filterDateRange, setFilterDateRange] = useState<DateRange | undefined>(undefined);
 
-   const [visitCounts, setVisitCounts] = useState<Record<string, number>>({});
-   const [expenseCounts, setExpenseCounts] = useState<Record<string, number>>({});
-   const [fuelingCounts, setFuelingCounts] = useState<Record<string, number>>({});
-   const [visitsDataForFinish, setVisitsDataForFinish] = useState<Visit[]>([]);
+  const [visitCounts, setVisitCounts] = useState<Record<string, number>>({});
+  const [expenseCounts, setExpenseCounts] = useState<Record<string, number>>({});
+  const [fuelingCounts, setFuelingCounts] = useState<Record<string, number>>({});
+  const [visitsDataForFinish, setVisitsDataForFinish] = useState<Visit[]>([]);
+
 
     useEffect(() => {
         const fetchDriversData = async () => {
             if (isAdmin) {
                 setLoadingDrivers(true);
                 try {
-                    const driversData = await getDrivers(); // Assumes getDrivers fetches from Firestore
-                    setDrivers(driversData.filter(d => d.role === 'driver'));
+                    let localDriversData: User[] = await getLocalRecordsByRole('driver');
+                    if (localDriversData.length === 0 && navigator.onLine) {
+                        console.log("[Trips Admin] No local drivers, fetching online...");
+                        const onlineDrivers = await fetchFirestoreDrivers();
+                        // TODO: Save online drivers to local DB for consistency and offline access
+                        localDriversData = onlineDrivers.map(d => ({
+                            ...d,
+                            // Ensure 'id' from DriverInfo (which is Firebase UID) is used
+                            // Add any missing fields required by User type if DriverInfo is a subset
+                            // For example, if User requires lastLogin and DriverInfo doesn't have it:
+                            lastLogin: new Date().toISOString(), // Or fetch appropriately if available
+                        }));
+                    }
+                    setDrivers(localDriversData.filter(d => d.role === 'driver'));
                 } catch (error) {
                     console.error("Error fetching drivers:", error);
                     toast({ variant: "destructive", title: "Erro Online", description: "Não foi possível carregar motoristas." });
@@ -143,23 +157,22 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
              setLoadingVehicles(false);
              console.log(`[Trips] Loaded ${localVehicles.length} vehicles locally.`);
 
-            // Filter trips by driver if filterDriver is set (only for admin)
             const driverIdToFilter = isAdmin && filterDriver ? filterDriver : (!isAdmin && user ? user.id : undefined);
             let localTripsData = await getLocalTrips(driverIdToFilter);
 
-            // Apply date range filter
             if (filterDateRange?.from) {
                 localTripsData = localTripsData.filter(t => {
-                    const createdAt = parseISO(t.createdAt);
-                    const fromDate = startOfDay(filterDateRange.from!);
-                    const toDate = filterDateRange.to ? endOfDay(filterDateRange.to) : null;
-                    if (toDate) {
-                        return createdAt >= fromDate && createdAt <= toDate;
-                    }
-                    return createdAt >= fromDate;
+                    try {
+                        const createdAt = parseISO(t.createdAt);
+                        const fromDate = startOfDay(filterDateRange.from!);
+                        const toDate = filterDateRange.to ? endOfDay(filterDateRange.to) : null;
+                        if (toDate) {
+                            return createdAt >= fromDate && createdAt <= toDate;
+                        }
+                        return createdAt >= fromDate;
+                    } catch (e) { return false; }
                 });
             }
-
 
             console.log(`[Trips] Loaded ${localTripsData.length} trips locally for user/filter ${driverIdToFilter}`);
 
@@ -175,7 +188,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
                     visitCount: visits.length,
                     expenseCount: expenses.length,
                     fuelingCount: fuelings.length,
-                     visits: adaptedVisits
+                    visits: adaptedVisits // Pass all visits for this trip
                 };
             });
 
@@ -183,23 +196,27 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
             const newVisitCounts: Record<string, number> = {};
             const newExpenseCounts: Record<string, number> = {};
             const newFuelingCounts: Record<string, number> = {};
-            let allVisitsForFinish: Visit[] = [];
+            let allVisitsForFinishDialog: Visit[] = [];
+
 
             countsResults.forEach(result => {
                 newVisitCounts[result.tripLocalId] = result.visitCount;
                 newExpenseCounts[result.tripLocalId] = result.expenseCount;
                 newFuelingCounts[result.tripLocalId] = result.fuelingCount;
-                 allVisitsForFinish = allVisitsForFinish.concat(result.visits);
+                if (result.visits && result.visits.length > 0) {
+                    allVisitsForFinishDialog = allVisitsForFinishDialog.concat(result.visits);
+                }
             });
 
             setVisitCounts(newVisitCounts);
             setExpenseCounts(newExpenseCounts);
             setFuelingCounts(newFuelingCounts);
-            setVisitsDataForFinish(allVisitsForFinish);
+            setVisitsDataForFinish(allVisitsForFinishDialog);
+
 
             const uiTrips = localTripsData.map(lt => ({
                 ...lt,
-                id: lt.firebaseId || lt.localId,
+                id: lt.firebaseId || lt.localId, // Ensure UI uses 'id' from firebaseId or localId
             })).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
             setAllTrips(uiTrips);
@@ -214,7 +231,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
             setLoadingVehicles(false);
              console.log("[Trips] Finished fetching local data.");
         }
-    }, [isAdmin, user?.id, toast, filterDriver, filterDateRange]); // Added filterDriver and filterDateRange as dependencies
+    }, [isAdmin, user?.id, toast, filterDriver, filterDateRange]);
 
     useEffect(() => {
         fetchLocalData();
@@ -222,7 +239,8 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
 
     useEffect(() => {
       if (activeSubTab && allTrips.length > 0 && !expandedTripId) {
-        // setExpandedTripId(allTrips[0].localId); // Commented out to prevent auto-expansion
+        // Consider if auto-expansion is desired. For now, it's disabled.
+        // setExpandedTripId(allTrips[0].localId);
       }
     }, [activeSubTab, allTrips, expandedTripId]);
 
@@ -233,16 +251,26 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
   };
 
   const getDriverName = (driverId: string) => {
-      const driver = drivers.find(d => d.id === driverId || d.email === driverId); // Check by email too
-      return driver?.name || driverId || 'Motorista Desconhecido'; // Fallback to ID if name not found
+      const driver = drivers.find(d => d.id === driverId || d.email === driverId);
+      if (driver) {
+          if (driver.name && driver.name.trim() !== '') {
+              return driver.name;
+          } else {
+              console.warn(`[Trips getDriverName] Driver found (ID/Email matched: ${driverId}, Actual Driver ID: ${driver.id}, Email: ${driver.email}) but name is missing or empty. Displaying ID as fallback.`);
+              return driverId; // Fallback to the ID used for lookup if name is missing
+          }
+      }
+      console.warn(`[Trips getDriverName] Driver not found for ID/Email: ${driverId}. Displaying ID or generic fallback.`);
+      return driverId || 'Motorista Desconhecido';
   };
+
 
    const getTripDescription = (trip: Trip): string => {
        const vehicleDisplay = getVehicleDisplay(trip.vehicleId);
-       const driverName = getDriverName(trip.userId);
-       const driverDisplay = isAdmin ? ` - ${driverName}` : '';
+       const driverNameDisplay = getDriverName(trip.userId); // This will be name or ID
+       const driverInfo = isAdmin ? ` - ${driverNameDisplay}` : '';
        const baseDisplay = trip.base ? ` (Base: ${trip.base})` : '';
-       return `${vehicleDisplay}${driverDisplay}${baseDisplay}`;
+       return `${vehicleDisplay}${driverInfo}${baseDisplay}`;
    };
 
 
@@ -256,25 +284,29 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
       toast({ variant: 'destructive', title: 'Erro', description: 'Veículo é obrigatório.' });
       return;
     }
-      if (!user.base && user.role !== 'admin') { // Admin can create trips without a personal base
-          toast({
-              variant: 'destructive',
-              title: 'Base Não Definida',
-              description: 'Você precisa ter uma base definida em seu perfil para criar viagens.',
-              duration: 7000,
-          });
-          return;
-      }
+    if (!user.base && user.role !== 'admin') {
+        toast({
+            variant: 'destructive',
+            title: 'Base Não Definida',
+            description: 'Você precisa ter uma base definida em seu perfil para criar viagens.',
+            duration: 7000,
+        });
+        return;
+    }
 
-    const vehicleDisplay = getVehicleDisplay(selectedVehicleIdForCreate);
+    const vehicleForTrip = vehicles.find(v => v.id === selectedVehicleIdForCreate || v.localId === selectedVehicleIdForCreate);
+    if (!vehicleForTrip) {
+        toast({ variant: 'destructive', title: 'Erro', description: 'Veículo selecionado não encontrado.' });
+        return;
+    }
+
+    const vehicleDisplay = `${vehicleForTrip.model} (${vehicleForTrip.licensePlate})`;
     const dateStr = new Date().toLocaleDateString('pt-BR');
     const generatedTripName = `Viagem ${vehicleDisplay} - ${dateStr}`;
     const now = new Date().toISOString();
 
-    // Determine base: For admin, base is 'ALL', for others, it's their user.base.
-    // If creating for another driver as admin, a selector for base might be needed, but current logic uses auth user's base.
     const tripBase = user.role === 'admin' ? 'ALL_ADM_TRIP' : user.base;
-    if (!tripBase) { // Should not happen if check above is correct, but as a safeguard
+    if (!tripBase) {
          toast({ variant: 'destructive', title: 'Erro Crítico', description: 'Base da viagem não pôde ser determinada.'});
          return;
     }
@@ -282,7 +314,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
 
     const newTripData: Omit<LocalTrip, 'localId' | 'syncStatus'> = {
       name: generatedTripName,
-      vehicleId: selectedVehicleIdForCreate,
+      vehicleId: vehicleForTrip.firebaseId || vehicleForTrip.localId, // Prefer firebaseId if available
       userId: user.id,
       status: 'Andamento',
       createdAt: now,
@@ -298,7 +330,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
          const newUITrip: Trip = {
             ...newTripData,
             localId,
-            id: localId,
+            id: localId, // UI uses 'id' which is the localId for new items
             syncStatus: 'pending'
          };
         setAllTrips(prevTrips => [newUITrip, ...prevTrips].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
@@ -333,9 +365,16 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
           return;
       }
 
+      const vehicleForEdit = vehicles.find(v => v.id === selectedVehicleIdForEdit || v.localId === selectedVehicleIdForEdit);
+      if (!vehicleForEdit) {
+        toast({ variant: 'destructive', title: 'Erro', description: 'Veículo selecionado para edição não encontrado.' });
+        return;
+      }
+
+
     const updatedLocalTripData: LocalTrip = {
        ...originalLocalTrip,
-       vehicleId: selectedVehicleIdForEdit,
+       vehicleId: vehicleForEdit.firebaseId || vehicleForEdit.localId, // Prefer firebaseId
        updatedAt: new Date().toISOString(),
        syncStatus: originalLocalTrip.syncStatus === 'synced' ? 'pending' : originalLocalTrip.syncStatus,
      };
@@ -511,7 +550,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
 
   const getTripSummaryKm = useCallback(async (tripId: string) => {
     const visits = await getLocalVisits(tripId);
-    if (visits.length === 0) return { betweenVisits: 0, firstToLast: 0 };
+    if (visits.length === 0) return { betweenVisits: null, firstToLast: null };
 
     visits.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
@@ -519,7 +558,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
     for (let i = 1; i < visits.length; i++) {
         if (visits[i].initialKm && visits[i-1].initialKm) {
             const diff = visits[i].initialKm - visits[i-1].initialKm;
-            if (diff > 0) { // Only add positive distances
+            if (diff > 0) {
                  betweenVisitsKm += diff;
             }
         }
@@ -527,10 +566,10 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
 
     const firstVisitKm = visits[0].initialKm;
     const currentTripData = allTrips.find(t => t.localId === tripId);
-    let firstToLastKm = 0;
+    let firstToLastKm = null;
     if (currentTripData?.status === 'Finalizado' && currentTripData.finalKm != null && firstVisitKm != null) {
       const diff = currentTripData.finalKm - firstVisitKm;
-       if (diff >= 0) { // Ensure final KM is not less than first visit KM
+       if (diff >= 0) {
            firstToLastKm = diff;
        } else {
            console.warn(`Trip ${tripId}: Final KM (${currentTripData.finalKm}) is less than first visit KM (${firstVisitKm}). Setting total distance to 0.`);
@@ -539,7 +578,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
     }
 
     return {
-        betweenVisits: betweenVisitsKm,
+        betweenVisits: betweenVisitsKm > 0 ? betweenVisitsKm : null,
         firstToLast: firstToLastKm
     };
   }, [allTrips]);
@@ -648,7 +687,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
                                     <>
                                        <SelectItem value="all">Todos os Motoristas</SelectItem>
                                        {drivers.map(driver => (
-                                           <SelectItem key={driver.id} value={driver.id}>{driver.name} ({driver.base || 'Sem Base'})</SelectItem>
+                                           <SelectItem key={driver.id} value={driver.id}>{driver.name || `Motorista: ${driver.id.substring(0,6)}...`} ({driver.base || 'Sem Base'})</SelectItem>
                                        ))}
                                    </>
                                 )}
