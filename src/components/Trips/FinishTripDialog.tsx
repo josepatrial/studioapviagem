@@ -17,15 +17,14 @@ import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import type { Trip } from './Trips';
 import type { Visit } from './Visits';
-import { formatKm } from '@/lib/utils'; // Import centralized formatKm
+import { formatKm } from '@/lib/utils';
 
 interface FinishTripDialogProps {
   trip: Trip | null;
   isOpen: boolean;
   onClose: () => void;
   onConfirm: (tripId: string, finalKm: number, totalDistance: number) => void;
-  // Use passed visits data instead of importing mock data
-  visitsData: Visit[];
+  visitsData: Visit[]; // All visits for the specific trip
 }
 
 export const FinishTripDialog: React.FC<FinishTripDialogProps> = ({
@@ -33,39 +32,40 @@ export const FinishTripDialog: React.FC<FinishTripDialogProps> = ({
   isOpen,
   onClose,
   onConfirm,
-  visitsData, // Use the prop
+  visitsData,
 }) => {
   const [finalKm, setFinalKm] = useState<number | ''>('');
   const [firstVisitKm, setFirstVisitKm] = useState<number | null>(null);
-  const [lastVisitKm, setLastVisitKm] = useState<number | null>(null);
+  const [lastRecordedVisitKm, setLastRecordedVisitKm] = useState<number | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
-    if (trip && isOpen) {
-      // Use the passed visitsData prop
-      const tripVisits = visitsData
-        .filter(v => v.tripId === trip.localId) // Use localId for consistency within Trips component context
-        .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    if (trip && isOpen && visitsData.length > 0) {
+      // visitsData should already be sorted or filtered by the parent component
+      const sortedVisits = [...visitsData].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
-      if (tripVisits.length > 0) {
-        setFirstVisitKm(tripVisits[0].initialKm);
-        setLastVisitKm(tripVisits[tripVisits.length - 1].initialKm);
-      } else {
+      setFirstVisitKm(sortedVisits[0].initialKm);
+      setLastRecordedVisitKm(sortedVisits[sortedVisits.length - 1].initialKm);
+    } else if (trip && isOpen && visitsData.length === 0) {
+        // This case should ideally be prevented by Trips.tsx
+        // If it occurs, reset KMs. The parent component handles the warning.
         setFirstVisitKm(null);
-        setLastVisitKm(null);
-        toast({
-            variant: 'destructive',
-            title: 'Aviso',
-            description: 'Não há visitas registradas para esta viagem. O cálculo da distância não será preciso.',
-            duration: 7000,
-        })
-      }
-      setFinalKm('');
+        setLastRecordedVisitKm(null);
     }
-  }, [trip, isOpen, visitsData, toast]); // Depend on visitsData prop
+    if (!isOpen) { // Reset when modal closes
+        setFinalKm('');
+    }
+  }, [trip, isOpen, visitsData]);
 
   const handleConfirm = () => {
-    if (!trip) return;
+    if (!trip || firstVisitKm === null) { // firstVisitKm null implies no visits
+        toast({
+            variant: 'destructive',
+            title: 'Erro',
+            description: 'Não há visitas registradas ou dados de KM da primeira visita indisponíveis.',
+        });
+        return;
+    }
 
     const kmValue = Number(finalKm);
 
@@ -74,29 +74,34 @@ export const FinishTripDialog: React.FC<FinishTripDialogProps> = ({
       return;
     }
 
-    if (lastVisitKm !== null && kmValue < lastVisitKm) {
+    if (lastRecordedVisitKm !== null && kmValue < lastRecordedVisitKm) {
          toast({
              variant: "destructive",
              title: "Erro de Quilometragem",
-             description: `A quilometragem final (${formatKm(kmValue)}) não pode ser menor que a da última visita registrada (${formatKm(lastVisitKm)}).`,
+             description: `A quilometragem final (${formatKm(kmValue)}) não pode ser menor que a da última visita registrada (${formatKm(lastRecordedVisitKm)}).`,
              duration: 7000,
          });
          return;
      }
-
-    let totalDistance = 0;
-    if (firstVisitKm !== null) {
-      totalDistance = kmValue - firstVisitKm;
-      if (totalDistance < 0) {
-          toast({ variant: 'destructive', title: 'Erro de Cálculo', description: 'Distância total resultou em valor negativo. Verifique os KMs.' });
-          return;
-      }
-    } else {
-        totalDistance = 0;
-        console.warn("Não foi possível calcular a distância total: Nenhuma visita encontrada.");
+    
+    // Ensure finalKm is not less than the first visit's KM, which shouldn't happen if lastRecordedVisitKm is validated correctly
+    // but good as an extra check for data integrity during distance calculation.
+    if (kmValue < firstVisitKm) {
+        toast({
+            variant: "destructive",
+            title: "Erro de Cálculo",
+            description: `A quilometragem final (${formatKm(kmValue)}) não pode ser menor que a da primeira visita (${formatKm(firstVisitKm)}).`,
+            duration: 7000,
+        });
+        return;
     }
 
-    onConfirm(trip.localId, kmValue, totalDistance); // Use localId for consistency
+
+    const totalDistance = kmValue - firstVisitKm;
+    // totalDistance can be 0 if finalKm is same as firstVisitKm (e.g., one visit and return to start)
+    // The primary validation is that finalKm >= firstVisitKm and finalKm >= lastRecordedVisitKm
+
+    onConfirm(trip.localId, kmValue, totalDistance);
   };
 
 
@@ -110,13 +115,13 @@ export const FinishTripDialog: React.FC<FinishTripDialogProps> = ({
              {firstVisitKm !== null && (
                 <p className="text-sm mt-2">KM da primeira visita: <strong>{formatKm(firstVisitKm)}</strong></p>
              )}
-             {lastVisitKm !== null && (
-                 <p className="text-sm">KM da última visita: <strong>{formatKm(lastVisitKm)}</strong></p>
+             {lastRecordedVisitKm !== null && firstVisitKm !== lastRecordedVisitKm && ( // Only show if different from first
+                 <p className="text-sm">KM da última visita registrada: <strong>{formatKm(lastRecordedVisitKm)}</strong></p>
              )}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <div className="py-4 space-y-2">
-          <Label htmlFor="finalKm">Quilometragem Final (Km)*</Label>
+          <Label htmlFor="finalKm">Quilometragem Final do Veículo (Km)*</Label>
           <Input
             id="finalKm"
             type="number"
@@ -124,11 +129,11 @@ export const FinishTripDialog: React.FC<FinishTripDialogProps> = ({
             onChange={(e) => setFinalKm(Number(e.target.value) >= 0 ? Number(e.target.value) : '')}
             required
             placeholder="Km atual do veículo"
-            min={lastVisitKm ?? 0}
+            min={lastRecordedVisitKm ?? 0}
           />
            {finalKm !== '' && firstVisitKm !== null && Number(finalKm) >= firstVisitKm && (
              <p className="text-sm text-muted-foreground mt-1">
-               Distância estimada: {formatKm(Number(finalKm) - firstVisitKm)}
+               Distância total estimada da viagem: {formatKm(Number(finalKm) - firstVisitKm)}
              </p>
            )}
         </div>
@@ -137,7 +142,13 @@ export const FinishTripDialog: React.FC<FinishTripDialogProps> = ({
           <AlertDialogAction
             onClick={handleConfirm}
             className="bg-emerald-600 hover:bg-emerald-700"
-            disabled={finalKm === '' || Number(finalKm) <= 0 || (lastVisitKm !== null && Number(finalKm) < lastVisitKm)}
+            disabled={
+                finalKm === '' ||
+                Number(finalKm) <= 0 ||
+                (lastRecordedVisitKm !== null && Number(finalKm) < lastRecordedVisitKm) ||
+                (firstVisitKm !== null && Number(finalKm) < firstVisitKm) || // Ensure finalKm >= firstVisitKm too
+                visitsData.length === 0 // Redundant if parent handles it, but safe
+            }
           >
             Confirmar Finalização
           </AlertDialogAction>

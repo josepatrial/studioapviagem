@@ -87,13 +87,14 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
   const [isFinishModalOpen, setIsFinishModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [currentTrip, setCurrentTrip] = useState<Trip | null>(null);
+  const [currentTripForEdit, setCurrentTripForEdit] = useState<Trip | null>(null); // Renamed from currentTrip
   const [tripToFinish, setTripToFinish] = useState<Trip | null>(null);
   const [tripToDelete, setTripToDelete] = useState<Trip | null>(null);
   const [expandedTripId, setExpandedTripId] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const [selectedVehicleId, setSelectedVehicleId] = useState('');
+  const [selectedVehicleIdForCreate, setSelectedVehicleIdForCreate] = useState('');
+  const [selectedVehicleIdForEdit, setSelectedVehicleIdForEdit] = useState(''); // For edit modal
   const [filterDriver, setFilterDriver] = useState<string>('');
   const [filterDateRange, setFilterDateRange] = useState<DateRange | undefined>(undefined);
 
@@ -150,7 +151,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
                     getLocalExpenses(trip.localId).catch(() => []),
                     getLocalFuelings(trip.localId).catch(() => []),
                 ]);
-                 const adaptedVisits = visits.map(v => ({ ...v, id: v.firebaseId || v.localId })) as Visit[];
+                 const adaptedVisits = visits.map(v => ({ ...v, id: v.firebaseId || v.localId, tripId: trip.localId })) as Visit[];
                 return {
                     tripLocalId: trip.localId,
                     visitCount: visits.length,
@@ -232,7 +233,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
       toast({ variant: 'destructive', title: 'Erro', description: 'Usuário não autenticado.' });
       return;
     }
-    if (!selectedVehicleId) {
+    if (!selectedVehicleIdForCreate) {
       toast({ variant: 'destructive', title: 'Erro', description: 'Veículo é obrigatório.' });
       return;
     }
@@ -246,14 +247,14 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
           return;
       }
 
-    const vehicleDisplay = getVehicleDisplay(selectedVehicleId);
+    const vehicleDisplay = getVehicleDisplay(selectedVehicleIdForCreate);
     const dateStr = new Date().toLocaleDateString('pt-BR');
     const generatedTripName = `Viagem ${vehicleDisplay} - ${dateStr}`;
     const now = new Date().toISOString();
 
     const newTripData: Omit<LocalTrip, 'localId' | 'syncStatus'> = {
       name: generatedTripName,
-      vehicleId: selectedVehicleId,
+      vehicleId: selectedVehicleIdForCreate,
       userId: user.id,
       status: 'Andamento',
       createdAt: now,
@@ -278,7 +279,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
         setExpenseCounts(prev => ({ ...prev, [localId]: 0 }));
         setFuelingCounts(prev => ({ ...prev, [localId]: 0 }));
 
-        resetForm();
+        resetFormForCreate();
         setIsCreateModalOpen(false);
         toast({ title: 'Viagem criada localmente!' });
     } catch (error) {
@@ -289,15 +290,15 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
     }
   };
 
-  const handleEditTrip = async (e: React.FormEvent) => {
+  const handleEditTripSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!currentTrip || !user) return;
+    if (!currentTripForEdit || !user) return;
 
-    if (!selectedVehicleId) {
+    if (!selectedVehicleIdForEdit) {
         toast({ variant: 'destructive', title: 'Erro', description: 'Veículo é obrigatório.' });
         return;
     }
-     const originalLocalTrip = await getLocalTrips().then(trips => trips.find(t => t.localId === currentTrip.localId || t.firebaseId === currentTrip.id));
+     const originalLocalTrip = await getLocalTrips().then(trips => trips.find(t => t.localId === currentTripForEdit.localId || t.firebaseId === currentTripForEdit.id));
 
       if (!originalLocalTrip) {
           toast({ variant: "destructive", title: "Erro", description: "Viagem original não encontrada localmente." });
@@ -306,7 +307,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
 
     const updatedLocalTripData: LocalTrip = {
        ...originalLocalTrip,
-       vehicleId: selectedVehicleId,
+       vehicleId: selectedVehicleIdForEdit,
        updatedAt: new Date().toISOString(),
        syncStatus: originalLocalTrip.syncStatus === 'synced' ? 'pending' : originalLocalTrip.syncStatus,
        id: originalLocalTrip.id, // Ensure id is preserved correctly
@@ -315,16 +316,16 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
     setIsSaving(true);
     try {
         await updateLocalTrip(updatedLocalTripData);
-        console.log(`[Trips] Trip updated locally: ${currentTrip.localId}`);
+        console.log(`[Trips] Trip updated locally: ${currentTripForEdit.localId}`);
 
         setAllTrips(prevTrips =>
-             prevTrips.map(t => t.localId === currentTrip.localId ? { ...updatedLocalTripData, id: updatedLocalTripData.firebaseId || updatedLocalTripData.localId } : t)
+             prevTrips.map(t => t.localId === currentTripForEdit.localId ? { ...updatedLocalTripData, id: updatedLocalTripData.firebaseId || updatedLocalTripData.localId } : t)
              .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
          );
 
-        resetForm();
+        resetFormForEdit();
         setIsEditModalOpen(false);
-        setCurrentTrip(null);
+        setCurrentTripForEdit(null);
         toast({ title: 'Viagem atualizada localmente!' });
     } catch (error) {
         console.error("Error updating local trip:", error);
@@ -334,18 +335,29 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
     }
   };
 
-  const openFinishModal = (trip: Trip, event: React.MouseEvent) => {
+  const openFinishModal = async (trip: Trip, event: React.MouseEvent) => {
     event.stopPropagation();
-    getLocalVisits(trip.localId).then(visits => {
-         const adaptedVisits = visits.map(v => ({ ...v, id: v.firebaseId || v.localId })) as Visit[];
-         setVisitsDataForFinish(adaptedVisits);
-         setTripToFinish(trip);
-         setIsFinishModalOpen(true);
-    }).catch(err => {
-         console.error("Error fetching visits for finish dialog:", err);
-         toast({ variant: "destructive", title: "Erro", description: "Não foi possível carregar visitas para finalizar." });
-    });
-  };
+    try {
+        const visits = await getLocalVisits(trip.localId);
+        if (visits.length === 0) {
+            toast({
+                variant: "destructive",
+                title: "Finalização Bloqueada",
+                description: "Não é possível finalizar a viagem pois não há visitas registradas.",
+                duration: 5000,
+            });
+            return;
+        }
+        const adaptedVisits = visits.map(v => ({ ...v, id: v.firebaseId || v.localId, tripId: trip.localId })) as Visit[];
+        setVisitsDataForFinish(adaptedVisits); // Pass all visits for this trip
+        setTripToFinish(trip);
+        setIsFinishModalOpen(true);
+    } catch (err) {
+        console.error("Error fetching visits for finish dialog:", err);
+        toast({ variant: "destructive", title: "Erro", description: "Não foi possível carregar visitas para finalizar." });
+    }
+};
+
 
   const confirmFinishTrip = async (tripLocalId: string, finalKm: number, totalDistance: number) => {
      const tripToUpdate = allTrips.find(t => t.localId === tripLocalId);
@@ -447,24 +459,28 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
 
   const openEditModal = (trip: Trip, event: React.MouseEvent) => {
     event.stopPropagation();
-    setCurrentTrip(trip);
-    setSelectedVehicleId(trip.vehicleId);
+    setCurrentTripForEdit(trip);
+    setSelectedVehicleIdForEdit(trip.vehicleId);
     setIsEditModalOpen(true);
   };
 
-  const resetForm = () => {
-    setSelectedVehicleId('');
+  const resetFormForCreate = () => {
+    setSelectedVehicleIdForCreate('');
+  };
+  const resetFormForEdit = () => {
+    setSelectedVehicleIdForEdit('');
   };
 
+
   const closeCreateModal = () => {
-    resetForm();
+    resetFormForCreate();
     setIsCreateModalOpen(false);
   };
 
   const closeEditModal = () => {
-    resetForm();
+    resetFormForEdit();
     setIsEditModalOpen(false);
-    setCurrentTrip(null);
+    setCurrentTripForEdit(null);
   };
 
   const getTripSummaryKm = useCallback(async (tripId: string) => {
@@ -508,7 +524,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
         <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center w-full sm:w-auto">
           <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
             <DialogTrigger asChild>
-              <Button onClick={() => { resetForm(); setIsCreateModalOpen(true); }} className="bg-primary hover:bg-primary/90 text-primary-foreground h-9 w-full sm:w-auto" disabled={loadingVehicles || isSaving}>
+              <Button onClick={() => { resetFormForCreate(); setIsCreateModalOpen(true); }} className="bg-primary hover:bg-primary/90 text-primary-foreground h-9 w-full sm:w-auto" disabled={loadingVehicles || isSaving}>
                 <PlusCircle className="mr-2 h-4 w-4" /> Criar Nova Viagem
               </Button>
             </DialogTrigger>
@@ -519,7 +535,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
               <form onSubmit={handleCreateTrip} className="grid gap-4 py-4">
                 <div className="space-y-2">
                   <Label htmlFor="vehicleId">Veículo*</Label>
-                  <Select value={selectedVehicleId} onValueChange={setSelectedVehicleId} required disabled={loadingVehicles || isSaving}>
+                  <Select value={selectedVehicleIdForCreate} onValueChange={setSelectedVehicleIdForCreate} required disabled={loadingVehicles || isSaving}>
                     <SelectTrigger id="vehicleId">
                       <SelectValue placeholder={loadingVehicles ? "Carregando..." : "Selecione um veículo"} />
                     </SelectTrigger>
@@ -626,7 +642,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
                     : 'Nenhuma viagem encontrada localmente.'}
             </p>
             {!isAdmin && (
-              <Button variant="link" onClick={() => { resetForm(); setIsCreateModalOpen(true); }} className="mt-2 text-primary">
+              <Button variant="link" onClick={() => { resetFormForCreate(); setIsCreateModalOpen(true); }} className="mt-2 text-primary">
                 Criar sua primeira viagem
               </Button>
             )}
@@ -648,12 +664,12 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
                 getTripDescription={getTripDescription}
                 openFinishModal={openFinishModal}
                 openEditModal={openEditModal}
-                currentTripForEdit={currentTrip}
-                isEditModalOpen={isEditModalOpen}
+                currentTripForEdit={currentTripForEdit}
+                isEditModalOpen={isEditModalOpen && currentTripForEdit?.localId === trip.localId}
                 closeEditModal={closeEditModal}
-                handleEditTripSubmit={handleEditTrip}
-                selectedVehicleIdForEdit={selectedVehicleId}
-                setSelectedVehicleIdForEdit={setSelectedVehicleId}
+                handleEditTripSubmit={handleEditTripSubmit}
+                selectedVehicleIdForEdit={selectedVehicleIdForEdit}
+                setSelectedVehicleIdForEdit={setSelectedVehicleIdForEdit}
                 openDeleteConfirmation={openDeleteConfirmation}
                 tripToDelete={tripToDelete}
                 isDeleteModalOpen={!!tripToDelete && tripToDelete.localId === trip.localId}
