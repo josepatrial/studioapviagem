@@ -15,6 +15,7 @@ import { isWithinInterval, parseISO, startOfDay, endOfDay } from 'date-fns';
 import { LoadingSpinner } from './LoadingSpinner';
 import { formatKm } from '@/lib/utils'; // Import centralized formatKm
 import { useRouter } from 'next/navigation';
+import { useToast } from '@/hooks/use-toast';
 
 
 const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -26,6 +27,7 @@ interface DashboardProps {
 
 export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
   const { user } = useAuth();
+  const { toast } = useToast();
   const isAdmin = user?.role === 'admin';
   const [drivers, setDrivers] = useState<User[]>([]);
   const [loadingDrivers, setLoadingDrivers] = useState(true);
@@ -61,6 +63,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
           setDrivers(fetchedDrivers.filter(d => d.role === 'driver'));
         } catch (error) {
           console.error("Error fetching drivers:", error);
+          toast({
+            variant: "destructive",
+            title: "Erro ao Carregar Motoristas",
+            description: "Não foi possível buscar a lista de motoristas. Verifique sua conexão ou os logs.",
+          });
         } finally {
           setLoadingDrivers(false);
         }
@@ -81,8 +88,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
            fetchVehiclesData();
     } else {
         setLoadingDrivers(false);
+         setDrivers([]); // Clear drivers if not admin
     }
-  }, [isAdmin, user?.id]);
+  }, [isAdmin, user?.id, toast]); // Added toast to dependencies
 
     useEffect(() => {
         const fetchExpensesData = async () => {
@@ -219,8 +227,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
          totalDistance: filteredTrips
             .filter(t => t.status === 'Finalizado' && t.totalDistance != null)
             .reduce((sum, t) => sum + (t.totalDistance ?? 0), 0),
-        totalDrivers: 0,
-        totalVehicles: 0,
+        totalDrivers: 0, // Non-admins don't see driver counts
+        totalVehicles: 0, // Non-admins don't see vehicle counts
         filterApplied: !!dateRange,
          filterContext: `Suas Atividades ${dateRange ? `(${dateRange.from?.toLocaleDateString('pt-BR')} - ${dateRange.to?.toLocaleDateString('pt-BR') ?? '...'})` : ''}`.trim(),
       };
@@ -242,7 +250,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                     <Label htmlFor="driverFilter">Filtrar por Motorista</Label>
                     <Select value={filterDriverId} onValueChange={(value) => setFilterDriverId(value === 'all' ? '' : value)} disabled={loadingDrivers}>
                         <SelectTrigger id="driverFilter">
-                            <SelectValue placeholder={loadingDrivers ? "Carregando motoristas..." : "Todos os Motoristas"} />
+                            <SelectValue placeholder={loadingDrivers ? "Carregando motoristas..." : (drivers.length === 0 ? "Nenhum motorista encontrado" : "Todos os Motoristas")} />
                         </SelectTrigger>
                         <SelectContent>
                             {loadingDrivers ? (
@@ -254,9 +262,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                             ) : (
                                <>
                                 <SelectItem value="all">Todos os Motoristas</SelectItem>
-                                {drivers.map(driver => (
-                                    <SelectItem key={driver.id} value={driver.id}>{driver.name} ({driver.base})</SelectItem>
-                                ))}
+                                {drivers.length > 0 ? (
+                                    drivers.map(driver => (
+                                        <SelectItem key={driver.id} value={driver.id}>{driver.name} ({driver.base})</SelectItem>
+                                    ))
+                                ) : (
+                                    <SelectItem value="no-drivers" disabled>Nenhum motorista cadastrado</SelectItem>
+                                )}
                                </>
                             )}
                         </SelectContent>
@@ -346,7 +358,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                  <CardContent>
                    <div className="text-2xl font-bold">{summaryData.totalDrivers}</div>
                    <p className="text-xs text-muted-foreground">
-                     {filterDriverId ? 'Motorista selecionado' : 'Total de motoristas'}
+                     {filterDriverId ? 'Motorista selecionado' : (drivers.length > 0 ? 'Total de motoristas' : 'Nenhum motorista')}
                    </p>
                  </CardContent>
                </Card>
