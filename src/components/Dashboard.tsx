@@ -48,22 +48,30 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
   useEffect(() => {
     const fetchAllLocalData = async () => {
       try {
-        const [localTrips, localVehiclesData, localExpensesData, localFuelingsData, localVisitsData] = await Promise.all([
-          getLocalTrips(isAdmin ? undefined : user?.id),
+        const [
+            localTrips,
+            localVehiclesData,
+            allLocalExpenses, // Fetch all
+            allLocalFuelings, // Fetch all
+            allLocalVisits    // Fetch all
+        ] = await Promise.all([
+          getLocalTrips(isAdmin ? (filterDriverId || undefined) : user?.id),
           getLocalVehicles(),
-          getLocalExpenses(user?.id || ''), // This likely needs to be tripLocalId based, or all if admin
-          getLocalFuelings(user?.id || '', isAdmin ? undefined : 'userId'), // Similarly needs review
-          fetchLocalVisits(user?.id || '') // This also seems user-specific, might need to be trip specific
+          getLocalExpenses(), // Fetch all expenses
+          getLocalFuelings(), // Fetch all fuelings (will be filtered later if needed by vehicle)
+          fetchLocalVisits(), // Fetch all visits
         ]);
 
         setTrips(localTrips);
         setVehicles(localVehiclesData);
-        setExpenses(localExpensesData);
-        setFuelings(localFuelingsData);
-        setVisits(localVisitsData);
+        setExpenses(allLocalExpenses);
+        setFuelings(allLocalFuelings);
+        setVisits(allLocalVisits);
 
         if (isAdmin && navigator.onLine) {
-            if (localTrips.length === 0) {
+            // This online fetching logic might need review based on how sync works.
+            // For now, it tries to populate if local is empty.
+            if (localTrips.length === 0 && !filterDriverId) { // Only fetch all online trips if no driver filter
                 const onlineTrips = (await fetchOnlineTrips()).map(t => ({ ...t, localId: t.id, syncStatus: 'synced' } as LocalTrip));
                 setTrips(onlineTrips);
             }
@@ -71,7 +79,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                 const onlineVehicles = (await fetchOnlineVehicles()).map(v => ({ ...v, localId: v.id, syncStatus: 'synced' } as LocalVehicle));
                 setVehicles(onlineVehicles);
             }
-             if (localFuelingsData.length === 0) {
+             if (allLocalFuelings.length === 0 && !filterDriverId) { // Only fetch all online fuelings if no driver filter
                 const onlineFuelings = (await fetchOnlineFuelings(undefined)).map(f => ({ ...f, localId: f.id, syncStatus: 'synced', odometerKm: f.odometerKm || 0 } as LocalFueling));
                 setFuelings(onlineFuelings);
             }
@@ -89,19 +97,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
       const fetchDriversData = async () => {
         setLoadingDrivers(true);
         try {
-          // Fetch drivers from local DB first for admin
           let localDrivers = await getLocalRecordsByRole('driver');
           if (localDrivers.length === 0 && navigator.onLine) {
             console.log("[Dashboard Admin] No local drivers, fetching online...");
             const onlineDrivers = await getDrivers();
-            // TODO: Save online drivers to local DB for consistency
             localDrivers = onlineDrivers.map(d => ({
               ...d,
-              // Add any missing fields required by User type if DriverInfo is a subset
-              lastLogin: new Date().toISOString(), // Or fetch appropriately if available
+              lastLogin: new Date().toISOString(),
             }));
           }
-          setDrivers(localDrivers.filter(d => d.role === 'driver')); // Ensure role is driver
+          setDrivers(localDrivers.filter(d => d.role === 'driver'));
         } catch (error) {
           console.error("Error fetching drivers:", error);
           toast({ variant: "destructive", title: "Erro ao Carregar Motoristas", description: "Não foi possível buscar a lista de motoristas." });
@@ -113,42 +118,40 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     } else {
         setLoadingDrivers(false);
     }
-  }, [isAdmin, user?.id, toast]);
+  }, [isAdmin, user?.id, toast, filterDriverId]); // Added filterDriverId dependency
 
 
   const summaryData = useMemo(() => {
-    let filteredTrips = trips;
-    let filteredVisits = visits;
-    let filteredExpenses = expenses;
-    let currentFuelings = fuelings;
+    let filteredTrips = trips; // These are already potentially filtered by user or filterDriverId from getLocalTrips
+    let allVisits = visits; // All visits from local DB
+    let allExpenses = expenses; // All expenses from local DB
+    let allFuelings = fuelings; // All fuelings from local DB
 
+    // Apply date filter first to all items
     if (dateRange?.from && dateRange?.to) {
         const interval = { start: startOfDay(dateRange.from), end: endOfDay(dateRange.to) };
-        filteredTrips = trips.filter(t => { try { return isWithinInterval(parseISO(t.createdAt), interval); } catch { return false; } });
-        filteredVisits = visits.filter(v => { try { return isWithinInterval(parseISO(v.timestamp), interval); } catch { return false; } });
-        filteredExpenses = expenses.filter(e => { try { return isWithinInterval(parseISO(e.expenseDate), interval); } catch { return false; } });
-        currentFuelings = fuelings.filter(f => { try { return isWithinInterval(parseISO(f.date), interval); } catch { return false; } });
+        filteredTrips = filteredTrips.filter(t => { try { return isWithinInterval(parseISO(t.createdAt), interval); } catch { return false; } });
+        allVisits = allVisits.filter(v => { try { return isWithinInterval(parseISO(v.timestamp), interval); } catch { return false; } });
+        allExpenses = allExpenses.filter(e => { try { return isWithinInterval(parseISO(e.expenseDate), interval); } catch { return false; } });
+        allFuelings = allFuelings.filter(f => { try { return isWithinInterval(parseISO(f.date), interval); } catch { return false; } });
     } else if (dateRange?.from) {
         const startDate = startOfDay(dateRange.from);
-        filteredTrips = trips.filter(t => { try { return parseISO(t.createdAt) >= startDate; } catch { return false; } });
-        filteredVisits = visits.filter(v => { try { return parseISO(v.timestamp) >= startDate; } catch { return false; } });
-        filteredExpenses = expenses.filter(e => { try { return parseISO(e.expenseDate) >= startDate; } catch { return false; } });
-        currentFuelings = fuelings.filter(f => { try { return parseISO(f.date) >= startDate; } catch { return false; } });
+        filteredTrips = filteredTrips.filter(t => { try { return parseISO(t.createdAt) >= startDate; } catch { return false; } });
+        allVisits = allVisits.filter(v => { try { return parseISO(v.timestamp) >= startDate; } catch { return false; } });
+        allExpenses = allExpenses.filter(e => { try { return parseISO(e.expenseDate) >= startDate; } catch { return false; } });
+        allFuelings = allFuelings.filter(f => { try { return parseISO(f.date) >= startDate; } catch { return false; } });
     }
+    // Note: if only dateRange.to is set, that filtering is currently not applied.
 
-    const driverIdToFilter = isAdmin && filterDriverId ? filterDriverId : (!isAdmin && user ? user.id : null);
-    let driverNameForFilterContext = 'Todos os Motoristas';
+    // `filteredTrips` is now the set of trips to consider (either all for admin/no-filter, specific driver's, or current user's)
+    // and also date-filtered.
+    // Now, filter visits, expenses, fuelings based on these relevant trips.
+    const relevantTripLocalIds = new Set(filteredTrips.map(t => t.localId));
 
-    if (driverIdToFilter) {
-        const driver = drivers.find(d => d.id === filterDriverId);
-        if(driver && driver.name) driverNameForFilterContext = driver.name;
+    const filteredVisits = allVisits.filter(v => relevantTripLocalIds.has(v.tripLocalId || ''));
+    const filteredExpenses = allExpenses.filter(e => relevantTripLocalIds.has(e.tripLocalId || ''));
+    const currentFuelings = allFuelings.filter(f => relevantTripLocalIds.has(f.tripLocalId || ''));
 
-        filteredTrips = filteredTrips.filter(t => t.userId === driverIdToFilter || (driver && t.userId === driver.email));
-        const tripLocalIdsForDriver = filteredTrips.map(t => t.localId);
-        filteredVisits = filteredVisits.filter(v => tripLocalIdsForDriver.includes(v.tripLocalId || ''));
-        filteredExpenses = filteredExpenses.filter(e => tripLocalIdsForDriver.includes(e.tripLocalId || ''));
-        currentFuelings = currentFuelings.filter(f => tripLocalIdsForDriver.includes(f.tripLocalId || ''));
-    }
 
     const activeTripsCount = filteredTrips.filter(t => t.status === 'Andamento').length;
     const totalVisitsCount = filteredVisits.length;
@@ -161,14 +164,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         .reduce((sum, t) => sum + (t.totalDistance || 0), 0);
 
     let filterContext = 'Todas as Atividades';
+    let driverNameForContext = 'Todos os Motoristas';
+
     if (isAdmin) {
-        filterContext = `Motorista: ${filterDriverId ? driverNameForFilterContext : 'Todos os Motoristas'}`;
+        if (filterDriverId) {
+            const driver = drivers.find(d => d.id === filterDriverId);
+            driverNameForContext = driver?.name || driver?.email || `ID: ${filterDriverId.substring(0,6)}...`;
+        }
+        filterContext = `Motorista: ${driverNameForContext}`;
     } else {
         filterContext = `Suas Atividades`;
     }
+
     if (dateRange?.from) {
         filterContext += ` (${formatDateFn(dateRange.from, 'dd/MM/yy')}${dateRange.to ? ` - ${formatDateFn(dateRange.to, 'dd/MM/yy')}` : ' em diante'})`;
     }
+
 
     return {
         activeTrips: activeTripsCount,
@@ -178,12 +189,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         totalFuelingsCount,
         totalFuelingsCost,
         totalDistance: totalDistanceValue,
-        totalDrivers: isAdmin ? (filterDriverId ? 1 : drivers.length) : 0,
-        totalVehicles: isAdmin ? vehicles.length : 0,
+        totalDrivers: isAdmin ? (filterDriverId ? 1 : drivers.length) : 0, // This is count of *selectable* drivers for admin
+        totalVehicles: vehicles.length, // vehicles state already contains all vehicles
         filterApplied: !!filterDriverId || !!dateRange,
         filterContext,
     };
-  }, [isAdmin, user?.id, filterDriverId, dateRange, drivers, expenses, fuelings, trips, vehicles, visits]);
+  }, [isAdmin, user?.id, filterDriverId, dateRange, drivers, expenses, fuelings, trips, vehicles]);
 
   const adminDashboardData = useMemo(() => {
     if (!isAdmin || user?.email !== 'grupo2irmaos@grupo2irmaos.com.br' || loadingDrivers) {
@@ -191,30 +202,34 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     }
 
     let currentTripsSource = trips;
-    let currentExpensesSource = expenses;
-    let currentFuelingsSource = fuelings;
+    let currentExpensesSource = expenses; // Already all expenses
+    let currentFuelingsSource = fuelings; // Already all fuelings
 
+    // Date filtering for charts
     if (dateRange?.from && dateRange?.to) {
         const interval = { start: startOfDay(dateRange.from), end: endOfDay(dateRange.to) };
-        currentTripsSource = trips.filter(t => { try { return isWithinInterval(parseISO(t.createdAt), interval); } catch { return false; } });
-        currentExpensesSource = expenses.filter(e => { try { return isWithinInterval(parseISO(e.expenseDate), interval); } catch { return false; } });
-        currentFuelingsSource = fuelings.filter(f => { try { return isWithinInterval(parseISO(f.date), interval); } catch { return false; } });
+        currentTripsSource = currentTripsSource.filter(t => { try { return isWithinInterval(parseISO(t.createdAt), interval); } catch { return false; } });
+        currentExpensesSource = currentExpensesSource.filter(e => { try { return isWithinInterval(parseISO(e.expenseDate), interval); } catch { return false; } });
+        currentFuelingsSource = currentFuelingsSource.filter(f => { try { return isWithinInterval(parseISO(f.date), interval); } catch { return false; } });
     } else if (dateRange?.from) {
         const startDate = startOfDay(dateRange.from);
-        currentTripsSource = trips.filter(t => { try { return parseISO(t.createdAt) >= startDate; } catch { return false; } });
-        currentExpensesSource = expenses.filter(e => { try { return parseISO(e.expenseDate) >= startDate; } catch { return false; } });
-        currentFuelingsSource = fuelings.filter(f => { try { return parseISO(f.date) >= startDate; } catch { return false; } });
+        currentTripsSource = currentTripsSource.filter(t => { try { return parseISO(t.createdAt) >= startDate; } catch { return false; } });
+        currentExpensesSource = currentExpensesSource.filter(e => { try { return parseISO(e.expenseDate) >= startDate; } catch { return false; } });
+        currentFuelingsSource = currentFuelingsSource.filter(f => { try { return parseISO(f.date) >= startDate; } catch { return false; } });
     }
 
+    // Filter by driver if selected
     if (filterDriverId) {
         const selectedDriver = drivers.find(d => d.id === filterDriverId);
         currentTripsSource = currentTripsSource.filter(t =>
             t.userId === filterDriverId || (selectedDriver && t.userId === selectedDriver.email)
         );
-        const tripIdsForDriver = currentTripsSource.map(t => t.localId);
-        currentExpensesSource = currentExpensesSource.filter(e => tripIdsForDriver.includes(e.tripLocalId || ''));
-        currentFuelingsSource = currentFuelingsSource.filter(f => tripIdsForDriver.includes(f.tripLocalId || ''));
     }
+    // After trips are filtered, filter expenses and fuelings based on these trips
+    const relevantTripIdsForCharts = new Set(currentTripsSource.map(t => t.localId));
+    currentExpensesSource = currentExpensesSource.filter(e => relevantTripIdsForCharts.has(e.tripLocalId || ''));
+    currentFuelingsSource = currentFuelingsSource.filter(f => relevantTripIdsForCharts.has(f.tripLocalId || ''));
+
 
     const driverNameMap = new Map(drivers.map(d => [d.id, d.name || d.email || `Desconhecido (${d.id.substring(0,6)}...)`]));
 
@@ -231,7 +246,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
       if (!driverData) driverData = drivers.find(d => d.email === driverIdFromTrip);
 
       const aggregationKey = driverData?.id || driverIdFromTrip;
-      // Use the name from driverNameMap, if found. Otherwise, use the email or a fallback.
       const resolvedDriverName = driverNameMap.get(aggregationKey) || (driverData?.email ? `Usuário: ${driverData.email}` : `ID: ${aggregationKey.substring(0,6)}...`);
 
 
@@ -293,13 +307,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         .map(([date, km]) => ({ date, km }))
         .sort((a,b) => {
              try {
-                // Ensure dates are parsed correctly for sorting (assuming dd/MM/yyyy format)
                 const dateA = parseISO(a.date.split('/').reverse().join('-'));
                 const dateB = parseISO(b.date.split('/').reverse().join('-'));
                 return dateA.getTime() - dateB.getTime();
              } catch { return 0; }
         })
-        .slice(-30); // Take last 30 days with activity
+        .slice(-30);
 
 
     return {
@@ -517,4 +530,3 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     </div>
   );
 };
-

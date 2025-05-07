@@ -702,12 +702,12 @@ export const deleteLocalVisit = (localId: string): Promise<void> => {
     return markRecordForDeletion(STORE_VISITS, localId);
 };
 
-export const getLocalVisits = (tripLocalId: string): Promise<LocalVisit[]> => {
+export const getLocalVisits = (tripLocalId?: string): Promise<LocalVisit[]> => {
      const getVisitsStartTime = performance.now();
-     console.log(`[getLocalVisits ${getVisitsStartTime}] Fetching visits for tripLocalId: ${tripLocalId}`);
+     console.log(`[getLocalVisits ${getVisitsStartTime}] Fetching visits for tripLocalId: ${tripLocalId || 'all'}`);
     return getLocalDbStore(STORE_VISITS, 'readonly').then(store => {
         return new Promise<LocalVisit[]>((resolve, reject) => {
-             if (store.indexNames.contains('tripLocalId')) {
+            if (tripLocalId && store.indexNames.contains('tripLocalId')) {
                  const index = store.index('tripLocalId');
                  const request = index.getAll(tripLocalId);
                  request.onsuccess = () => {
@@ -723,20 +723,24 @@ export const getLocalVisits = (tripLocalId: string): Promise<LocalVisit[]> => {
                       reject(`Error getting visits for trip ${tripLocalId}: ${request.error?.message}`);
                  }
              } else {
-                 console.warn(`[getLocalVisits ${getVisitsStartTime}] Index 'tripLocalId' not found on ${STORE_VISITS}. Fetching all and filtering.`);
+                 console.log(`[getLocalVisits ${getVisitsStartTime}] Fetching all visits (index 'tripLocalId' not used or tripLocalId not provided).`);
                  const getAllRequest = store.getAll();
                  getAllRequest.onsuccess = () => {
-                     const allRecords = getAllRequest.result as LocalVisit[];
-                     const filtered = allRecords.filter(item => !item.deleted && item.tripLocalId === tripLocalId);
-                     filtered.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+                     let allRecords = getAllRequest.result as LocalVisit[];
+                     if (tripLocalId) {
+                         allRecords = allRecords.filter(item => !item.deleted && item.tripLocalId === tripLocalId);
+                     } else {
+                         allRecords = allRecords.filter(item => !item.deleted);
+                     }
+                     allRecords.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
                      const getVisitsEndTime = performance.now();
-                     console.log(`[getLocalVisits ${getVisitsStartTime}] Fallback filter complete. Found ${filtered.length} visits. Time: ${getVisitsEndTime - getVisitsStartTime} ms`);
-                     resolve(filtered);
+                     console.log(`[getLocalVisits ${getVisitsStartTime}] Fallback/All filter complete. Found ${allRecords.length} visits. Time: ${getVisitsEndTime - getVisitsStartTime} ms`);
+                     resolve(allRecords);
                   };
                   getAllRequest.onerror = () => {
                        const getVisitsEndTime = performance.now();
-                       console.error(`[getLocalVisits ${getVisitsStartTime}] Fallback getAll failed for ${STORE_VISITS}. Time: ${getVisitsEndTime - getVisitsStartTime} ms`, getAllRequest.error);
-                       reject(`Fallback getAll failed for ${STORE_VISITS}: ${getAllRequest.error?.message}`);
+                       console.error(`[getLocalVisits ${getVisitsStartTime}] Fallback/All getAll failed for ${STORE_VISITS}. Time: ${getVisitsEndTime - getVisitsStartTime} ms`, getAllRequest.error);
+                       reject(`Fallback/All getAll failed for ${STORE_VISITS}: ${getAllRequest.error?.message}`);
                   }
               }
          });
@@ -767,12 +771,12 @@ export const deleteLocalExpense = (localId: string): Promise<void> => {
      return markRecordForDeletion(STORE_EXPENSES, localId);
 };
 
-export const getLocalExpenses = (tripLocalId: string): Promise<LocalExpense[]> => {
+export const getLocalExpenses = (tripLocalId?: string): Promise<LocalExpense[]> => {
      const getExpensesStartTime = performance.now();
-      console.log(`[getLocalExpenses ${getExpensesStartTime}] Fetching expenses for tripLocalId: ${tripLocalId}`);
+      console.log(`[getLocalExpenses ${getExpensesStartTime}] Fetching expenses for tripLocalId: ${tripLocalId || 'all'}`);
      return getLocalDbStore(STORE_EXPENSES, 'readonly').then(store => {
          return new Promise<LocalExpense[]>((resolve, reject) => {
-              if (store.indexNames.contains('tripLocalId')) {
+            if (tripLocalId && store.indexNames.contains('tripLocalId')) {
                   const index = store.index('tripLocalId');
                   const request = index.getAll(tripLocalId);
                   request.onsuccess = () => {
@@ -788,20 +792,24 @@ export const getLocalExpenses = (tripLocalId: string): Promise<LocalExpense[]> =
                        reject(`Error getting expenses for trip ${tripLocalId}: ${request.error?.message}`);
                   }
               } else {
-                 console.warn(`[getLocalExpenses ${getExpensesStartTime}] Index 'tripLocalId' not found on ${STORE_EXPENSES}. Fetching all and filtering.`);
+                 console.log(`[getLocalExpenses ${getExpensesStartTime}] Fetching all expenses (index 'tripLocalId' not used or tripLocalId not provided).`);
                  const getAllRequest = store.getAll();
                  getAllRequest.onsuccess = () => {
-                     const allRecords = getAllRequest.result as LocalExpense[];
-                     const filtered = allRecords.filter(item => !item.deleted && item.tripLocalId === tripLocalId);
-                     filtered.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+                    let allRecords = getAllRequest.result as LocalExpense[];
+                     if (tripLocalId) {
+                         allRecords = allRecords.filter(item => !item.deleted && item.tripLocalId === tripLocalId);
+                     } else {
+                         allRecords = allRecords.filter(item => !item.deleted);
+                     }
+                     allRecords.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
                      const getExpensesEndTime = performance.now();
-                     console.log(`[getLocalExpenses ${getExpensesStartTime}] Fallback filter complete. Found ${filtered.length} expenses. Time: ${getExpensesEndTime - getExpensesStartTime} ms`);
-                     resolve(filtered);
+                     console.log(`[getLocalExpenses ${getExpensesStartTime}] Fallback/All filter complete. Found ${allRecords.length} expenses. Time: ${getExpensesEndTime - getExpensesStartTime} ms`);
+                     resolve(allRecords);
                   };
                   getAllRequest.onerror = () => {
                        const getExpensesEndTime = performance.now();
-                       console.error(`[getLocalExpenses ${getExpensesStartTime}] Fallback getAll failed for ${STORE_EXPENSES}. Time: ${getExpensesEndTime - getExpensesStartTime} ms`, getAllRequest.error);
-                       reject(`Fallback getAll failed for ${STORE_EXPENSES}: ${getAllRequest.error?.message}`);
+                       console.error(`[getLocalExpenses ${getExpensesStartTime}] Fallback/All getAll failed for ${STORE_EXPENSES}. Time: ${getExpensesEndTime - getExpensesStartTime} ms`, getAllRequest.error);
+                       reject(`Fallback/All getAll failed for ${STORE_EXPENSES}: ${getAllRequest.error?.message}`);
                   }
               }
          });
@@ -832,17 +840,16 @@ export const deleteLocalFueling = (localId: string): Promise<void> => {
       return markRecordForDeletion(STORE_FUELINGS, localId);
 };
 
-export const getLocalFuelings = (tripLocalIdOrVehicleId: string, filterBy: 'tripLocalId' | 'vehicleId' = 'tripLocalId'): Promise<LocalFueling[]> => {
+export const getLocalFuelings = (tripLocalIdOrVehicleId?: string, filterBy: 'tripLocalId' | 'vehicleId' = 'tripLocalId'): Promise<LocalFueling[]> => {
        const getFuelingsStartTime = performance.now();
-       console.log(`[getLocalFuelings ${getFuelingsStartTime}] Fetching fuelings for ${filterBy}: ${tripLocalIdOrVehicleId}`);
+       console.log(`[getLocalFuelings ${getFuelingsStartTime}] Fetching fuelings for ${filterBy}: ${tripLocalIdOrVehicleId || 'all'}`);
       return getLocalDbStore(STORE_FUELINGS, 'readonly').then(store => {
           return new Promise<LocalFueling[]>((resolve, reject) => {
-               if (store.indexNames.contains(filterBy)) {
+                if (tripLocalIdOrVehicleId && store.indexNames.contains(filterBy)) {
                    const index = store.index(filterBy);
                    const request = index.getAll(tripLocalIdOrVehicleId);
                    request.onsuccess = () => {
                        const results = (request.result as LocalFueling[]).filter(item => !item.deleted);
-                       // Sort by date descending, then by odometerKm descending for tie-breaking
                        results.sort((a, b) => {
                             const dateDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
                             if (dateDiff !== 0) return dateDiff;
@@ -858,24 +865,28 @@ export const getLocalFuelings = (tripLocalIdOrVehicleId: string, filterBy: 'trip
                         reject(`Error getting fuelings for ${filterBy} ${tripLocalIdOrVehicleId}: ${request.error?.message}`);
                    }
                } else {
-                  console.warn(`[getLocalFuelings ${getFuelingsStartTime}] Index '${filterBy}' not found on ${STORE_FUELINGS}. Fetching all and filtering.`);
+                  console.log(`[getLocalFuelings ${getFuelingsStartTime}] Fetching all fuelings (index '${filterBy}' not used or ID not provided).`);
                   const getAllRequest = store.getAll();
                   getAllRequest.onsuccess = () => {
-                     const allRecords = getAllRequest.result as LocalFueling[];
-                     const filtered = allRecords.filter(item => !item.deleted && item[filterBy] === tripLocalIdOrVehicleId);
-                      filtered.sort((a, b) => {
+                     let allRecords = getAllRequest.result as LocalFueling[];
+                     if (tripLocalIdOrVehicleId) {
+                         allRecords = allRecords.filter(item => !item.deleted && item[filterBy] === tripLocalIdOrVehicleId);
+                     } else {
+                         allRecords = allRecords.filter(item => !item.deleted);
+                     }
+                      allRecords.sort((a, b) => {
                             const dateDiff = new Date(b.date).getTime() - new Date(a.date).getTime();
                             if (dateDiff !== 0) return dateDiff;
                             return b.odometerKm - a.odometerKm;
                        });
                      const getFuelingsEndTime = performance.now();
-                     console.log(`[getLocalFuelings ${getFuelingsStartTime}] Fallback filter complete. Found ${filtered.length} fuelings. Time: ${getFuelingsEndTime - getFuelingsStartTime} ms`);
-                     resolve(filtered);
+                     console.log(`[getLocalFuelings ${getFuelingsStartTime}] Fallback/All filter complete. Found ${allRecords.length} fuelings. Time: ${getFuelingsEndTime - getFuelingsStartTime} ms`);
+                     resolve(allRecords);
                   };
                   getAllRequest.onerror = () => {
                        const getFuelingsEndTime = performance.now();
-                       console.error(`[getLocalFuelings ${getFuelingsStartTime}] Fallback getAll failed for ${STORE_FUELINGS}. Time: ${getFuelingsEndTime - getFuelingsStartTime} ms`, getAllRequest.error);
-                       reject(`Fallback getAll failed for ${STORE_FUELINGS}: ${getAllRequest.error?.message}`);
+                       console.error(`[getLocalFuelings ${getFuelingsStartTime}] Fallback/All getAll failed for ${STORE_FUELINGS}. Time: ${getFuelingsEndTime - getFuelingsStartTime} ms`, getAllRequest.error);
+                       reject(`Fallback/All getAll failed for ${STORE_FUELINGS}: ${getAllRequest.error?.message}`);
                   }
               }
           });
