@@ -5,7 +5,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Edit, Trash2, Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Filter, Loader2, BarChart3, ChevronDown } from 'lucide-react'; // Changed Plane to BarChart3 for Active Trips
+import { PlusCircle, Edit, Trash2, Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Filter, Loader2, BarChart3, ChevronDown } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,12 +15,12 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger, // Added AlertDialogTrigger import
+  AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger, AccordionHeader } from '@/components/ui/accordion';
+import { Accordion, AccordionContent, AccordionItem, AccordionHeader, AccordionTrigger as UiAccordionTrigger } from '@/components/ui/accordion'; // Renamed to avoid conflict if needed
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import type { Visit } from './Visits';
@@ -615,11 +615,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
                      isPending && "bg-yellow-50 hover:bg-yellow-100/80 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/30",
                      isError && "bg-destructive/10 hover:bg-destructive/20"
                   )}>
-                    <AccordionTrigger
-                         asChild
-                         className="flex-1 mr-4 space-y-1 text-left p-0 hover:no-underline"
-                    >
-                      <button className="flex-1 flex justify-between items-center p-0 hover:no-underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm">
+                    <UiAccordionTrigger className="flex-1 mr-4 space-y-1 text-left p-0 hover:no-underline">
                         <div>
                             <div className="flex items-center gap-2 flex-wrap">
                                 <CardTitle className="text-lg">{trip.name}</CardTitle>
@@ -654,9 +650,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
                                 <span>Atualizado: {new Date(trip.updatedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
                             </div>
                         </div>
-                        <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200 group-data-[state=open]/item:rotate-180" />
-                      </button>
-                    </AccordionTrigger>
+                    </UiAccordionTrigger>
 
                     <div className="flex items-center gap-1 flex-shrink-0 ml-2">
                         {trip.status === 'Andamento' && (isAdmin || trip.userId === user?.id) && (
