@@ -395,7 +395,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
 
            {isAdmin && (
              <>
-               {/* Motoristas Card was here - Removed as per user request */}
                <Card className="shadow-md transition-shadow hover:shadow-lg">
                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                    <CardTitle className="text-sm font-medium">Veículos</CardTitle>
@@ -413,14 +412,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
       {isAdmin && user?.email === 'grupo2irmaos@grupo2irmaos.com.br' && adminDashboardData && (
         <div className="mt-8 space-y-6">
           <h2 className="text-2xl font-semibold text-primary">Painel do Administrador</h2>
-           <Alert>
-                <Info className="h-4 w-4" />
-                <AlertTitle>Dashboard do Administrador</AlertTitle>
-                <AlertDescription>
-                    Este é um painel de exemplo com visualizações de dados agregados.
-                    Os filtros de motorista e data acima se aplicam a todos os gráficos e tabelas nesta seção.
-                </AlertDescription>
-            </Alert>
           
           <Card>
             <CardHeader>
