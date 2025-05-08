@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Edit, Trash2, Droplet, Paperclip, Camera, Upload, Check, X, Eye, Loader2, TrendingUp } from 'lucide-react';
+import { PlusCircle, Edit, Trash2, Droplet, Paperclip, Camera, Upload, Check, X, Eye, Loader2, TrendingUp, Car } from 'lucide-react'; // Added Car icon
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,6 +21,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"; // Import Select
 import { useToast } from '@/hooks/use-toast';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import {
@@ -38,7 +39,8 @@ export interface Fueling extends Omit<LocalFueling, 'localId' | 'tripLocalId'> {
   id: string;
   tripId: string;
   syncStatus?: 'pending' | 'synced' | 'error';
-  odometerKm: number; // Added odometerKm
+  odometerKm: number;
+  fuelType: string; // Added fuelType
 }
 
 interface FuelingsProps {
@@ -46,6 +48,8 @@ interface FuelingsProps {
   tripName?: string;
   vehicleId: string; // VehicleId associated with the trip
 }
+
+const fuelTypes = ['Gasolina Comum', 'Gasolina Aditivada', 'Etanol', 'Diesel Comum', 'Diesel S10', 'GNV'];
 
 export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripName, vehicleId: tripVehicleId }) => {
   const [fuelings, setFuelings] = useState<Fueling[]>([]);
@@ -65,7 +69,8 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
   const [pricePerLiter, setPricePerLiter] = useState<number | ''>('');
   const [location, setLocation] = useState('');
   const [comments, setComments] = useState('');
-  const [odometerKm, setOdometerKm] = useState<number | ''>(''); // Added odometerKm state
+  const [odometerKm, setOdometerKm] = useState<number | ''>('');
+  const [fuelType, setFuelType] = useState(''); // Added fuelType state
 
   const [attachment, setAttachment] = useState<File | string | null>(null);
   const [attachmentFilename, setAttachmentFilename] = useState<string | null>(null);
@@ -84,7 +89,8 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
                 id: lf.firebaseId || lf.localId,
                 tripId: lf.tripLocalId,
                 syncStatus: lf.syncStatus,
-                odometerKm: lf.odometerKm // Ensure odometerKm is mapped
+                odometerKm: lf.odometerKm,
+                fuelType: lf.fuelType // Ensure fuelType is mapped
             })).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
             setFuelings(uiFuelings);
         } catch (error) {
@@ -192,14 +198,14 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
         return;
     }
 
-    if (!date || liters === '' || pricePerLiter === '' || !location || odometerKm === '') { // Added odometerKm validation
-      toast({ variant: 'destructive', title: 'Erro', description: 'Data, litros, preço/L, local e KM do odômetro são obrigatórios.' });
+    if (!date || liters === '' || pricePerLiter === '' || !location || odometerKm === '' || !fuelType) { // Added fuelType validation
+      toast({ variant: 'destructive', title: 'Erro', description: 'Data, litros, preço/L, tipo de combustível, local e KM do odômetro são obrigatórios.' });
       return;
     }
     const litersNum = Number(liters);
     const priceNum = Number(pricePerLiter);
-    const odometerNum = Number(odometerKm); // Convert odometerKm to number
-     if (litersNum <= 0 || priceNum <= 0 || odometerNum <= 0) { // Added odometerNum validation
+    const odometerNum = Number(odometerKm);
+     if (litersNum <= 0 || priceNum <= 0 || odometerNum <= 0) {
         toast({ variant: 'destructive', title: 'Erro', description: 'Litros, Preço/Litro e KM do odômetro devem ser maiores que zero.' });
         return;
      }
@@ -215,7 +221,8 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
        totalCost: litersNum * priceNum,
        location,
        comments,
-       odometerKm: odometerNum, // Save odometerKm
+       odometerKm: odometerNum,
+       fuelType, // Save fuelType
        receiptFilename: attachmentFilename || undefined,
        receiptUrl: typeof attachment === 'string' ? attachment : undefined,
      };
@@ -253,14 +260,14 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
         return;
     }
 
-    if (!date || liters === '' || pricePerLiter === '' || !location || odometerKm === '') { // Added odometerKm validation
-      toast({ variant: 'destructive', title: 'Erro', description: 'Data, litros, preço/L, local e KM do odômetro são obrigatórios.' });
+    if (!date || liters === '' || pricePerLiter === '' || !location || odometerKm === '' || !fuelType) { // Added fuelType validation
+      toast({ variant: 'destructive', title: 'Erro', description: 'Data, litros, preço/L, tipo de combustível, local e KM do odômetro são obrigatórios.' });
       return;
     }
      const litersNum = Number(liters);
      const priceNum = Number(pricePerLiter);
-     const odometerNum = Number(odometerKm); // Convert odometerKm
-      if (litersNum <= 0 || priceNum <= 0 || odometerNum <= 0) { // Added odometerNum validation
+     const odometerNum = Number(odometerKm);
+      if (litersNum <= 0 || priceNum <= 0 || odometerNum <= 0) {
          toast({ variant: 'destructive', title: 'Erro', description: 'Litros, Preço/Litro e KM do odômetro devem ser maiores que zero.' });
          return;
       }
@@ -282,7 +289,8 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
         totalCost: litersNum * priceNum,
         location,
         comments,
-        odometerKm: odometerNum, // Save odometerKm
+        odometerKm: odometerNum,
+        fuelType, // Save fuelType
         vehicleId: tripVehicleId,
         receiptUrl: typeof attachment === 'string' ? attachment : (attachment === null ? undefined : originalLocalFueling.receiptUrl),
         receiptFilename: attachmentFilename || (attachment === null ? undefined : originalLocalFueling.receiptFilename),
@@ -361,7 +369,8 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
     setPricePerLiter(fueling.pricePerLiter);
     setLocation(fueling.location);
     setComments(fueling.comments || '');
-    setOdometerKm(fueling.odometerKm); // Set odometerKm
+    setOdometerKm(fueling.odometerKm);
+    setFuelType(fueling.fuelType || ''); // Set fuelType
 
     if (fueling.receiptUrl) {
         setAttachment(fueling.receiptUrl);
@@ -380,7 +389,8 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
     setPricePerLiter('');
     setLocation('');
     setComments('');
-    setOdometerKm(''); // Reset odometerKm
+    setOdometerKm('');
+    setFuelType(''); // Reset fuelType
     clearAttachment();
   };
 
@@ -471,6 +481,19 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
                         <Label htmlFor="pricePerLiter">Preço/Litro (R$)*</Label>
                         <Input id="pricePerLiter" type="number" value={pricePerLiter} onChange={(e) => setPricePerLiter(Number(e.target.value) >= 0 ? Number(e.target.value) : '')} required placeholder="Preço/L" min="0" step="0.01" disabled={isSaving}/>
                     </div>
+                </div>
+                <div className="space-y-2">
+                    <Label htmlFor="fuelType">Tipo de Combustível*</Label>
+                    <Select onValueChange={setFuelType} value={fuelType} required disabled={isSaving}>
+                        <SelectTrigger id="fuelType">
+                            <SelectValue placeholder="Selecione o tipo" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {fuelTypes.map((type) => (
+                                <SelectItem key={type} value={type}>{type}</SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
                 </div>
                 <div className="space-y-2">
                     <Label htmlFor="odometerKm">KM no Odômetro*</Label>
@@ -605,6 +628,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
                            <div className="py-4 space-y-3">
                                <p><strong>Data:</strong> {formatDate(fueling.date)}</p>
                                <p><strong>Local:</strong> {fueling.location}</p>
+                               <p><strong>Tipo de Combustível:</strong> {fueling.fuelType}</p>
                                <p><strong>KM no Odômetro:</strong> {formatKm(fueling.odometerKm)}</p>
                                <p><strong>Litros:</strong> {fueling.liters.toFixed(2)} L</p>
                                <p><strong>Preço/Litro:</strong> {formatCurrency(fueling.pricePerLiter)}</p>
@@ -652,6 +676,19 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
                                     <Input id="editPricePerLiter" type="number" value={pricePerLiter} onChange={(e) => setPricePerLiter(Number(e.target.value) >= 0 ? Number(e.target.value) : '')} required placeholder="Preço/L" min="0" step="0.01" disabled={isSaving}/>
                                 </div>
                             </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="editFuelType">Tipo de Combustível*</Label>
+                                <Select onValueChange={setFuelType} value={fuelType} required disabled={isSaving}>
+                                    <SelectTrigger id="editFuelType">
+                                        <SelectValue placeholder="Selecione o tipo" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {fuelTypes.map((type) => (
+                                            <SelectItem key={type} value={type}>{type}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
                              <div className="space-y-2">
                                 <Label htmlFor="editOdometerKm">KM no Odômetro*</Label>
                                 <Input id="editOdometerKm" type="number" value={odometerKm} onChange={(e) => setOdometerKm(Number(e.target.value) >=0 ? Number(e.target.value) : '')} required placeholder="KM do veículo" min="0" disabled={isSaving}/>
@@ -698,7 +735,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
               <CardContent className="space-y-2 text-sm">
                 <div className="flex items-center gap-2">
                   <Droplet className="h-4 w-4 flex-shrink-0 text-blue-500" />
-                  <span>{fueling.liters.toFixed(2)} Litros @ {formatCurrency(fueling.pricePerLiter)}/L</span>
+                  <span>{fueling.liters.toFixed(2)} Litros @ {formatCurrency(fueling.pricePerLiter)}/L ({fueling.fuelType})</span>
                 </div>
                  <div className="flex items-center gap-2 font-semibold">
                    <span>Total:</span> {formatCurrency(fueling.totalCost)}
@@ -730,3 +767,4 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
   );
 };
 export default Fuelings;
+

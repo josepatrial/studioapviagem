@@ -3,13 +3,13 @@ import type { VehicleInfo } from '@/components/Vehicle';
 import type { Trip } from '@/components/Trips/Trips';
 import type { Visit } from '@/components/Trips/Visits';
 import type { Expense } from '@/components/Trips/Expenses';
-import type { Fueling } from '@/components/Trips/Fuelings';
+import type { Fueling as BaseFueling } from '@/components/Trips/Fuelings'; // Renamed to avoid conflict
 import type { User, UserRole } from '@/contexts/AuthContext'; // Import base User type and UserRole
 import { v4 as uuidv4 } from 'uuid'; // Import uuid
 import bcrypt from 'bcryptjs'; // Import bcrypt for password hashing
 
 const DB_NAME = 'RotaCertaDB';
-const DB_VERSION = 3; // Increment version for new index on fuelings
+const DB_VERSION = 4; // Increment version for new index on fuelings (fuelType)
 
 // Define object stores - Export constants
 export const STORE_VEHICLES = 'vehicles';
@@ -33,13 +33,13 @@ export type LocalVehicle = Omit<VehicleInfo & { id: string }, 'id'> & LocalRecor
 export type LocalTrip = Omit<Trip, 'id'> & LocalRecord & { localId: string; id?: string };
 export type LocalVisit = Omit<Visit, 'id'> & LocalRecord & { localId: string; tripLocalId: string; id?: string };
 export type LocalExpense = Omit<Expense, 'id'> & LocalRecord & { localId: string; tripLocalId: string; id?: string };
-// Update LocalFueling to include odometerKm
-export type LocalFueling = Omit<Fueling, 'id'> & LocalRecord & { localId: string; tripLocalId: string; odometerKm: number; id?: string };
+// Update LocalFueling to include odometerKm and fuelType
+export type LocalFueling = Omit<BaseFueling, 'id'> & LocalRecord & { localId: string; tripLocalId: string; odometerKm: number; fuelType: string; id?: string };
 export type LocalUser = User & { lastLogin?: string; passwordHash?: string; };
 
 const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin'> & {password: string})[] = [
   {
-    id: 'admin@grupo2irmaos.com.br',
+    id: 'admin@grupo2irmaos.com.br', // This ID will be used as the keyPath
     email: 'admin@grupo2irmaos.com.br',
     name: 'Admin Grupo 2 Irmãos',
     role: 'admin',
@@ -187,8 +187,9 @@ export const openDB = (): Promise<IDBDatabase> => {
        if (!fuelingStore.indexNames.contains('syncStatus')) fuelingStore.createIndex('syncStatus', 'syncStatus', { unique: false });
        if (!fuelingStore.indexNames.contains('deleted')) fuelingStore.createIndex('deleted', 'deleted', { unique: false });
        if (!fuelingStore.indexNames.contains('date')) fuelingStore.createIndex('date', 'date', { unique: false });
-       if (!fuelingStore.indexNames.contains('vehicleId')) fuelingStore.createIndex('vehicleId', 'vehicleId', { unique: false }); // Add index for vehicleId
-       if (!fuelingStore.indexNames.contains('odometerKm')) fuelingStore.createIndex('odometerKm', 'odometerKm', { unique: false }); // Add index for odometerKm
+       if (!fuelingStore.indexNames.contains('vehicleId')) fuelingStore.createIndex('vehicleId', 'vehicleId', { unique: false });
+       if (!fuelingStore.indexNames.contains('odometerKm')) fuelingStore.createIndex('odometerKm', 'odometerKm', { unique: false });
+       if (!fuelingStore.indexNames.contains('fuelType')) fuelingStore.createIndex('fuelType', 'fuelType', { unique: false }); // Add index for fuelType
 
 
       let userStore: IDBObjectStore;
@@ -726,7 +727,7 @@ export const getLocalVisits = (tripLocalId?: string): Promise<LocalVisit[]> => {
                  console.log(`[getLocalVisits ${getVisitsStartTime}] Fetching all visits (index 'tripLocalId' not used or tripLocalId not provided).`);
                  const getAllRequest = store.getAll();
                  getAllRequest.onsuccess = () => {
-                     let allRecords = getAllRequest.result as LocalVisit[];
+                    let allRecords = getAllRequest.result as LocalVisit[];
                      if (tripLocalId) {
                          allRecords = allRecords.filter(item => !item.deleted && item.tripLocalId === tripLocalId);
                      } else {

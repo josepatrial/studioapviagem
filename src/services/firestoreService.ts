@@ -23,8 +23,13 @@ import type { VehicleInfo } from '@/components/Vehicle';
 import type { Trip } from '@/components/Trips/Trips';
 import type { Visit } from '@/components/Trips/Visits';
 import type { Expense } from '@/components/Trips/Expenses';
-import type { Fueling } from '@/components/Trips/Fuelings';
+import type { Fueling as BaseFueling } from '@/components/Trips/Fuelings'; // Renamed to avoid conflict
 import { deleteReceipt } from './storageService'; // Import deleteReceipt
+
+// Define Fueling type specifically for Firestore, including fuelType
+export interface Fueling extends BaseFueling {
+    fuelType: string;
+}
 
 // --- Helper to convert Timestamps to ISO strings ---
 const convertTimestampsToISO = (data: any) => {
@@ -703,3 +708,4 @@ export const deleteTripAndRelatedData = async (tripId: string) => {
          throw error;
     }
 };
+
