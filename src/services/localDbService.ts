@@ -41,18 +41,31 @@ export type LocalFueling = Omit<BaseFueling, 'id'> & LocalRecord & { localId: st
 export type LocalUser = User & { lastLogin?: string; passwordHash?: string; };
 
 const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin'> & {password: string})[] = [
+  // Admin users
   {
-    id: 'admin@grupo2irmaos.com.br', // This ID will be used as the keyPath
+    id: 'admin@grupo2irmaos.com.br',
     email: 'admin@grupo2irmaos.com.br',
     name: 'Admin Grupo 2 Irmãos',
+    username: 'admin',
     role: 'admin',
     base: 'ALL',
     password: 'admin123',
   },
   {
+    id: 'grupo2irmaos@grupo2irmaos.com.br', // From image, interpreted as admin
+    email: 'grupo2irmaos@grupo2irmaos.com.br',
+    name: 'Joao (Admin Imagem)', // Clarify name origin
+    username: 'grupo2irmaos',
+    role: 'admin',
+    base: 'ALL',
+    password: '1', // Password from image
+  },
+  // Original Drivers from previous seed
+  {
     id: 'jose.patrial@grupo2irmaos.com.br',
     email: 'jose.patrial@grupo2irmaos.com.br',
     name: 'Jose Patrial',
+    username: 'jose.patrial',
     role: 'driver',
     base: 'PR',
     password: '123456',
@@ -61,18 +74,102 @@ const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin'> & {password:
     id: 'fernando.rocha@grupo2irmaos.com.br',
     email: 'fernando.rocha@grupo2irmaos.com.br',
     name: 'Fernando Rocha',
+    username: 'fernando.rocha',
     role: 'driver',
     base: 'SP',
     password: '123456',
    },
+   // New Drivers from the image
    {
-     id: 'grupo2irmaos@grupo2irmaos.com.br',
-     email: 'grupo2irmaos@grupo2irmaos.com.br',
-     name: 'Grupo 2 Irmãos Admin',
-     role: 'admin',
-     base: 'ALL',
-     password: 'admin123',
-   },
+    id: 'patrial2020@icloud.com',
+    email: 'patrial2020@icloud.com',
+    name: 'Jose (Imagem)',
+    username: 'patrial2020',
+    role: 'driver',
+    base: 'SP', // Default base for new image users
+    password: '1',
+  },
+  {
+    id: 'fernandobatista@gmail.com',
+    email: 'fernandobatista@gmail.com',
+    name: 'Fernando (Imagem)',
+    username: 'fernandobatista',
+    role: 'driver',
+    base: 'SP',
+    password: '1234',
+  },
+  {
+    id: 'compras@grupo2irmaos.com.br',
+    email: 'compras@grupo2irmaos.com.br',
+    name: 'Eliseu',
+    username: 'compras',
+    role: 'driver',
+    base: 'SP',
+    password: '1',
+  },
+  {
+    id: 'otadio.medina@grupo2irmaos.com.br',
+    email: 'otadio.medina@grupo2irmaos.com.br',
+    name: 'Otavio',
+    username: 'otadio.medina',
+    role: 'driver',
+    base: 'SP',
+    password: '1',
+  },
+  {
+    id: 'adao.timoteo@grupo2irmaos.com.br',
+    email: 'adao.timoteo@grupo2irmaos.com.br',
+    name: 'Adao',
+    username: 'adao.timoteo',
+    role: 'driver',
+    base: 'SP',
+    password: '1',
+  },
+  {
+    id: 'luan.menon@grupo2irmaos.com.br',
+    email: 'luan.menon@grupo2irmaos.com.br',
+    name: 'Luan',
+    username: 'luan.menon',
+    role: 'driver',
+    base: 'SP',
+    password: '1',
+  },
+  {
+    id: 'alessandro.neves@grupo2irmaos.com.br',
+    email: 'alessandro.neves@grupo2irmaos.com.br',
+    name: 'Alessandro',
+    username: 'alessandro.neves',
+    role: 'driver',
+    base: 'SP',
+    password: '1',
+  },
+  {
+    id: 'aguinaldo@grupo2irmaos.com.br',
+    email: 'aguinaldo@grupo2irmaos.com.br',
+    name: 'aguinaldo',
+    username: 'aguinaldo',
+    role: 'driver',
+    base: 'SP',
+    password: '1',
+  },
+  {
+    id: 'bruno@grupo2irmaos.com.br',
+    email: 'bruno@grupo2irmaos.com.br',
+    name: 'Bruno',
+    username: 'bruno',
+    role: 'driver',
+    base: 'SP',
+    password: '1',
+  },
+  {
+    id: 'nelson.lopes@grupo2irmaos.com.br',
+    email: 'nelson.lopes@grupo2irmaos.com.br',
+    name: 'nelson',
+    username: 'nelson.lopes',
+    role: 'driver',
+    base: 'SP',
+    password: '1',
+  },
 ];
 
 
@@ -693,30 +790,6 @@ export const getLocalTrips = (userId?: string, dateRange?: DateRange): Promise<L
     });
 };
 
-export const addLocalVisit = (visit: Omit<LocalVisit, 'localId' | 'syncStatus' | 'id'>): Promise<string> => {
-    const localId = `local_visit_${uuidv4()}`;
-    const newLocalVisit: LocalVisit = {
-        ...visit,
-        localId,
-        id: localId,
-        syncStatus: 'pending',
-    };
-     console.log(`[addLocalVisit] Preparing to add visit with localId: ${localId}`);
-    return addLocalRecord<LocalVisit>(STORE_VISITS, newLocalVisit);
-};
-
-export const updateLocalVisit = (visit: LocalVisit): Promise<void> => {
-     console.log(`[updateLocalVisit] Preparing to update visit with localId: ${visit.localId}`);
-    const updatedSyncStatus = visit.syncStatus === 'synced' ? 'pending' : visit.syncStatus;
-    const updatedVisit = { ...visit, syncStatus: updatedSyncStatus };
-    return updateLocalRecord<LocalVisit>(STORE_VISITS, updatedVisit);
-};
-
-export const deleteLocalVisit = (localId: string): Promise<void> => {
-     console.log(`[deleteLocalVisit] Preparing to mark visit for deletion with localId: ${localId}`);
-    return markRecordForDeletion(STORE_VISITS, localId);
-};
-
 export const getLocalVisits = (tripLocalId?: string): Promise<LocalVisit[]> => {
      const getVisitsStartTime = performance.now();
      console.log(`[getLocalVisits ${getVisitsStartTime}] Fetching visits for tripLocalId: ${tripLocalId || 'all'}`);
@@ -762,29 +835,30 @@ export const getLocalVisits = (tripLocalId?: string): Promise<LocalVisit[]> => {
      });
 };
 
-export const addLocalExpense = (expense: Omit<LocalExpense, 'localId' | 'syncStatus' | 'id'>): Promise<string> => {
-     const localId = `local_expense_${uuidv4()}`;
-     const newLocalExpense: LocalExpense = {
-         ...expense,
-         localId,
-         id: localId,
-         syncStatus: 'pending',
-     };
-      console.log(`[addLocalExpense] Preparing to add expense with localId: ${localId}`);
-     return addLocalRecord<LocalExpense>(STORE_EXPENSES, newLocalExpense);
+export const addLocalVisit = (visit: Omit<LocalVisit, 'localId' | 'syncStatus' | 'id'>): Promise<string> => {
+    const localId = `local_visit_${uuidv4()}`;
+    const newLocalVisit: LocalVisit = {
+        ...visit,
+        localId,
+        id: localId,
+        syncStatus: 'pending',
+    };
+     console.log(`[addLocalVisit] Preparing to add visit with localId: ${localId}`);
+    return addLocalRecord<LocalVisit>(STORE_VISITS, newLocalVisit);
 };
 
-export const updateLocalExpense = (expense: LocalExpense): Promise<void> => {
-      console.log(`[updateLocalExpense] Preparing to update expense with localId: ${expense.localId}`);
-     const updatedSyncStatus = expense.syncStatus === 'synced' ? 'pending' : expense.syncStatus;
-     const updatedExpense = { ...expense, syncStatus: updatedSyncStatus };
-     return updateLocalRecord<LocalExpense>(STORE_EXPENSES, updatedExpense);
+export const updateLocalVisit = (visit: LocalVisit): Promise<void> => {
+     console.log(`[updateLocalVisit] Preparing to update visit with localId: ${visit.localId}`);
+    const updatedSyncStatus = visit.syncStatus === 'synced' ? 'pending' : visit.syncStatus;
+    const updatedVisit = { ...visit, syncStatus: updatedSyncStatus };
+    return updateLocalRecord<LocalVisit>(STORE_VISITS, updatedVisit);
 };
 
-export const deleteLocalExpense = (localId: string): Promise<void> => {
-      console.log(`[deleteLocalExpense] Preparing to mark expense for deletion with localId: ${localId}`);
-     return markRecordForDeletion(STORE_EXPENSES, localId);
+export const deleteLocalVisit = (localId: string): Promise<void> => {
+     console.log(`[deleteLocalVisit] Preparing to mark visit for deletion with localId: ${localId}`);
+    return markRecordForDeletion(STORE_VISITS, localId);
 };
+
 
 export const getLocalExpenses = (tripLocalId?: string): Promise<LocalExpense[]> => {
      const getExpensesStartTime = performance.now();
@@ -831,29 +905,30 @@ export const getLocalExpenses = (tripLocalId?: string): Promise<LocalExpense[]> 
      });
 };
 
-export const addLocalFueling = (fueling: Omit<LocalFueling, 'localId' | 'syncStatus' | 'id'>): Promise<string> => {
-      const localId = `local_fueling_${uuidv4()}`;
-      const newLocalFueling: LocalFueling = {
-          ...fueling,
-          localId,
-          id: localId,
-          syncStatus: 'pending',
-      };
-       console.log(`[addLocalFueling] Preparing to add fueling with localId: ${localId}`);
-      return addLocalRecord<LocalFueling>(STORE_FUELINGS, newLocalFueling);
+export const addLocalExpense = (expense: Omit<LocalExpense, 'localId' | 'syncStatus' | 'id'>): Promise<string> => {
+     const localId = `local_expense_${uuidv4()}`;
+     const newLocalExpense: LocalExpense = {
+         ...expense,
+         localId,
+         id: localId,
+         syncStatus: 'pending',
+     };
+      console.log(`[addLocalExpense] Preparing to add expense with localId: ${localId}`);
+     return addLocalRecord<LocalExpense>(STORE_EXPENSES, newLocalExpense);
 };
 
-export const updateLocalFueling = (fueling: LocalFueling): Promise<void> => {
-       console.log(`[updateLocalFueling] Preparing to update fueling with localId: ${fueling.localId}`);
-      const updatedSyncStatus = fueling.syncStatus === 'synced' ? 'pending' : fueling.syncStatus;
-      const updatedFueling = { ...fueling, syncStatus: updatedSyncStatus };
-      return updateLocalRecord<LocalFueling>(STORE_FUELINGS, updatedFueling);
+export const updateLocalExpense = (expense: LocalExpense): Promise<void> => {
+      console.log(`[updateLocalExpense] Preparing to update expense with localId: ${expense.localId}`);
+     const updatedSyncStatus = expense.syncStatus === 'synced' ? 'pending' : expense.syncStatus;
+     const updatedExpense = { ...expense, syncStatus: updatedSyncStatus };
+     return updateLocalRecord<LocalExpense>(STORE_EXPENSES, updatedExpense);
 };
 
-export const deleteLocalFueling = (localId: string): Promise<void> => {
-       console.log(`[deleteLocalFueling] Preparing to mark fueling for deletion with localId: ${localId}`);
-      return markRecordForDeletion(STORE_FUELINGS, localId);
+export const deleteLocalExpense = (localId: string): Promise<void> => {
+      console.log(`[deleteLocalExpense] Preparing to mark expense for deletion with localId: ${localId}`);
+     return markRecordForDeletion(STORE_EXPENSES, localId);
 };
+
 
 export const getLocalFuelings = (tripLocalIdOrVehicleId?: string, filterBy: 'tripLocalId' | 'vehicleId' = 'tripLocalId'): Promise<LocalFueling[]> => {
        const getFuelingsStartTime = performance.now();
@@ -906,6 +981,30 @@ export const getLocalFuelings = (tripLocalIdOrVehicleId?: string, filterBy: 'tri
               }
           });
       });
+};
+
+export const addLocalFueling = (fueling: Omit<LocalFueling, 'localId' | 'syncStatus' | 'id'>): Promise<string> => {
+      const localId = `local_fueling_${uuidv4()}`;
+      const newLocalFueling: LocalFueling = {
+          ...fueling,
+          localId,
+          id: localId,
+          syncStatus: 'pending',
+      };
+       console.log(`[addLocalFueling] Preparing to add fueling with localId: ${localId}`);
+      return addLocalRecord<LocalFueling>(STORE_FUELINGS, newLocalFueling);
+};
+
+export const updateLocalFueling = (fueling: LocalFueling): Promise<void> => {
+       console.log(`[updateLocalFueling] Preparing to update fueling with localId: ${fueling.localId}`);
+      const updatedSyncStatus = fueling.syncStatus === 'synced' ? 'pending' : fueling.syncStatus;
+      const updatedFueling = { ...fueling, syncStatus: updatedSyncStatus };
+      return updateLocalRecord<LocalFueling>(STORE_FUELINGS, updatedFueling);
+};
+
+export const deleteLocalFueling = (localId: string): Promise<void> => {
+       console.log(`[deleteLocalFueling] Preparing to mark fueling for deletion with localId: ${localId}`);
+      return markRecordForDeletion(STORE_FUELINGS, localId);
 };
 
 
@@ -1077,7 +1176,16 @@ export const seedInitialUsers = async () => {
             const hashPromises = seedUsersData.map(async (user) => {
                 const hash = await bcrypt.hash(user.password, 10);
                 const { password, ...userData } = user;
-                return { ...userData, passwordHash: hash, lastLogin: new Date().toISOString() } as LocalUser;
+                // Ensure role and base are correctly assigned from seedUsersData
+                const finalUserData: LocalUser = {
+                    ...userData,
+                    id: user.id || user.email, // Use email as ID if id is not present
+                    passwordHash: hash,
+                    lastLogin: new Date().toISOString(),
+                    role: user.role || 'driver', // Default to 'driver' if not specified
+                    base: user.role === 'admin' ? 'ALL' : (user.base || 'N/A') // Default base for non-admins
+                };
+                return finalUserData;
             });
             const usersToSeed = await Promise.all(hashPromises);
 
@@ -1108,4 +1216,6 @@ export const seedInitialUsers = async () => {
 };
 
 
+// Initial call to open the DB and seed users when the service loads
 openDB().then(() => seedInitialUsers()).catch(error => console.error("Failed to initialize/seed IndexedDB on load:", error));
+
