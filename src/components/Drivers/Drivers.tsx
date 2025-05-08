@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Edit, Trash2, User, Mail, Hash, Lock, Building, Loader2 } from 'lucide-react'; // Added Building icon for Base, Loader2
+import { PlusCircle, Edit, Trash2, User, Mail, Hash, Lock, Building, Loader2, UploadCloud } from 'lucide-react'; // Added UploadCloud
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -420,57 +420,111 @@ export const Drivers: React.FC = () => {
         setCurrentDriver(null);
     }
 
+    const handleExportToExcel = () => {
+        if (!drivers || drivers.length === 0) {
+            toast({ variant: 'default', title: 'Nenhum dado', description: 'Não há motoristas para exportar.' });
+            return;
+        }
+
+        const dataToExport = drivers.map(driver => ({
+            Nome: driver.name || '',
+            'Nome de Usuário': driver.username || '',
+            'E-mail': driver.email || '',
+            Base: driver.base || '',
+        }));
+
+        const separator = ',';
+        const keys = Object.keys(dataToExport[0]);
+        const csvHeader = keys.join(separator);
+        const csvRows = dataToExport.map(row => {
+            return keys.map(k => {
+                let cell = (row as any)[k] === null || (row as any)[k] === undefined ? '' : (row as any)[k];
+                cell = cell instanceof Date
+                    ? cell.toLocaleString('pt-BR')
+                    : cell.toString().replace(/"/g, '""');
+                if (cell.search(/("|,|\n)/g) >= 0) {
+                    cell = `"${cell}"`;
+                }
+                return cell;
+            }).join(separator);
+        });
+
+        const csvContent = csvHeader + '\n' + csvRows.join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+
+        if (link.download !== undefined) {
+            const url = URL.createObjectURL(blob);
+            link.setAttribute('href', url);
+            link.setAttribute('download', 'motoristas.csv');
+            link.style.visibility = 'hidden';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+            toast({ title: 'Exportado!', description: 'Os dados dos motoristas foram exportados para motoristas.csv.' });
+        } else {
+            toast({ variant: 'destructive', title: 'Erro', description: 'Seu navegador não suporta a exportação direta de arquivos.' });
+        }
+    };
+
+
     return (
         <div className="space-y-6">
             <div className="flex justify-between items-center">
                 <h2 className="text-2xl font-semibold">Gerenciar Motoristas</h2>
-                <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => !isOpen && closeCreateModal()}>
-                    <DialogTrigger asChild>
-                        <Button onClick={() => { resetForm(); setIsCreateModalOpen(true); }} className="bg-primary hover:bg-primary/90 text-primary-foreground">
-                            <PlusCircle className="mr-2 h-4 w-4" /> Cadastrar Motorista
-                        </Button>
-                    </DialogTrigger>
-                    <DialogContent className="sm:max-w-lg">
-                        <DialogHeader>
-                            <DialogTitle>Cadastrar Novo Motorista</DialogTitle>
-                        </DialogHeader>
-                        <form onSubmit={handleAddDriver} className="grid gap-4 py-4">
-                            <div className="space-y-2">
-                                <Label htmlFor="name">Nome Completo*</Label>
-                                <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required placeholder="Nome do motorista" disabled={isSaving} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="username">Nome de Usuário*</Label>
-                                <Input id="username" value={username} onChange={(e) => setUsername(e.target.value)} required placeholder="Ex: joao.silva" disabled={isSaving} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="email">E-mail*</Label>
-                                <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="motorista@email.com" disabled={isSaving} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="base">Base*</Label>
-                                <Input id="base" value={base} onChange={(e) => setBase(e.target.value)} required placeholder="Base de operação (Ex: SP, RJ)" disabled={isSaving}/>
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="password">Senha*</Label>
-                                <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="Mínimo 6 caracteres" disabled={isSaving} />
-                            </div>
-                            <div className="space-y-2">
-                                <Label htmlFor="confirmPassword">Confirmar Senha*</Label>
-                                <Input id="confirmPassword" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required placeholder="Repita a senha" disabled={isSaving} />
-                            </div>
-                            <DialogFooter>
-                                <DialogClose asChild>
-                                    <Button type="button" variant="outline" onClick={closeCreateModal} disabled={isSaving}>Cancelar</Button>
-                                </DialogClose>
-                                <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isSaving}>
-                                     {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                     {isSaving ? 'Salvando...' : 'Salvar Motorista'}
-                                </Button>
-                            </DialogFooter>
-                        </form>
-                    </DialogContent>
-                </Dialog>
+                <div className="flex gap-2">
+                    <Button onClick={handleExportToExcel} variant="outline" className="text-primary-foreground bg-primary/90 hover:bg-primary/80">
+                        <UploadCloud className="mr-2 h-4 w-4" /> Exportar para Excel
+                    </Button>
+                    <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => !isOpen && closeCreateModal()}>
+                        <DialogTrigger asChild>
+                            <Button onClick={() => { resetForm(); setIsCreateModalOpen(true); }} className="bg-primary hover:bg-primary/90 text-primary-foreground">
+                                <PlusCircle className="mr-2 h-4 w-4" /> Cadastrar Motorista
+                            </Button>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-lg">
+                            <DialogHeader>
+                                <DialogTitle>Cadastrar Novo Motorista</DialogTitle>
+                            </DialogHeader>
+                            <form onSubmit={handleAddDriver} className="grid gap-4 py-4">
+                                <div className="space-y-2">
+                                    <Label htmlFor="name">Nome Completo*</Label>
+                                    <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required placeholder="Nome do motorista" disabled={isSaving} />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="username">Nome de Usuário*</Label>
+                                    <Input id="username" value={username} onChange={(e) => setUsername(e.target.value)} required placeholder="Ex: joao.silva" disabled={isSaving} />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="email">E-mail*</Label>
+                                    <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="motorista@email.com" disabled={isSaving} />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="base">Base*</Label>
+                                    <Input id="base" value={base} onChange={(e) => setBase(e.target.value)} required placeholder="Base de operação (Ex: SP, RJ)" disabled={isSaving}/>
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="password">Senha*</Label>
+                                    <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="Mínimo 6 caracteres" disabled={isSaving} />
+                                </div>
+                                <div className="space-y-2">
+                                    <Label htmlFor="confirmPassword">Confirmar Senha*</Label>
+                                    <Input id="confirmPassword" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required placeholder="Repita a senha" disabled={isSaving} />
+                                </div>
+                                <DialogFooter>
+                                    <DialogClose asChild>
+                                        <Button type="button" variant="outline" onClick={closeCreateModal} disabled={isSaving}>Cancelar</Button>
+                                    </DialogClose>
+                                    <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isSaving}>
+                                        {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                        {isSaving ? 'Salvando...' : 'Salvar Motorista'}
+                                    </Button>
+                                </DialogFooter>
+                            </form>
+                        </DialogContent>
+                    </Dialog>
+                </div>
             </div>
 
             {loadingDrivers ? (
