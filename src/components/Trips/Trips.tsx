@@ -47,7 +47,7 @@ import {
   getLocalRecordsByRole, // For fetching drivers locally
 } from '@/services/localDbService';
 import { LoadingSpinner } from '../LoadingSpinner';
-import { DateRangePicker } from '@/components/ui/date-range-picker';
+import { DateRangePicker } from '@/components/ui/date-range-picker'; // Import DateRangePicker
 import type { DateRange } from 'react-day-picker';
 import { parseISO, startOfDay, endOfDay } from 'date-fns';
 import { formatKm } from '@/lib/utils';
@@ -158,21 +158,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
              console.log(`[Trips] Loaded ${localVehicles.length} vehicles locally.`);
 
             const driverIdToFilter = isAdmin && filterDriver ? filterDriver : (!isAdmin && user ? user.id : undefined);
-            let localTripsData = await getLocalTrips(driverIdToFilter);
-
-            if (filterDateRange?.from) {
-                localTripsData = localTripsData.filter(t => {
-                    try {
-                        const createdAt = parseISO(t.createdAt);
-                        const fromDate = startOfDay(filterDateRange.from!);
-                        const toDate = filterDateRange.to ? endOfDay(filterDateRange.to) : null;
-                        if (toDate) {
-                            return createdAt >= fromDate && createdAt <= toDate;
-                        }
-                        return createdAt >= fromDate;
-                    } catch (e) { return false; }
-                });
-            }
+            let localTripsData = await getLocalTrips(driverIdToFilter, filterDateRange); // Pass date range to getLocalTrips
 
             console.log(`[Trips] Loaded ${localTripsData.length} trips locally for user/filter ${driverIdToFilter}`);
 
@@ -662,14 +648,14 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
         </div>
       </div>
 
-        {isAdmin && (
-             <Card className="mb-6 shadow-md">
-               <CardHeader>
-                 <CardTitle className="text-lg flex items-center gap-2">
-                    <Filter className="h-5 w-5" /> Filtros de Viagens
-                 </CardTitle>
-               </CardHeader>
-               <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+         <Card className="mb-6 shadow-md">
+           <CardHeader>
+             <CardTitle className="text-lg flex items-center gap-2">
+                <Filter className="h-5 w-5" /> Filtros de Viagens
+             </CardTitle>
+           </CardHeader>
+           <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+               {isAdmin && (
                    <div className="space-y-1.5">
                        <Label htmlFor="driverFilter">Filtrar por Motorista</Label>
                        <Select value={filterDriver} onValueChange={(value) => setFilterDriver(value === 'all' ? '' : value)} disabled={loadingDrivers || drivers.length === 0}>
@@ -694,13 +680,13 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
                            </SelectContent>
                        </Select>
                    </div>
-                   <div className="space-y-1.5">
-                       <Label>Filtrar por Data de Criação</Label>
-                       <DateRangePicker date={filterDateRange} onDateChange={setFilterDateRange} />
-                   </div>
-               </CardContent>
-           </Card>
-        )}
+                )}
+               <div className="space-y-1.5">
+                   <Label>Filtrar por Data de Criação</Label>
+                   <DateRangePicker date={filterDateRange} onDateChange={setFilterDateRange} />
+               </div>
+           </CardContent>
+       </Card>
 
 
       {loading ? (

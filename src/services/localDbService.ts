@@ -7,6 +7,9 @@ import type { Fueling as BaseFueling } from '@/components/Trips/Fuelings'; // Re
 import type { User, UserRole } from '@/contexts/AuthContext'; // Import base User type and UserRole
 import { v4 as uuidv4 } from 'uuid'; // Import uuid
 import bcrypt from 'bcryptjs'; // Import bcrypt for password hashing
+import type { DateRange } from 'react-day-picker';
+import { parseISO, startOfDay, endOfDay, isWithinInterval } from 'date-fns';
+
 
 const DB_NAME = 'RotaCertaDB';
 const DB_VERSION = 4; // Increment version for new index on fuelings (fuelType)
@@ -634,47 +637,58 @@ const markChildrenForDeletion = async (storeName: string, tripLocalId: string): 
 };
 
 
-export const getLocalTrips = (userId?: string): Promise<LocalTrip[]> => {
+export const getLocalTrips = (userId?: string, dateRange?: DateRange): Promise<LocalTrip[]> => {
     const getTripsStartTime = performance.now();
-    console.log(`[getLocalTrips ${getTripsStartTime}] Fetching trips for userId: ${userId || 'all'}`);
+    console.log(`[getLocalTrips ${getTripsStartTime}] Fetching trips for userId: ${userId || 'all'}, dateRange:`, dateRange);
     return getLocalDbStore(STORE_TRIPS, 'readonly').then(store => {
         return new Promise<LocalTrip[]>((resolve, reject) => {
-             if (userId && store.indexNames.contains('userId')) {
-                 const index = store.index('userId');
-                 const request = index.getAll(userId);
-                 request.onsuccess = () => {
-                     const results = (request.result as LocalTrip[]).filter((item: any) => !item.deleted);
-                     results.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-                     const getTripsEndTime = performance.now();
-                     console.log(`[getLocalTrips ${getTripsStartTime}] Found ${results.length} trips using 'userId' index. Time: ${getTripsEndTime - getTripsStartTime} ms`);
-                     resolve(results);
-                 };
-                 request.onerror = () => {
-                      const getTripsEndTime = performance.now();
-                      console.error(`[getLocalTrips ${getTripsStartTime}] Error getting trips for user ${userId} using index. Time: ${getTripsEndTime - getTripsStartTime} ms`, request.error);
-                      reject(`Error getting trips for user ${userId}: ${request.error?.message}`);
-                 }
-             } else {
-                 const getAllRequest = store.getAll();
-                 getAllRequest.onsuccess = () => {
-                     let results = getAllRequest.result as LocalTrip[];
-                     if (userId) {
-                         results = results.filter(item => !item.deleted && item.userId === userId);
-                     } else {
-                         results = results.filter(item => !item.deleted);
-                     }
-                     results.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-                      const getTripsEndTime = performance.now();
-                      const method = userId ? 'Fallback filter' : 'getAll';
-                      console.log(`[getLocalTrips ${getTripsStartTime}] ${method} complete. Found ${results.length} trips. Time: ${getTripsEndTime - getTripsStartTime} ms`);
-                     resolve(results);
-                 };
-                 getAllRequest.onerror = () => {
-                      const getTripsEndTime = performance.now();
-                      console.error(`[getLocalTrips ${getTripsStartTime}] Fallback getAll failed for ${STORE_TRIPS}. Time: ${getTripsEndTime - getTripsStartTime} ms`, getAllRequest.error);
-                      reject(`Fallback getAll failed for ${STORE_TRIPS}: ${getAllRequest.error?.message}`);
-                 }
-             }
+            const processResults = (allRecords: LocalTrip[]) => {
+                let filteredRecords = allRecords.filter(item => !item.deleted);
+
+                if (userId) {
+                    filteredRecords = filteredRecords.filter(item => item.userId === userId);
+                }
+
+                if (dateRange?.from) {
+                    const startDate = startOfDay(dateRange.from);
+                    const endDate = dateRange.to ? endOfDay(dateRange.to) : new Date(8640000000000000); // Far future date if 'to' is not set
+                    const interval = { start: startDate, end: endDate };
+
+                    filteredRecords = filteredRecords.filter(trip => {
+                        try {
+                            const tripCreatedAt = parseISO(trip.createdAt);
+                            return isWithinInterval(tripCreatedAt, interval);
+                        } catch (e) {
+                            console.warn(`Could not parse createdAt for trip ${trip.localId}:`, trip.createdAt, e);
+                            return false;
+                        }
+                    });
+                }
+
+                filteredRecords.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+                const getTripsEndTime = performance.now();
+                console.log(`[getLocalTrips ${getTripsStartTime}] Processed ${filteredRecords.length} trips. Time: ${getTripsEndTime - getTripsStartTime} ms`);
+                resolve(filteredRecords);
+            };
+
+            if (userId && store.indexNames.contains('userId')) {
+                const index = store.index('userId');
+                const request = index.getAll(userId);
+                request.onsuccess = () => processResults(request.result as LocalTrip[]);
+                request.onerror = () => {
+                    const getTripsEndTime = performance.now();
+                    console.error(`[getLocalTrips ${getTripsStartTime}] Error getting trips for user ${userId} using index. Time: ${getTripsEndTime - getTripsStartTime} ms`, request.error);
+                    reject(`Error getting trips for user ${userId}: ${request.error?.message}`);
+                };
+            } else {
+                const getAllRequest = store.getAll();
+                getAllRequest.onsuccess = () => processResults(getAllRequest.result as LocalTrip[]);
+                getAllRequest.onerror = () => {
+                    const getTripsEndTime = performance.now();
+                    console.error(`[getLocalTrips ${getTripsStartTime}] Fallback getAll failed for ${STORE_TRIPS}. Time: ${getTripsEndTime - getTripsStartTime} ms`, getAllRequest.error);
+                    reject(`Fallback getAll failed for ${STORE_TRIPS}: ${getAllRequest.error?.message}`);
+                };
+            }
         });
     });
 };
