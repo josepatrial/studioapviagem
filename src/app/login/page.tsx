@@ -45,7 +45,7 @@ export default function LoginPage() {
       <Card className="w-full max-w-md shadow-lg">
         <CardHeader className="text-center">
           <CardTitle className="text-2xl font-bold text-primary">Grupo 2 Irmãos</CardTitle>
-          <CardDescription>Bem-vindo! Faça login ou cadastre-se para continuar.</CardDescription>
+          <CardDescription>Bem-vindo! Faça login para continuar.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleLogin} className="space-y-4">
@@ -78,14 +78,7 @@ export default function LoginPage() {
             </Button>
           </form>
         </CardContent>
-         <CardFooter className="flex flex-col items-center space-y-2 pt-4">
-           <p className="text-sm text-muted-foreground">Não tem uma conta?</p>
-           <Link href="/signup" passHref>
-              <Button variant="outline" className="w-full" disabled={isProcessing}>
-                 <UserPlus className="mr-2 h-4 w-4" /> Cadastrar
-              </Button>
-           </Link>
-        </CardFooter>
+        {/* CardFooter with signup option is removed */}
       </Card>
     </div>
   );
