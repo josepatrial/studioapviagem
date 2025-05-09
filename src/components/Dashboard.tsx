@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { MapPin, Wallet, Fuel, Truck, Milestone, Filter, Calendar, Info, Car } from 'lucide-react'; // Added Calendar, Info and Car icon
+import { MapPin, Wallet, Fuel, Truck, Milestone, Filter, Calendar, Info, Car, Briefcase } from 'lucide-react'; // Added Calendar, Info, Car, Briefcase icon
 import { useAuth, User } from '@/contexts/AuthContext'; // Import User type
 import type { Trip } from './Trips/Trips';
 import {getLocalVisits as fetchLocalVisits, getLocalExpenses, getLocalFuelings, getLocalTrips, getLocalVehicles, LocalVehicle, LocalExpense, LocalFueling, LocalTrip, LocalVisit, getLocalRecordsByRole} from '@/services/localDbService';
@@ -27,6 +27,18 @@ interface DashboardProps {
 }
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82ca9d', '#ffc658'];
+
+interface AdminVisitData {
+    id: string;
+    date: string;
+    driverName: string;
+    kmAtVisit: string;
+    reason: string;
+    visitType?: string;
+    clientName: string;
+    city: string;
+    vehicleName: string;
+}
 
 
 export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
@@ -201,6 +213,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
 
     let currentExpensesSource = expenses;
     let currentFuelingsSource = fuelings;
+    let currentVisitsSource = visits;
+
 
     if (dateRange?.from) {
         const startDate = startOfDay(dateRange.from);
@@ -210,6 +224,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         currentTripsSource = currentTripsSource.filter(t => { try { return isWithinInterval(parseISO(t.createdAt), interval); } catch { return false; } });
         currentExpensesSource = currentExpensesSource.filter(e => { try { return isWithinInterval(parseISO(e.expenseDate), interval); } catch { return false; } });
         currentFuelingsSource = currentFuelingsSource.filter(f => { try { return isWithinInterval(parseISO(f.date), interval); } catch { return false; } });
+        currentVisitsSource = currentVisitsSource.filter(v => { try { return isWithinInterval(parseISO(v.timestamp), interval); } catch { return false; }});
     }
     
     const relevantTripIdsForCharts = new Set(currentTripsSource.map(t => t.localId));
@@ -219,6 +234,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
 
 
     const driverNameMap = new Map(drivers.map(d => [d.id, d.name || d.email || `Motorista Desconhecido`]));
+    const vehicleNameMap = new Map(vehicles.map(v => [v.firebaseId || v.localId, `${v.model} (${v.licensePlate})`]));
+    const tripDetailsMap = new Map(currentTripsSource.map(t => [t.localId, { vehicleId: t.vehicleId, userId: t.userId }]));
+
 
     const tripsByDriver: Record<string, { count: number; totalDistance: number; totalExpenses: number, name?: string }> = {};
     const kmByDay: Record<string, number> = {};
@@ -314,13 +332,36 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         };
     }).sort((a,b) => b.kmDriven - a.kmDriven);
 
+    // Prepare data for Visits Table
+    const adminVisitsTableData: AdminVisitData[] = currentVisitsSource
+      .map(visit => {
+        const tripDetail = tripDetailsMap.get(visit.tripLocalId);
+        if (!tripDetail) return null; // Skip visit if its trip isn't in the filtered set
+
+        const driverName = driverNameMap.get(tripDetail.userId) || 'Desconhecido';
+        const vehicleName = vehicleNameMap.get(tripDetail.vehicleId) || 'Desconhecido';
+
+        return {
+            id: visit.firebaseId || visit.localId,
+            date: formatDateFn(parseISO(visit.timestamp), 'dd/MM/yyyy HH:mm'),
+            driverName,
+            kmAtVisit: formatKm(visit.initialKm),
+            reason: visit.reason,
+            visitType: visit.visitType || 'N/A',
+            clientName: visit.clientName,
+            city: visit.location,
+            vehicleName,
+        };
+    }).filter(Boolean) as AdminVisitData[];
+
 
     return {
       tripsByDriver: chartableTripsByDriver,
       kmByDay: chartableKmByDay,
       vehiclePerformance,
+      adminVisitsTableData,
     };
-  }, [isAdmin, user?.email, trips, expenses, vehicles, drivers, dateRange, filterDriverId, loadingDrivers, fuelings]);
+  }, [isAdmin, user?.email, trips, expenses, vehicles, drivers, dateRange, filterDriverId, loadingDrivers, fuelings, visits]);
 
 
   return (
@@ -464,6 +505,49 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                 </CardContent>
             </Card>
 
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                        <MapPin className="h-5 w-5" /> Lista de Visitas Recentes
+                    </CardTitle>
+                    <CardDescription>{summaryData.filterContext}</CardDescription>
+                </CardHeader>
+                <CardContent>
+                    {adminDashboardData.adminVisitsTableData.length > 0 ? (
+                        <Table>
+                            <TableHeader>
+                                <TableRow>
+                                    <TableHead>Data</TableHead>
+                                    <TableHead>Motorista</TableHead>
+                                    <TableHead>Cliente</TableHead>
+                                    <TableHead>Cidade</TableHead>
+                                    <TableHead>Veículo</TableHead>
+                                    <TableHead>KM Visita</TableHead>
+                                    <TableHead>Tipo</TableHead>
+                                    <TableHead>Motivo</TableHead>
+                                </TableRow>
+                            </TableHeader>
+                            <TableBody>
+                                {adminDashboardData.adminVisitsTableData.slice(0,15).map(visit => ( // Show recent 15
+                                    <TableRow key={visit.id}>
+                                        <TableCell>{visit.date}</TableCell>
+                                        <TableCell>{visit.driverName}</TableCell>
+                                        <TableCell>{visit.clientName}</TableCell>
+                                        <TableCell>{visit.city}</TableCell>
+                                        <TableCell>{visit.vehicleName}</TableCell>
+                                        <TableCell>{visit.kmAtVisit}</TableCell>
+                                        <TableCell>{visit.visitType}</TableCell>
+                                        <TableCell className="truncate max-w-xs">{visit.reason}</TableCell>
+                                    </TableRow>
+                                ))}
+                            </TableBody>
+                        </Table>
+                    ) : (
+                        <p className="text-muted-foreground">Nenhuma visita para exibir com os filtros atuais.</p>
+                    )}
+                </CardContent>
+            </Card>
+
 
           <Card>
             <CardHeader>
@@ -542,3 +626,4 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     </div>
   );
 };
+
