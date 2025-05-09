@@ -470,6 +470,8 @@ export const Drivers: React.FC = () => {
         let errorCount = 0;
         const errors: string[] = [];
 
+        setIsSaving(true); // Set saving state for the entire import process
+
         for (let i = 1; i < lines.length; i++) {
             const values = lines[i].split(',').map(v => v.trim());
             const driverName = values[nameIndex];
@@ -499,6 +501,7 @@ export const Drivers: React.FC = () => {
                 // If more detailed row-specific errors from import are needed, _createNewDriver could return error messages.
             }
         }
+        setIsSaving(false); // Reset saving state
 
         if (successCount > 0) {
             toast({ title: 'Importação Concluída', description: `${successCount} motorista(s) importado(s) com sucesso.` });
@@ -522,7 +525,7 @@ export const Drivers: React.FC = () => {
             <div className="flex justify-between items-center">
                 <h2 className="text-2xl font-semibold">Gerenciar Motoristas</h2>
                 <div className="flex gap-2">
-                    <Button onClick={handleExportToExcel} variant="outline" className="text-primary-foreground bg-primary/90 hover:bg-primary/80">
+                    <Button onClick={handleExportToExcel} variant="outline" className="text-primary-foreground bg-primary/90 hover:bg-primary/80" disabled={isSaving}>
                         <UploadCloud className="mr-2 h-4 w-4" /> Exportar para Excel
                     </Button>
                     <input
@@ -533,12 +536,12 @@ export const Drivers: React.FC = () => {
                         className="hidden"
                         id="import-csv-input"
                     />
-                    <Button onClick={() => fileInputRef.current?.click()} variant="outline" className="text-primary-foreground bg-green-600 hover:bg-green-700">
+                    <Button onClick={() => fileInputRef.current?.click()} variant="outline" className="text-primary-foreground bg-green-600 hover:bg-green-700" disabled={isSaving}>
                         <FileUp className="mr-2 h-4 w-4" /> Importar de Excel
                     </Button>
                     <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => !isOpen && closeCreateModal()}>
                         <DialogTrigger asChild>
-                            <Button onClick={() => { resetForm(); setIsCreateModalOpen(true); }} className="bg-primary hover:bg-primary/90 text-primary-foreground">
+                            <Button onClick={() => { resetForm(); setIsCreateModalOpen(true); }} className="bg-primary hover:bg-primary/90 text-primary-foreground" disabled={isSaving}>
                                 <PlusCircle className="mr-2 h-4 w-4" /> Cadastrar Motorista
                             </Button>
                         </DialogTrigger>
