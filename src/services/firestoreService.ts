@@ -21,7 +21,7 @@ import { db } from '@/lib/firebase';
 import type { User, DriverInfo, UserRole } from '@/contexts/AuthContext'; // Import UserRole
 import type { VehicleInfo } from '@/components/Vehicle';
 import type { Trip } from '@/components/Trips/Trips';
-import type { Visit } from '@/components/Trips/Visits';
+import type { Visit as BaseVisit } from '@/components/Trips/Visits'; // Renamed to avoid conflict
 import type { Expense } from '@/components/Trips/Expenses';
 import type { Fueling as BaseFueling } from '@/components/Trips/Fuelings'; // Renamed to avoid conflict
 import { deleteReceipt } from './storageService'; // Import deleteReceipt
@@ -29,6 +29,11 @@ import { deleteReceipt } from './storageService'; // Import deleteReceipt
 // Define Fueling type specifically for Firestore, including fuelType
 export interface Fueling extends BaseFueling {
     fuelType: string;
+}
+
+// Define Visit type specifically for Firestore, including visitType
+export interface Visit extends BaseVisit {
+    visitType?: string;
 }
 
 // --- Helper to convert Timestamps to ISO strings ---
@@ -309,6 +314,7 @@ export interface TripFilter {
     userId?: string;
     startDate?: string; // ISO String
     endDate?: string; // ISO String
+    base?: string; // Added base filter
 }
 
 export const getTrips = async (filters: TripFilter = {}): Promise<Trip[]> => {
@@ -323,6 +329,9 @@ export const getTrips = async (filters: TripFilter = {}): Promise<Trip[]> => {
         if (filters.userId) {
             constraints.push(where('userId', '==', filters.userId));
         }
+        if (filters.base && filters.base !== 'ALL') { // 'ALL' implies no base filtering
+            constraints.push(where('base', '==', filters.base));
+        }
         if (filters.startDate) {
             constraints.push(where('createdAt', '>=', Timestamp.fromDate(new Date(filters.startDate))));
         }
@@ -332,8 +341,9 @@ export const getTrips = async (filters: TripFilter = {}): Promise<Trip[]> => {
              constraints.push(where('createdAt', '<', Timestamp.fromDate(endDatePlusOne)));
         }
         constraints.push(orderBy('status', 'asc'));
-        if (filters.startDate || filters.endDate) {
-             // Cannot reliably sort by status AND createdAt when using date range inequality
+        if (filters.startDate || filters.endDate || (filters.base && filters.base !== 'ALL')) {
+             // Cannot reliably sort by status AND createdAt when using date/base range inequality
+             // If specific sorting is needed in these cases, it might have to be client-side or use more complex queries
         } else {
              constraints.push(orderBy('createdAt', 'desc'));
         }
@@ -342,7 +352,7 @@ export const getTrips = async (filters: TripFilter = {}): Promise<Trip[]> => {
         const querySnapshot = await getDocs(q);
         let trips = querySnapshot.docs.map(doc => convertTimestampsToISO({ id: doc.id, ...doc.data() }) as Trip);
 
-        if (filters.startDate || filters.endDate) {
+        if (filters.startDate || filters.endDate || (filters.base && filters.base !== 'ALL')) {
             trips.sort((a, b) => {
                 if (a.status === 'Andamento' && b.status !== 'Andamento') return -1;
                 if (a.status !== 'Andamento' && b.status === 'Andamento') return 1;
@@ -357,7 +367,7 @@ export const getTrips = async (filters: TripFilter = {}): Promise<Trip[]> => {
     } catch (error) {
          const getTripsEndTime = performance.now();
         console.error(`[firestoreService getTrips ${getTripsStartTime}] Error fetching trips. Time: ${getTripsEndTime - getTripsStartTime} ms`, error);
-        if ((error as any).code === 'failed-precondition' && error instanceof Error && error.message.includes('index')) {
+        if (error instanceof Error && error.message.includes('index')) {
              console.error("Firestore index missing. Please check the recommended indexes in the getTrips function comments and create them in your Firebase console.");
         } else if ((error as any).code === 'unavailable') {
             console.warn('Firestore is offline. Cannot fetch trips.');
@@ -708,4 +718,3 @@ export const deleteTripAndRelatedData = async (tripId: string) => {
          throw error;
     }
 };
-

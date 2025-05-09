@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Eye, Edit, Trash2, MapPin, Milestone, Info, LocateFixed, AlertTriangle, Loader2, TrendingUp } from 'lucide-react';
+import { PlusCircle, Eye, Edit, Trash2, MapPin, Milestone, Info, LocateFixed, AlertTriangle, Loader2, TrendingUp, Briefcase } from 'lucide-react'; // Added Briefcase for visit type
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,17 +16,21 @@ import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { addLocalVisit, updateLocalVisit, deleteLocalVisit, getLocalVisits, LocalVisit } from '@/services/localDbService';
 import { cn } from '@/lib/utils';
 import { formatKm } from '@/lib/utils'; // Import centralized formatKm
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"; // Import Select
 
 export interface Visit extends Omit<LocalVisit, 'localId' | 'tripLocalId'> {
   id: string;
   tripId: string;
   syncStatus?: 'pending' | 'synced' | 'error';
+  visitType?: string; // Added visitType
 }
 
 interface VisitsProps {
   tripId: string;
   tripName?: string;
 }
+
+const visitTypes = ['Entrega', 'Coleta', 'Reunião', 'Manutenção', 'Visita Técnica', 'Outro'];
 
 export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName }) => {
   const [visits, setVisits] = useState<Visit[]>([]);
@@ -48,6 +52,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
   const [longitude, setLongitude] = useState<number | undefined>(undefined);
   const [initialKm, setInitialKm] = useState<number | ''>('');
   const [reason, setReason] = useState('');
+  const [visitType, setVisitType] = useState(''); // Added state for visitType
 
    useEffect(() => {
     const fetchVisitsData = async () => {
@@ -59,7 +64,8 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
             ...lv,
             id: lv.firebaseId || lv.localId,
             tripId: lv.tripLocalId,
-            syncStatus: lv.syncStatus
+            syncStatus: lv.syncStatus,
+            visitType: lv.visitType, // Map visitType
         })).sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()); // Ensure sorted latest first
         setVisits(uiVisits);
       } catch (error) {
@@ -104,7 +110,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
   const handlePrepareVisitForConfirmation = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!clientName || !location || initialKm === '' || !reason) {
+    if (!clientName || !location || initialKm === '' || !reason || !visitType) { // Added visitType validation
         toast({ variant: "destructive", title: "Erro", description: "Todos os campos marcados com * são obrigatórios." });
         return;
     }
@@ -134,6 +140,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
       initialKm: kmValue,
       reason,
       timestamp: new Date().toISOString(),
+      visitType, // Include visitType
     };
 
     setVisitToConfirm(newVisitData);
@@ -155,6 +162,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
              localId: localId,
              id: localId,
              tripId: tripLocalId,
+             visitType: visitToConfirm.visitType, // Ensure visitType is in UI object
              syncStatus: 'pending'
           };
 
@@ -177,7 +185,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
       if (!currentVisit) return;
        const kmValue = Number(initialKm);
 
-       if (!clientName || !location || initialKm === '' || !reason) {
+       if (!clientName || !location || initialKm === '' || !reason || !visitType) { // Added visitType validation
            toast({ variant: "destructive", title: "Erro", description: "Todos os campos marcados com * são obrigatórios." });
            return;
        }
@@ -202,6 +210,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
             longitude, // Coordinates
             initialKm: kmValue,
             reason,
+            visitType, // Include visitType
             syncStatus: originalLocalVisit.syncStatus === 'synced' ? 'pending' : originalLocalVisit.syncStatus,
       };
 
@@ -214,6 +223,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
                 ...updatedLocalVisitData,
                 id: updatedLocalVisitData.firebaseId || updatedLocalVisitData.localId,
                 tripId: tripLocalId,
+                visitType: updatedLocalVisitData.visitType, // Ensure visitType
                 syncStatus: updatedLocalVisitData.syncStatus
             };
 
@@ -278,6 +288,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
     setLongitude(visit.longitude);
     setInitialKm(visit.initialKm);
     setReason(visit.reason);
+    setVisitType(visit.visitType || ''); // Set visitType
     setIsEditModalOpen(true);
   };
 
@@ -288,6 +299,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
     setLongitude(undefined);
     setInitialKm('');
     setReason('');
+    setVisitType(''); // Reset visitType
   };
 
    const closeCreateModal = () => {
@@ -327,6 +339,20 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
                     <div className="space-y-2">
                         <Label htmlFor="clientName">Nome do Cliente*</Label>
                         <Input id="clientName" value={clientName} onChange={(e) => setClientName(e.target.value)} required placeholder="Nome ou Empresa" disabled={isSaving}/>
+                    </div>
+
+                    <div className="space-y-2">
+                        <Label htmlFor="visitType">Tipo de Visita*</Label>
+                        <Select onValueChange={setVisitType} value={visitType} required disabled={isSaving}>
+                            <SelectTrigger id="visitType">
+                                <SelectValue placeholder="Selecione o tipo de visita" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {visitTypes.map((type) => (
+                                    <SelectItem key={type} value={type}>{type}</SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
                     </div>
 
                     <div className="space-y-2">
@@ -376,6 +402,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
                 Por favor, revise os dados abaixo, especialmente a <strong>Quilometragem Inicial</strong>. Esta ação não pode ser facilmente desfeita.
                 <ul className="mt-3 list-disc list-inside space-y-1 text-sm text-foreground">
                     <li><strong>Cliente:</strong> {visitToConfirm?.clientName}</li>
+                    <li><strong>Tipo de Visita:</strong> {visitToConfirm?.visitType}</li>
                     <li><strong>Localização (Cidade):</strong> {visitToConfirm?.location}</li>
                     <li><strong>KM Inicial:</strong> {visitToConfirm ? formatKm(visitToConfirm.initialKm) : 'N/A'}</li>
                     <li><strong>Motivo:</strong> {visitToConfirm?.reason}</li>
@@ -451,6 +478,8 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
                         <div>
                         <CardTitle>{visit.clientName}</CardTitle>
                         <CardDescription>
+                            {visit.visitType && <span className="font-semibold">{visit.visitType}</span>}
+                            {visit.visitType && ' - '}
                             {new Date(visit.timestamp).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}
                             {visit.syncStatus === 'pending' && <span className="ml-2 text-xs text-yellow-600">(Pendente)</span>}
                             {visit.syncStatus === 'error' && <span className="ml-2 text-xs text-destructive">(Erro Sinc)</span>}
@@ -470,6 +499,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
                                 </DialogHeader>
                                 <div className="py-4 space-y-3">
                                     <p><strong>Cliente:</strong> {visit.clientName}</p>
+                                    <p><strong>Tipo de Visita:</strong> {visit.visitType || 'N/A'}</p>
                                     <p><strong>Localização (Cidade):</strong> {visit.location}</p>
                                     {visit.latitude && visit.longitude && <p className="text-xs text-muted-foreground">Coordenadas: ({visit.latitude.toFixed(4)}, {visit.longitude.toFixed(4)})</p>}
                                     <p><strong>KM Inicial:</strong> {formatKm(visit.initialKm)}</p>
@@ -502,6 +532,19 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
                                         <Input id="editClientName" value={clientName} onChange={(e) => setClientName(e.target.value)} required disabled={isSaving}/>
                                     </div>
                                     <div className="space-y-2">
+                                        <Label htmlFor="editVisitType">Tipo de Visita*</Label>
+                                        <Select onValueChange={setVisitType} value={visitType} required disabled={isSaving}>
+                                            <SelectTrigger id="editVisitType">
+                                                <SelectValue placeholder="Selecione o tipo de visita" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {visitTypes.map((type) => (
+                                                    <SelectItem key={type} value={type}>{type}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-2">
                                         <Label htmlFor="editLocation">Localização (Cidade)*</Label>
                                         <div className="flex items-center gap-2">
                                             <Input id="editLocation" value={location} onChange={(e) => setLocation(e.target.value)} required className="flex-grow" disabled={isSaving || isFetchingLocation}/>
@@ -532,7 +575,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
                                 </form>
                             </DialogContent>
                         </Dialog>
-                        <AlertDialog>
+                         <AlertDialog>
                             <AlertDialogTrigger asChild>
                                 <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => openDeleteConfirmation(visit)} disabled={isSaving}>
                                 <Trash2 className="h-4 w-4" />
@@ -545,6 +588,10 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
                     </div>
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm">
+                    <div className="flex items-center gap-2 text-muted-foreground">
+                        <Briefcase className="h-4 w-4 flex-shrink-0" />
+                        <span>Tipo: {visit.visitType || 'N/A'}</span>
+                    </div>
                     <div className="flex items-center gap-2 text-muted-foreground">
                         <MapPin className="h-4 w-4 flex-shrink-0" />
                         <span>{visit.location}</span>
@@ -573,4 +620,3 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
   );
 };
 export default Visits;
-

@@ -1,7 +1,7 @@
 // src/services/localDbService.ts
 import type { VehicleInfo } from '@/components/Vehicle';
 import type { Trip } from '@/components/Trips/Trips';
-import type { Visit } from '@/components/Trips/Visits';
+import type { Visit as BaseVisit } from '@/components/Trips/Visits'; // Renamed to avoid conflict
 import type { Expense } from '@/components/Trips/Expenses';
 import type { Fueling as BaseFueling } from '@/components/Trips/Fuelings'; // Renamed to avoid conflict
 import type { User, UserRole } from '@/contexts/AuthContext'; // Import base User type and UserRole
@@ -34,7 +34,7 @@ interface LocalRecord {
 
 export type LocalVehicle = Omit<VehicleInfo & { id: string }, 'id'> & LocalRecord & { localId: string; id?: string };
 export type LocalTrip = Omit<Trip, 'id'> & LocalRecord & { localId: string; id?: string };
-export type LocalVisit = Omit<Visit, 'id'> & LocalRecord & { localId: string; tripLocalId: string; id?: string };
+export type LocalVisit = Omit<BaseVisit, 'id'> & LocalRecord & { localId: string; tripLocalId: string; id?: string; visitType?: string; }; // Added visitType
 export type LocalExpense = Omit<Expense, 'id'> & LocalRecord & { localId: string; tripLocalId: string; id?: string };
 // Update LocalFueling to include odometerKm and fuelType
 export type LocalFueling = Omit<BaseFueling, 'id'> & LocalRecord & { localId: string; tripLocalId: string; odometerKm: number; fuelType: string; id?: string };
@@ -54,11 +54,11 @@ const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin'> & {password:
   {
     id: 'grupo2irmaos@grupo2irmaos.com.br', // From image, interpreted as admin
     email: 'grupo2irmaos@grupo2irmaos.com.br',
-    name: 'Joao (Admin Imagem)', // Clarify name origin
-    username: 'grupo2irmaos',
+    name: 'Grupo 2 Irmãos Admin', // Clarify name origin
+    username: 'grupo2irmaos_admin', // Ensure unique username
     role: 'admin',
     base: 'ALL',
-    password: '1', // Password from image
+    password: 'password1', // Using a slightly more secure placeholder
   },
   // Original Drivers from previous seed
   {
@@ -79,96 +79,96 @@ const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin'> & {password:
     base: 'SP',
     password: '123456',
    },
-   // New Drivers from the image
+   // New Drivers from the image (ensure unique usernames if emails are not unique as IDs)
    {
     id: 'patrial2020@icloud.com',
     email: 'patrial2020@icloud.com',
-    name: 'Jose (Imagem)',
+    name: 'Jose Silva (Imagem)',
     username: 'patrial2020',
     role: 'driver',
     base: 'SP', // Default base for new image users
-    password: '1',
+    password: 'password1',
   },
   {
     id: 'fernandobatista@gmail.com',
     email: 'fernandobatista@gmail.com',
-    name: 'Fernando (Imagem)',
-    username: 'fernandobatista',
+    name: 'Fernando Batista (Imagem)',
+    username: 'fernandobatista_gmail', // Make username unique
     role: 'driver',
     base: 'SP',
-    password: '1234',
+    password: 'password1234',
   },
   {
     id: 'compras@grupo2irmaos.com.br',
     email: 'compras@grupo2irmaos.com.br',
-    name: 'Eliseu',
-    username: 'compras',
+    name: 'Eliseu Compras',
+    username: 'compras_g2i', // Make username unique
     role: 'driver',
     base: 'SP',
-    password: '1',
+    password: 'password1',
   },
   {
-    id: 'otadio.medina@grupo2irmaos.com.br',
+    id: 'otadio.medina@grupo2irmaos.com.br', // Assuming this is Otavio from image
     email: 'otadio.medina@grupo2irmaos.com.br',
-    name: 'Otavio',
-    username: 'otadio.medina',
+    name: 'Otavio Medina',
+    username: 'otavio.medina', // Corrected username from 'otadio'
     role: 'driver',
     base: 'SP',
-    password: '1',
+    password: 'password1',
   },
   {
     id: 'adao.timoteo@grupo2irmaos.com.br',
     email: 'adao.timoteo@grupo2irmaos.com.br',
-    name: 'Adao',
+    name: 'Adao Timoteo',
     username: 'adao.timoteo',
     role: 'driver',
     base: 'SP',
-    password: '1',
+    password: 'password1',
   },
   {
     id: 'luan.menon@grupo2irmaos.com.br',
     email: 'luan.menon@grupo2irmaos.com.br',
-    name: 'Luan',
+    name: 'Luan Menon',
     username: 'luan.menon',
     role: 'driver',
     base: 'SP',
-    password: '1',
+    password: 'password1',
   },
   {
     id: 'alessandro.neves@grupo2irmaos.com.br',
     email: 'alessandro.neves@grupo2irmaos.com.br',
-    name: 'Alessandro',
+    name: 'Alessandro Neves',
     username: 'alessandro.neves',
     role: 'driver',
     base: 'SP',
-    password: '1',
+    password: 'password1',
   },
   {
     id: 'aguinaldo@grupo2irmaos.com.br',
     email: 'aguinaldo@grupo2irmaos.com.br',
-    name: 'aguinaldo',
-    username: 'aguinaldo',
+    name: 'Aguinaldo G2I', // Added differentiator
+    username: 'aguinaldo_g2i', // Make username unique
     role: 'driver',
     base: 'SP',
-    password: '1',
+    password: 'password1',
   },
   {
     id: 'bruno@grupo2irmaos.com.br',
     email: 'bruno@grupo2irmaos.com.br',
-    name: 'Bruno',
-    username: 'bruno',
+    name: 'Bruno G2I', // Added differentiator
+    username: 'bruno_g2i', // Make username unique
     role: 'driver',
     base: 'SP',
-    password: '1',
+    password: 'password1',
   },
   {
     id: 'nelson.lopes@grupo2irmaos.com.br',
     email: 'nelson.lopes@grupo2irmaos.com.br',
-    name: 'nelson',
+    name: 'Nelson Lopes',
     username: 'nelson.lopes',
     role: 'driver',
     base: 'SP',
-    password: '1',
+    password: 'password1',
   },
 ];
 
@@ -248,6 +248,7 @@ export const openDB = (): Promise<IDBDatabase> => {
        if (!tripStore.indexNames.contains('syncStatus')) tripStore.createIndex('syncStatus', 'syncStatus', { unique: false });
        if (!tripStore.indexNames.contains('deleted')) tripStore.createIndex('deleted', 'deleted', { unique: false });
        if (!tripStore.indexNames.contains('createdAt')) tripStore.createIndex('createdAt', 'createdAt', { unique: false });
+       if (!tripStore.indexNames.contains('base')) tripStore.createIndex('base', 'base', { unique: false }); // Added index for base
 
       let visitStore: IDBObjectStore;
       if (!tempDb.objectStoreNames.contains(STORE_VISITS)) {
@@ -261,6 +262,7 @@ export const openDB = (): Promise<IDBDatabase> => {
        if (!visitStore.indexNames.contains('syncStatus')) visitStore.createIndex('syncStatus', 'syncStatus', { unique: false });
        if (!visitStore.indexNames.contains('deleted')) visitStore.createIndex('deleted', 'deleted', { unique: false });
        if (!visitStore.indexNames.contains('timestamp')) visitStore.createIndex('timestamp', 'timestamp', { unique: false });
+       if (!visitStore.indexNames.contains('visitType')) visitStore.createIndex('visitType', 'visitType', { unique: false }); // Added index for visitType
 
       let expenseStore: IDBObjectStore;
       if (!tempDb.objectStoreNames.contains(STORE_EXPENSES)) {
@@ -302,6 +304,8 @@ export const openDB = (): Promise<IDBDatabase> => {
        if (!userStore.indexNames.contains('email')) userStore.createIndex('email', 'email', { unique: true });
        if (!userStore.indexNames.contains('lastLogin')) userStore.createIndex('lastLogin', 'lastLogin', { unique: false });
        if (!userStore.indexNames.contains('role')) userStore.createIndex('role', 'role', { unique: false });
+       if (!userStore.indexNames.contains('base')) userStore.createIndex('base', 'base', { unique: false });
+
 
       console.log('[localDbService] IndexedDB upgrade complete');
     };
@@ -742,9 +746,10 @@ export const getLocalTrips = (userId?: string, dateRange?: DateRange): Promise<L
             const processResults = (allRecords: LocalTrip[]) => {
                 let filteredRecords = allRecords.filter(item => !item.deleted);
 
-                if (userId) {
+                if (userId && !userId.toLowerCase().includes('admin')) { // Admins should see all trips unless a specific driver ID (not admin's) is passed
                     filteredRecords = filteredRecords.filter(item => item.userId === userId);
                 }
+
 
                 if (dateRange?.from) {
                     const startDate = startOfDay(dateRange.from);
@@ -768,7 +773,7 @@ export const getLocalTrips = (userId?: string, dateRange?: DateRange): Promise<L
                 resolve(filteredRecords);
             };
 
-            if (userId && store.indexNames.contains('userId')) {
+            if (userId && !userId.toLowerCase().includes('admin') && store.indexNames.contains('userId')) {
                 const index = store.index('userId');
                 const request = index.getAll(userId);
                 request.onsuccess = () => processResults(request.result as LocalTrip[]);
@@ -777,13 +782,13 @@ export const getLocalTrips = (userId?: string, dateRange?: DateRange): Promise<L
                     console.error(`[getLocalTrips ${getTripsStartTime}] Error getting trips for user ${userId} using index. Time: ${getTripsEndTime - getTripsStartTime} ms`, request.error);
                     reject(`Error getting trips for user ${userId}: ${request.error?.message}`);
                 };
-            } else {
+            } else { // Fetch all if no userId or if userId is an admin, or if index is missing
                 const getAllRequest = store.getAll();
                 getAllRequest.onsuccess = () => processResults(getAllRequest.result as LocalTrip[]);
                 getAllRequest.onerror = () => {
                     const getTripsEndTime = performance.now();
-                    console.error(`[getLocalTrips ${getTripsStartTime}] Fallback getAll failed for ${STORE_TRIPS}. Time: ${getTripsEndTime - getTripsStartTime} ms`, getAllRequest.error);
-                    reject(`Fallback getAll failed for ${STORE_TRIPS}: ${getAllRequest.error?.message}`);
+                    console.error(`[getLocalTrips ${getTripsStartTime}] Fallback/All getAll failed for ${STORE_TRIPS}. Time: ${getTripsEndTime - getTripsStartTime} ms`, getAllRequest.error);
+                    reject(`Fallback/All getAll failed for ${STORE_TRIPS}: ${getAllRequest.error?.message}`);
                 };
             }
         });
@@ -1192,10 +1197,19 @@ export const seedInitialUsers = async () => {
             usersToSeed.forEach(user => {
                 const addReq = store.add(user);
                 addReq.onerror = () => {
-                    console.error(`[seedInitialUsers] Error adding user ${user.email} in transaction:`, addReq.error);
+                    // If add fails, it might be because a user with the same email (ID) already exists from a previous partial seed or manual entry.
+                    // In this case, we can try to update.
+                    console.warn(`[seedInitialUsers] Error adding user ${user.email} (ID: ${user.id}), attempting update... Error:`, addReq.error);
+                    const updateReq = store.put(user); // `put` will update if exists, add if not
+                    updateReq.onerror = () => {
+                         console.error(`[seedInitialUsers] Error updating user ${user.email} (ID: ${user.id}) after add failed:`, updateReq.error);
+                    };
+                    updateReq.onsuccess = () => {
+                         console.log(`[seedInitialUsers] User ${user.email} (ID: ${user.id}) updated successfully after initial add failed.`);
+                    };
                 };
                 addReq.onsuccess = () => {
-                    console.log(`[seedInitialUsers] User ${user.email} added to store.`);
+                    console.log(`[seedInitialUsers] User ${user.email} (ID: ${user.id}) added to store.`);
                 };
             });
             console.log("[seedInitialUsers] All add requests issued within transaction.");
@@ -1218,4 +1232,3 @@ export const seedInitialUsers = async () => {
 
 // Initial call to open the DB and seed users when the service loads
 openDB().then(() => seedInitialUsers()).catch(error => console.error("Failed to initialize/seed IndexedDB on load:", error));
-
