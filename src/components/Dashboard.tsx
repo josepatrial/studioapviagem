@@ -480,31 +480,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
       {isAdmin && user?.email === 'grupo2irmaos@grupo2irmaos.com.br' && adminDashboardData && (
         <div className="mt-8 space-y-6">
           <h2 className="text-2xl font-semibold text-primary">Painel do Administrador</h2>
-
-
-          <Card>
-                <CardHeader>
-                    <CardTitle>KM Percorridos por Dia (Últimos 30 dias com viagens)</CardTitle>
-                    <CardDescription>{summaryData.filterContext}</CardDescription>
-                </CardHeader>
-                <CardContent>
-                    {adminDashboardData.kmByDay.length > 0 ? (
-                        <ResponsiveContainer width="100%" height={300}>
-                            <BarChart data={adminDashboardData.kmByDay} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                                <CartesianGrid strokeDasharray="3 3" />
-                                <XAxis dataKey="date" />
-                                <YAxis label={{ value: 'KM', angle: -90, position: 'insideLeft' }}/>
-                                <Tooltip formatter={(value) => formatKm(value as number)} />
-                                <Legend verticalAlign="top"/>
-                                <Bar dataKey="km" fill="hsl(var(--chart-1))" name="KM Percorridos" />
-                            </BarChart>
-                        </ResponsiveContainer>
-                    ) : (
-                        <p className="text-muted-foreground">Nenhum dado de KM por dia para exibir com os filtros atuais.</p>
-                    )}
-                </CardContent>
-            </Card>
-
             <Card>
                 <CardHeader>
                     <CardTitle className="flex items-center gap-2">
