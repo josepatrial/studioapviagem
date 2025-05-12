@@ -11,9 +11,9 @@ import { Label } from "@/components/ui/label";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
-    addLocalVehicle,
-    updateLocalVehicle,
-    deleteLocalVehicle,
+    addLocalVehicle as addLocalDbVehicle,
+    updateLocalVehicle as updateLocalDbVehicle,
+    deleteLocalVehicle as deleteLocalDbVehicle,
     getLocalVehicles,
     LocalVehicle,
 } from '@/services/localDbService';
@@ -52,15 +52,15 @@ export const Vehicle: React.FC = () => {
                try {
                    const onlineVehicles = await fetchOnlineVehicles();
                     const savePromises = onlineVehicles.map(async (v) => { // Make async for await inside
-                        // Correctly structure data for addLocalVehicle
+                        // Correctly structure data for addLocalDbVehicle
                         const vehicleDataForAdd: Omit<VehicleInfo, 'id'> = {
                             model: v.model,
                             year: v.year,
                             licensePlate: v.licensePlate,
                         };
-                        // addLocalVehicle expects firebaseId as a separate optional param
+                        // addLocalDbVehicle expects firebaseId as a separate optional param
                         try {
-                            await addLocalVehicle(vehicleDataForAdd, v.id);
+                            await addLocalDbVehicle(vehicleDataForAdd, v.id);
                         } catch (addError) {
                              console.error(`Error adding vehicle ${v.id} locally:`, addError);
                              // Optionally, collect these errors to show a summary toast later
@@ -103,7 +103,7 @@ export const Vehicle: React.FC = () => {
     };
 
     try {
-        const assignedLocalId = await addLocalVehicle(vehicleDataForAdd, firebaseId);
+        const assignedLocalId = await addLocalDbVehicle(vehicleDataForAdd, firebaseId);
         const createdVehicleUI: VehicleInfo = {
              id: firebaseId || assignedLocalId,
              model: vehicleDataForAdd.model,
@@ -171,7 +171,7 @@ export const Vehicle: React.FC = () => {
 
      setIsSaving(true);
      try {
-         await updateLocalVehicle(updatedLocalData);
+         await updateLocalDbVehicle(updatedLocalData);
           const updatedVehicleUI: VehicleInfo = {
              id: currentVehicle.id,
              model: updatedLocalData.model,
@@ -204,7 +204,7 @@ export const Vehicle: React.FC = () => {
 
         setIsSaving(true);
         try {
-            await deleteLocalVehicle(originalLocalVehicle.localId);
+            await deleteLocalDbVehicle(originalLocalVehicle.localId);
             setVehicles(prevVehicles => prevVehicles.filter(v => v.id !== vehicleToDelete.id));
             toast({ title: "Veículo marcado para exclusão localmente." });
             closeDeleteModal();
@@ -302,10 +302,10 @@ export const Vehicle: React.FC = () => {
 
     const modeloIndex = header.indexOf('modelo');
     const placaIndex = header.indexOf('placa');
-    const anoIndex = header.indexOf('ano'); // This will be -1 if 'ano' column is not present
+    const anoIndex = header.indexOf('ano');
 
     if (modeloIndex === -1 || placaIndex === -1) {
-        toast({ variant: 'destructive', title: 'Cabeçalho CSV inválido', description: 'Esperado: Colunas "Modelo" e "Placa" (Ano é opcional).' });
+        toast({ variant: 'destructive', title: 'Cabeçalho CSV inválido', description: 'Esperado: Colunas "Modelo" e "Placa". A coluna "Ano" é opcional.' });
         console.warn("[Vehicle.tsx] CSV header invalid. ModeloIndex:", modeloIndex, "PlacaIndex:", placaIndex);
         return;
     }
@@ -320,8 +320,8 @@ export const Vehicle: React.FC = () => {
             const values = lines[i].split(',').map(v => v.trim());
             const vehicleModel = values[modeloIndex];
             const vehicleLicensePlate = values[placaIndex];
-            // Default to current year if 'ano' column is missing or invalid
-            let vehicleYear = new Date().getFullYear();
+            let vehicleYear = new Date().getFullYear(); // Default to current year
+
             if (anoIndex !== -1 && values[anoIndex]) {
                 const parsedYear = parseInt(values[anoIndex], 10);
                 if (!isNaN(parsedYear) && parsedYear > 1900 && parsedYear <= new Date().getFullYear() + 1) {
@@ -331,7 +331,7 @@ export const Vehicle: React.FC = () => {
                     console.warn(`[Vehicle.tsx] Invalid year on line ${i + 1}: '${values[anoIndex]}'. Defaulting to ${vehicleYear}.`);
                 }
             } else {
-                 console.log(`[Vehicle.tsx] Ano column missing or empty for line ${i+1}. Defaulting to current year ${vehicleYear}.`);
+                 console.log(`[Vehicle.tsx] Coluna 'Ano' ausente ou vazia para a linha ${i+1}. Usando ano atual ${vehicleYear}.`);
             }
 
 
@@ -342,11 +342,11 @@ export const Vehicle: React.FC = () => {
                 continue;
             }
             // Basic plate format validation (adjust regex as needed for specific country formats)
-            if (!/^[A-Z0-9]{3,4}[- ]?[A-Z0-9]{3,4}$/i.test(vehicleLicensePlate.replace(/-/g, ''))) {
-                 errors.push(`Linha ${i + 1}: Formato de placa inválido para ${vehicleLicensePlate}.`);
-                 errorCount++;
-                 console.warn(`[Vehicle.tsx] Invalid plate format on line ${i + 1}: ${vehicleLicensePlate}.`);
-                 continue;
+             // Relaxed regex to allow more flexible plate formats during import, actual validation should be robust
+            if (!/^[A-Z0-9-]{3,10}$/i.test(vehicleLicensePlate.replace(/-/g, ''))) {
+                 errors.push(`Linha ${i + 1}: Formato de placa pode ser inválido para ${vehicleLicensePlate}.`);
+                 // Not incrementing errorCount here, just warning.
+                 console.warn(`[Vehicle.tsx] Potentially invalid plate format on line ${i + 1}: ${vehicleLicensePlate}. Proceeding with import.`);
             }
 
             console.log(`[Vehicle.tsx] Attempting to create vehicle from CSV: Model=${vehicleModel}, Plate=${vehicleLicensePlate}, Year=${vehicleYear}`);
@@ -362,7 +362,7 @@ export const Vehicle: React.FC = () => {
     } catch (importError) {
         console.error("[Vehicle.tsx] Error during CSV processing loop:", importError);
         toast({ variant: "destructive", title: "Erro na Importação", description: "Ocorreu um erro inesperado durante o processamento do arquivo." });
-        errorCount = lines.length - 1;
+        errorCount = lines.length - 1; // Assume all failed if loop crashes
         successCount = 0;
     } finally {
         setIsSaving(false);
@@ -377,7 +377,7 @@ export const Vehicle: React.FC = () => {
         toast({
             variant: 'destructive',
             title: 'Erros na Importação',
-            description: `${errorCount} veículo(s) não puderam ser importados. ${detailedErrors ? `Detalhes: ${detailedErrors}` : ''}`,
+            description: `${errorCount > 0 ? `${errorCount} veículo(s) não puderam ser importados. ` : ''}${detailedErrors ? `Detalhes: ${detailedErrors}` : ''}`,
             duration: 10000
         });
     }
