@@ -16,8 +16,6 @@ import {
     deleteLocalVehicle,
     getLocalVehicles,
     LocalVehicle,
-    addLocalRecord,
-    updateLocalRecord,
 } from '@/services/localDbService';
 import { getVehicles as fetchOnlineVehicles } from '@/services/firestoreService';
 import { LoadingSpinner } from './LoadingSpinner';
@@ -55,28 +53,19 @@ export const Vehicle: React.FC = () => {
                    const onlineVehicles = await fetchOnlineVehicles();
                     const savePromises = onlineVehicles.map(v => {
                         const localId = `local_vehicle_${uuidv4()}`;
-                        const localVehicleData: LocalVehicle = {
-                            ...(v as Omit<VehicleInfo, 'id'>),
-                            localId: localId,
-                            firebaseId: v.id,
-                            id: v.id,
-                            syncStatus: 'synced',
-                            deleted: false
+                        // Correctly structure data for addLocalVehicle which expects Omit<VehicleInfo, 'id'>
+                        const vehicleDataForAdd: Omit<VehicleInfo, 'id'> = {
+                            model: v.model,
+                            year: v.year,
+                            licensePlate: v.licensePlate,
+                            // firebaseId is part of LocalVehicle, not directly in VehicleInfo for addLocalVehicle
                         };
-                        return addLocalRecord('vehicles', localVehicleData).catch(async (err) => {
-                            console.warn(`Vehicle ${v.id} might exist locally, attempting update.`);
-                            const existing = await getLocalVehicles().then(vs => vs.find(lv => lv.firebaseId === v.id));
-                            if (existing) {
-                                return updateLocalRecord('vehicles', { ...localVehicleData, localId: existing.localId });
-                            } else {
-                                throw err;
-                            }
-                        });
+                        return addLocalVehicle(vehicleDataForAdd, v.id); // Pass firebaseId separately if needed by addLocalVehicle
                     });
                    await Promise.all(savePromises);
-                   localVehicles = await getLocalVehicles();
+                   localVehicles = await getLocalVehicles(); // Re-fetch after saving
 
-               } catch (fetchError: any) {
+               } catch (fetchError: any) { // Ensure 'any' or specific error type
                    console.error("Error fetching/saving online vehicles:", fetchError);
                    toast({ variant: "destructive", title: "Erro Online", description: "Não foi possível buscar ou salvar veículos online." });
                }
@@ -100,29 +89,29 @@ export const Vehicle: React.FC = () => {
   const _createNewVehicle = async (
     vehicleModel: string,
     vehicleYear: number,
-    vehicleLicensePlate: string
+    vehicleLicensePlate: string,
+    firebaseId?: string // Optional firebaseId for seeding/importing
   ): Promise<boolean> => {
-    const localId = `local_vehicle_${uuidv4()}`;
-    const newVehicleData: Omit<LocalVehicle, 'localId' | 'syncStatus' | 'deleted' | 'firebaseId'> = {
-      id: localId,
+    const vehicleDataForAdd: Omit<VehicleInfo, 'id'> = {
       model: vehicleModel,
       year: vehicleYear,
       licensePlate: vehicleLicensePlate.toUpperCase(),
     };
 
     try {
-        const assignedLocalId = await addLocalVehicle(newVehicleData);
+        // addLocalVehicle now takes an optional firebaseId
+        const assignedLocalId = await addLocalVehicle(vehicleDataForAdd, firebaseId);
         const createdVehicleUI: VehicleInfo = {
-             id: assignedLocalId,
-             model: newVehicleData.model,
-             year: newVehicleData.year,
-             licensePlate: newVehicleData.licensePlate,
+             id: firebaseId || assignedLocalId, // Prefer firebaseId if it exists (e.g. from online fetch)
+             model: vehicleDataForAdd.model,
+             year: vehicleDataForAdd.year,
+             licensePlate: vehicleDataForAdd.licensePlate,
          };
         setVehicles(prevVehicles => [createdVehicleUI, ...prevVehicles].sort((a,b)=> a.model.localeCompare(b.model)));
         return true;
     } catch (error) {
         console.error("Error adding local vehicle:", error);
-        toast({ variant: "destructive", title: "Erro Local", description: `Não foi possível adicionar o veículo ${vehicleModel} (${vehicleLicensePlate}) localmente.` });
+        toast({ variant: "destructive", title: "Erro Local", description: `Não foi possível adicionar o veículo ${vehicleModel} (${vehicleLicensePlate}) localmente. Detalhe: ${(error as Error).message}` });
         return false;
     }
   };
@@ -175,6 +164,7 @@ export const Vehicle: React.FC = () => {
        year: Number(year),
        licensePlate: licensePlate.toUpperCase(),
        syncStatus: originalLocalVehicle.syncStatus === 'synced' ? 'pending' : originalLocalVehicle.syncStatus,
+       // id field in LocalVehicle is its localId or firebaseId if synced
        id: originalLocalVehicle.id,
      };
 
@@ -182,7 +172,7 @@ export const Vehicle: React.FC = () => {
      try {
          await updateLocalVehicle(updatedLocalData);
           const updatedVehicleUI: VehicleInfo = {
-             id: currentVehicle.id,
+             id: currentVehicle.id, // Keep the original UI id (firebaseId or localId)
              model: updatedLocalData.model,
              year: updatedLocalData.year,
              licensePlate: updatedLocalData.licensePlate
@@ -261,7 +251,8 @@ export const Vehicle: React.FC = () => {
       setCurrentVehicle(null);
     }
 
-  const handleFileImport = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    console.log("handleFileImport triggered. Event:", event);
     const file = event.target.files?.[0];
     if (!file) {
         toast({ variant: 'destructive', title: 'Nenhum arquivo selecionado.' });
@@ -280,14 +271,17 @@ export const Vehicle: React.FC = () => {
         } else {
             toast({ variant: 'destructive', title: 'Erro ao ler arquivo.' });
         }
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
     };
     reader.onerror = () => {
         toast({ variant: 'destructive', title: 'Erro ao ler arquivo.' });
+        if (fileInputRef.current) {
+            fileInputRef.current.value = '';
+        }
     };
     reader.readAsText(file);
-    if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-    }
   };
 
   const processImportedCsv = async (csvString: string) => {
@@ -297,10 +291,10 @@ export const Vehicle: React.FC = () => {
         return;
     }
 
-    const header = lines[0].split(',').map(h => h.trim().toLowerCase()); // Standardize header names
+    const header = lines[0].split(',').map(h => h.trim().toLowerCase());
     const modeloIndex = header.indexOf('modelo');
     const placaIndex = header.indexOf('placa');
-    const anoIndex = header.indexOf('ano'); // Check for 'Ano' column
+    const anoIndex = header.indexOf('ano');
 
     if (modeloIndex === -1 || placaIndex === -1) {
         toast({ variant: 'destructive', title: 'Cabeçalho CSV inválido', description: 'Esperado: Modelo, Placa (Ano é opcional).' });
@@ -312,47 +306,50 @@ export const Vehicle: React.FC = () => {
     const errors: string[] = [];
 
     setIsSaving(true);
+    try {
+        for (let i = 1; i < lines.length; i++) {
+            const values = lines[i].split(',').map(v => v.trim());
+            const vehicleModel = values[modeloIndex];
+            const vehicleLicensePlate = values[placaIndex];
+            const vehicleYearString = anoIndex !== -1 ? values[anoIndex] : null;
 
-    for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(',').map(v => v.trim());
-        const vehicleModel = values[modeloIndex];
-        const vehicleLicensePlate = values[placaIndex];
-        const vehicleYearString = anoIndex !== -1 ? values[anoIndex] : null;
-        
-        let vehicleYear = new Date().getFullYear(); // Default to current year
-        if (vehicleYearString) {
-            const parsedYear = parseInt(vehicleYearString, 10);
-            if (!isNaN(parsedYear) && parsedYear > 1900 && parsedYear <= new Date().getFullYear() + 1) {
-                vehicleYear = parsedYear;
+            let vehicleYear = new Date().getFullYear();
+            if (vehicleYearString) {
+                const parsedYear = parseInt(vehicleYearString, 10);
+                if (!isNaN(parsedYear) && parsedYear > 1900 && parsedYear <= new Date().getFullYear() + 1) {
+                    vehicleYear = parsedYear;
+                } else {
+                    errors.push(`Linha ${i + 1}: Ano '${vehicleYearString}' inválido para ${vehicleModel} (${vehicleLicensePlate}). Usando ano atual.`);
+                }
+            }
+
+            if (!vehicleModel || !vehicleLicensePlate) {
+                errors.push(`Linha ${i + 1}: Modelo ou Placa faltando.`);
+                errorCount++;
+                continue;
+            }
+            if (!/^[A-Z0-9]{6,7}$/i.test(vehicleLicensePlate.replace(/-/g, ''))) {
+                 errors.push(`Linha ${i + 1}: Formato de placa inválido para ${vehicleLicensePlate}.`);
+                 errorCount++;
+                 continue;
+            }
+
+            const created = await _createNewVehicle(vehicleModel, vehicleYear, vehicleLicensePlate);
+            if (created) {
+                successCount++;
             } else {
-                errors.push(`Linha ${i + 1}: Ano '${vehicleYearString}' inválido para ${vehicleModel} (${vehicleLicensePlate}). Usando ano atual.`);
+                errorCount++;
             }
         }
-
-
-        if (!vehicleModel || !vehicleLicensePlate) {
-            errors.push(`Linha ${i + 1}: Modelo ou Placa faltando.`);
-            errorCount++;
-            continue;
-        }
-
-        // Basic license plate format validation (optional, can be more robust)
-        if (!/^[A-Z0-9]{6,7}$/i.test(vehicleLicensePlate.replace(/-/g, ''))) {
-             errors.push(`Linha ${i + 1}: Formato de placa inválido para ${vehicleLicensePlate}.`);
-             errorCount++;
-             continue;
-        }
-
-
-        const created = await _createNewVehicle(vehicleModel, vehicleYear, vehicleLicensePlate);
-        if (created) {
-            successCount++;
-        } else {
-            errorCount++;
-            // _createNewVehicle already shows a toast for specific creation errors
-        }
+    } catch (importError) {
+        console.error("Error during CSV processing loop:", importError);
+        toast({ variant: "destructive", title: "Erro na Importação", description: "Ocorreu um erro inesperado durante o processamento do arquivo." });
+        errorCount = lines.length - 1; // Assume all potentially failed
+        successCount = 0;
+    } finally {
+        setIsSaving(false);
     }
-    setIsSaving(false);
+
 
     if (successCount > 0) {
         toast({ title: 'Importação Concluída', description: `${successCount} veículo(s) importado(s) com sucesso.` });
@@ -366,8 +363,8 @@ export const Vehicle: React.FC = () => {
             duration: 10000
         });
     }
-    if (successCount === 0 && errorCount === 0 && lines.length > 1) {
-        toast({ variant: 'default', title: 'Importação', description: 'Nenhum veículo novo para importar ou todos já existem.' });
+    if (successCount === 0 && errorCount === 0 && lines.length > 1 && errors.length === 0) { // Check errors.length too
+        toast({ variant: 'default', title: 'Importação', description: 'Nenhum veículo novo para importar ou todos já existem/contêm erros.' });
     }
   };
 
@@ -385,7 +382,20 @@ export const Vehicle: React.FC = () => {
                 className="hidden"
                 id="import-csv-vehicles-input"
             />
-            <Button onClick={() => fileInputRef.current?.click()} variant="outline" className="text-primary-foreground bg-green-600 hover:bg-green-700" disabled={isSaving}>
+            <Button
+                onClick={() => {
+                    console.log("Import button clicked. fileInputRef.current:", fileInputRef.current);
+                    if (fileInputRef.current) {
+                        fileInputRef.current.click();
+                    } else {
+                        console.error("File input ref is not available.");
+                        toast({ variant: "destructive", title: "Erro", description: "Não foi possível abrir o seletor de arquivos. Tente novamente." });
+                    }
+                }}
+                variant="outline"
+                className="text-primary-foreground bg-green-600 hover:bg-green-700"
+                disabled={isSaving}
+            >
                 <FileUp className="mr-2 h-4 w-4" /> Importar Veículos
             </Button>
             <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
