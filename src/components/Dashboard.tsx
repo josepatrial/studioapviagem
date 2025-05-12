@@ -3,7 +3,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { MapPin, Wallet, Fuel, Truck, Milestone, Filter, Calendar, Info, Car, Briefcase } from 'lucide-react'; // Added Calendar, Info, Car, Briefcase icon
+import { MapPin, Wallet, Fuel, Truck, Milestone, Filter, Calendar, Info, Car, Briefcase, Users } from 'lucide-react'; // Added Calendar, Info, Car, Briefcase, Users icon
 import { useAuth, User } from '@/contexts/AuthContext'; // Import User type
 import type { Trip } from './Trips/Trips';
 import {getLocalVisits as fetchLocalVisits, getLocalExpenses, getLocalFuelings, getLocalTrips, getLocalVehicles, LocalVehicle, LocalExpense, LocalFueling, LocalTrip, LocalVisit, getLocalRecordsByRole} from '@/services/localDbService';
@@ -239,7 +239,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
 
 
     const tripsByDriver: Record<string, { count: number; totalDistance: number; totalExpenses: number, name?: string }> = {};
-    const kmByDay: Record<string, number> = {};
 
     currentTripsSource.forEach(trip => {
       const driverIdFromTrip = trip.userId;
@@ -257,15 +256,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
       tripExpenses.forEach(expense => {
         tripsByDriver[aggregationKey].totalExpenses += expense.value;
       });
-
-      if (trip.status === 'Finalizado' && trip.totalDistance) {
-        try {
-            const tripDate = formatDateFn(parseISO(trip.createdAt), 'dd/MM/yyyy');
-            kmByDay[tripDate] = (kmByDay[tripDate] || 0) + trip.totalDistance;
-        } catch (e) {
-            console.warn("Could not parse trip createdAt for kmByDay:", trip.createdAt, e);
-        }
-      }
     });
 
 
@@ -274,16 +264,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
       .sort((a,b) => b.trips - a.trips)
       .slice(0, 10);
 
-    const chartableKmByDay = Object.entries(kmByDay)
-        .map(([date, km]) => ({ date, km }))
-        .sort((a,b) => {
-             try {
-                const dateA = parseISO(a.date.split('/').reverse().join('-'));
-                const dateB = parseISO(b.date.split('/').reverse().join('-'));
-                return dateA.getTime() - dateB.getTime();
-             } catch { return 0; }
-        })
-        .slice(-30);
 
     // Vehicle Performance Calculation
     const vehiclePerformance = vehicles.map(vehicle => {
@@ -293,7 +273,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         const totalFuelingCost = vehicleFuelings.reduce((sum, f) => sum + f.totalCost, 0);
         const totalLiters = vehicleFuelings.reduce((sum, f) => sum + f.liters, 0);
         
-        // Sort fuelings by date and odometer to calculate KM driven between fuelings and find latest fueling date
         const sortedFuelings = [...vehicleFuelings].sort((a, b) => {
             const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
             if (dateDiff !== 0) return dateDiff;
@@ -318,6 +297,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         const avgCostPerKm = kmDriven > 0 ? totalFuelingCost / kmDriven : 0;
         const avgKmPerLiter = totalLiters > 0 && kmDriven > 0 ? kmDriven / totalLiters : 0;
         const latestFuelingDate = sortedFuelings.length > 0 ? formatDateFn(parseISO(sortedFuelings[sortedFuelings.length - 1].date), 'dd/MM/yyyy') : 'N/A';
+        const latestPricePerLiter = sortedFuelings.length > 0 ? sortedFuelings[sortedFuelings.length - 1].pricePerLiter : 0;
+        const latestFuelType = sortedFuelings.length > 0 ? sortedFuelings[sortedFuelings.length - 1].fuelType : 'N/A';
 
 
         return {
@@ -329,6 +310,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
             avgCostPerKm,
             avgKmPerLiter,
             latestFuelingDate,
+            latestPricePerLiter,
+            latestFuelType,
         };
     }).sort((a,b) => b.kmDriven - a.kmDriven);
 
@@ -336,7 +319,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     const adminVisitsTableData: AdminVisitData[] = currentVisitsSource
       .map(visit => {
         const tripDetail = tripDetailsMap.get(visit.tripLocalId);
-        if (!tripDetail) return null; // Skip visit if its trip isn't in the filtered set
+        if (!tripDetail) return null; 
 
         const driverName = driverNameMap.get(tripDetail.userId) || 'Desconhecido';
         const vehicleName = vehicleNameMap.get(tripDetail.vehicleId) || 'Desconhecido';
@@ -357,7 +340,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
 
     return {
       tripsByDriver: chartableTripsByDriver,
-      kmByDay: chartableKmByDay,
       vehiclePerformance,
       adminVisitsTableData,
     };
@@ -473,6 +455,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                    <p className="text-xs text-muted-foreground">Total de veículos na frota</p>
                  </CardContent>
                </Card>
+                 <Card className="shadow-md transition-shadow hover:shadow-lg">
+                     <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                         <CardTitle className="text-sm font-medium">Motoristas</CardTitle>
+                         <Users className="h-5 w-5 text-muted-foreground cursor-pointer hover:text-primary"/>
+                     </CardHeader>
+                     <CardContent>
+                         <div className="text-2xl font-bold">{summaryData.totalDrivers}</div>
+                          <p className="text-xs text-muted-foreground">{filterDriverId ? 'Motorista filtrado' : 'Total de motoristas ativos'}</p>
+                     </CardContent>
+                 </Card>
              </>
            )}
         </div>
@@ -573,7 +565,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                                 <TableHead className="text-right">KM Total</TableHead>
                                 <TableHead className="text-right">Custo Médio / KM</TableHead>
                                 <TableHead className="text-right">Média KM / Litro</TableHead>
-                                <TableHead className="text-right">Último Abastecimento</TableHead>
+                                <TableHead className="text-right">Últ. Abastec. (Data)</TableHead>
+                                <TableHead className="text-right">Últ. Abastec. (Valor/L)</TableHead>
+                                <TableHead className="text-right">Últ. Abastec. (Tipo)</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -586,6 +580,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                                     <TableCell className="text-right">{formatCurrency(vehicleData.avgCostPerKm)}</TableCell>
                                     <TableCell className="text-right">{vehicleData.avgKmPerLiter.toFixed(2)} Km/L</TableCell>
                                     <TableCell className="text-right">{vehicleData.latestFuelingDate}</TableCell>
+                                    <TableCell className="text-right">{formatCurrency(vehicleData.latestPricePerLiter)}</TableCell>
+                                    <TableCell className="text-right">{vehicleData.latestFuelType}</TableCell>
                                 </TableRow>
                             ))}
                         </TableBody>
@@ -601,4 +597,3 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     </div>
   );
 };
-
