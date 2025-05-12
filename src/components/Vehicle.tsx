@@ -1,10 +1,10 @@
 // src/components/Vehicle.tsx
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Edit, Trash2, Car, CalendarDays, Gauge, Fuel, Milestone, Users, Loader2 } from 'lucide-react'; // Added Loader2
+import { PlusCircle, Edit, Trash2, Car, CalendarDays, Gauge, Fuel, Milestone, Users, Loader2, FileUp } from 'lucide-react'; // Added FileUp
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,39 +15,35 @@ import {
     updateLocalVehicle,
     deleteLocalVehicle,
     getLocalVehicles,
-    LocalVehicle, // Import LocalVehicle type
-    addLocalRecord, // Needed for saving fetched online data
-    updateLocalRecord, // Needed for updating fetched online data
-    // STORE_VEHICLES removed - not directly needed here
-} from '@/services/localDbService'; // Adjust imports
-import { getVehicles as fetchOnlineVehicles } from '@/services/firestoreService'; // Import getVehicles from firestoreService
-import { LoadingSpinner } from './LoadingSpinner'; // Import LoadingSpinner
-import { v4 as uuidv4 } from 'uuid'; // For generating local IDs
+    LocalVehicle,
+    addLocalRecord,
+    updateLocalRecord,
+} from '@/services/localDbService';
+import { getVehicles as fetchOnlineVehicles } from '@/services/firestoreService';
+import { LoadingSpinner } from './LoadingSpinner';
+import { v4 as uuidv4 } from 'uuid';
 
-// UI Interface maps from LocalVehicle
 export interface VehicleInfo extends Omit<LocalVehicle, 'syncStatus' | 'deleted' | 'localId'> {
-  id: string; // Represents localId or firebaseId in the UI
-  // UI doesn't need syncStatus or deleted directly, but keep them in LocalVehicle
+  id: string;
 }
 
 
 export const Vehicle: React.FC = () => {
-  const [vehicles, setVehicles] = useState<VehicleInfo[]>([]); // UI State uses VehicleInfo
+  const [vehicles, setVehicles] = useState<VehicleInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [currentVehicle, setCurrentVehicle] = useState<VehicleInfo | null>(null); // Use VehicleInfo
+  const [currentVehicle, setCurrentVehicle] = useState<VehicleInfo | null>(null);
   const [vehicleToDelete, setVehicleToDelete] = useState<VehicleInfo | null>(null);
   const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // --- Form State ---
   const [model, setModel] = useState('');
   const [year, setYear] = useState<number | ''>('');
   const [licensePlate, setLicensePlate] = useState('');
 
-  // Fetch vehicles on mount (from local first, then online if needed)
   useEffect(() => {
     const fetchVehiclesData = async () => {
       setLoading(true);
@@ -57,44 +53,36 @@ export const Vehicle: React.FC = () => {
                console.log("[Vehicle] No local vehicles, fetching online...");
                try {
                    const onlineVehicles = await fetchOnlineVehicles();
-                   // Save fetched vehicles locally
                     const savePromises = onlineVehicles.map(v => {
-                        const localId = `local_vehicle_${uuidv4()}`; // Generate local ID for potentially new vehicles
+                        const localId = `local_vehicle_${uuidv4()}`;
                         const localVehicleData: LocalVehicle = {
-                            ...(v as Omit<VehicleInfo, 'id'>), // Cast to base type first
-                            localId: localId, // Assign local ID
-                            firebaseId: v.id, // Store original Firebase ID
-                            id: v.id, // Use Firebase ID as the primary ID for VehicleInfo
+                            ...(v as Omit<VehicleInfo, 'id'>),
+                            localId: localId,
+                            firebaseId: v.id,
+                            id: v.id,
                             syncStatus: 'synced',
                             deleted: false
                         };
-                        // Use addLocalRecord or a similar function to upsert based on firebaseId
-                        // This example assumes updateLocalRecord can handle adding if not found based on localId,
-                        // or you'd need a more sophisticated upsert logic.
-                        // For simplicity, let's try adding, catching potential errors if it exists.
-                        return addLocalRecord('vehicles', localVehicleData).catch(async (err) => { // Pass store name directly
-                            // If add fails (e.g., unique constraint on firebaseId if indexed), try update
+                        return addLocalRecord('vehicles', localVehicleData).catch(async (err) => {
                             console.warn(`Vehicle ${v.id} might exist locally, attempting update.`);
                             const existing = await getLocalVehicles().then(vs => vs.find(lv => lv.firebaseId === v.id));
                             if (existing) {
-                                return updateLocalRecord('vehicles', { ...localVehicleData, localId: existing.localId }); // Pass store name
+                                return updateLocalRecord('vehicles', { ...localVehicleData, localId: existing.localId });
                             } else {
-                                // Rethrow if add failed and it wasn't found
                                 throw err;
                             }
                         });
                     });
                    await Promise.all(savePromises);
-                   localVehicles = await getLocalVehicles(); // Re-fetch after saving
+                   localVehicles = await getLocalVehicles();
 
-               } catch (fetchError: any) { // Correct catch syntax
+               } catch (fetchError: any) {
                    console.error("Error fetching/saving online vehicles:", fetchError);
                    toast({ variant: "destructive", title: "Erro Online", description: "Não foi possível buscar ou salvar veículos online." });
                }
           }
-          // Map LocalVehicle to VehicleInfo for UI, using firebaseId if available
           setVehicles(localVehicles.map(lv => ({
-                id: lv.firebaseId || lv.localId, // Prefer firebaseId for UI stability
+                id: lv.firebaseId || lv.localId,
                 model: lv.model,
                 year: lv.year,
                 licensePlate: lv.licensePlate
@@ -109,8 +97,37 @@ export const Vehicle: React.FC = () => {
     fetchVehiclesData();
   }, [toast]);
 
+  const _createNewVehicle = async (
+    vehicleModel: string,
+    vehicleYear: number,
+    vehicleLicensePlate: string
+  ): Promise<boolean> => {
+    const localId = `local_vehicle_${uuidv4()}`;
+    const newVehicleData: Omit<LocalVehicle, 'localId' | 'syncStatus' | 'deleted' | 'firebaseId'> = {
+      id: localId,
+      model: vehicleModel,
+      year: vehicleYear,
+      licensePlate: vehicleLicensePlate.toUpperCase(),
+    };
 
-  // --- Handlers ---
+    try {
+        const assignedLocalId = await addLocalVehicle(newVehicleData);
+        const createdVehicleUI: VehicleInfo = {
+             id: assignedLocalId,
+             model: newVehicleData.model,
+             year: newVehicleData.year,
+             licensePlate: newVehicleData.licensePlate,
+         };
+        setVehicles(prevVehicles => [createdVehicleUI, ...prevVehicles].sort((a,b)=> a.model.localeCompare(b.model)));
+        return true;
+    } catch (error) {
+        console.error("Error adding local vehicle:", error);
+        toast({ variant: "destructive", title: "Erro Local", description: `Não foi possível adicionar o veículo ${vehicleModel} (${vehicleLicensePlate}) localmente.` });
+        return false;
+    }
+  };
+
+
   const handleAddVehicle = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!model || !year || !licensePlate) {
@@ -121,39 +138,14 @@ export const Vehicle: React.FC = () => {
         toast({ variant: "destructive", title: "Erro", description: "Ano do veículo inválido." });
         return;
       }
-
-    const localId = `local_vehicle_${uuidv4()}`;
-
-    // Prepare data for LocalVehicle
-    const newVehicleData: Omit<LocalVehicle, 'localId' | 'syncStatus' | 'deleted' | 'firebaseId'> = {
-      // localId: localId, // localId is added by addLocalVehicle implicitly
-      id: localId, // Use localId also as the base ID initially
-      model,
-      year: Number(year),
-      licensePlate: licensePlate.toUpperCase(),
-    };
-
     setIsSaving(true);
-    try {
-        const assignedLocalId = await addLocalVehicle(newVehicleData); // Use specific add function
+    const success = await _createNewVehicle(model, Number(year), licensePlate);
+    setIsSaving(false);
 
-        // Optimistically update UI state
-        const createdVehicleUI: VehicleInfo = {
-             id: assignedLocalId, // Use returned localId for the UI
-             model: newVehicleData.model,
-             year: newVehicleData.year,
-             licensePlate: newVehicleData.licensePlate,
-         };
-        setVehicles(prevVehicles => [createdVehicleUI, ...prevVehicles].sort((a,b)=> a.model.localeCompare(b.model)));
-
+    if(success){
         resetForm();
         setIsCreateModalOpen(false);
         toast({ title: "Veículo adicionado localmente!" });
-    } catch (error) {
-        console.error("Error adding local vehicle:", error);
-        toast({ variant: "destructive", title: "Erro Local", description: "Não foi possível adicionar o veículo localmente." });
-    } finally {
-        setIsSaving(false);
     }
   };
 
@@ -169,7 +161,6 @@ export const Vehicle: React.FC = () => {
            return;
          }
 
-     // Find original local record using the UI ID (which could be firebaseId or localId)
       const originalLocalVehicle = await getLocalVehicles().then(vehicles => vehicles.find(v => v.localId === currentVehicle.id || v.firebaseId === currentVehicle.id));
 
        if (!originalLocalVehicle) {
@@ -179,21 +170,19 @@ export const Vehicle: React.FC = () => {
 
 
      const updatedLocalData: LocalVehicle = {
-       ...originalLocalVehicle, // Preserve syncStatus, firebaseId, localId etc.
+       ...originalLocalVehicle,
        model,
        year: Number(year),
        licensePlate: licensePlate.toUpperCase(),
        syncStatus: originalLocalVehicle.syncStatus === 'synced' ? 'pending' : originalLocalVehicle.syncStatus,
-       id: originalLocalVehicle.id, // Keep original ID from local record
+       id: originalLocalVehicle.id,
      };
 
      setIsSaving(true);
      try {
          await updateLocalVehicle(updatedLocalData);
-
-          // Update UI state
           const updatedVehicleUI: VehicleInfo = {
-             id: currentVehicle.id, // Keep the ID used in the UI
+             id: currentVehicle.id,
              model: updatedLocalData.model,
              year: updatedLocalData.year,
              licensePlate: updatedLocalData.licensePlate
@@ -214,8 +203,6 @@ export const Vehicle: React.FC = () => {
 
    const confirmDeleteVehicle = async () => {
         if (!vehicleToDelete) return;
-
-         // Find original local record using the UI ID
         const originalLocalVehicle = await getLocalVehicles().then(vehicles => vehicles.find(v => v.localId === vehicleToDelete.id || v.firebaseId === vehicleToDelete.id));
 
         if (!originalLocalVehicle) {
@@ -226,14 +213,8 @@ export const Vehicle: React.FC = () => {
 
         setIsSaving(true);
         try {
-            // TODO: Prevent local deletion if vehicle is in use by local trips?
-
-            await deleteLocalVehicle(originalLocalVehicle.localId); // Use localId to mark for deletion
-
-             // Update UI state by filtering based on the ID used in the UI
+            await deleteLocalVehicle(originalLocalVehicle.localId);
             setVehicles(prevVehicles => prevVehicles.filter(v => v.id !== vehicleToDelete.id));
-
-
             toast({ title: "Veículo marcado para exclusão localmente." });
             closeDeleteModal();
         } catch (error) {
@@ -280,45 +261,169 @@ export const Vehicle: React.FC = () => {
       setCurrentVehicle(null);
     }
 
+  const handleFileImport = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) {
+        toast({ variant: 'destructive', title: 'Nenhum arquivo selecionado.' });
+        return;
+    }
+    if (file.type !== 'text/csv') {
+        toast({ variant: 'destructive', title: 'Tipo de arquivo inválido.', description: 'Por favor, selecione um arquivo CSV.' });
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+        const csvString = e.target?.result as string;
+        if (csvString) {
+            await processImportedCsv(csvString);
+        } else {
+            toast({ variant: 'destructive', title: 'Erro ao ler arquivo.' });
+        }
+    };
+    reader.onerror = () => {
+        toast({ variant: 'destructive', title: 'Erro ao ler arquivo.' });
+    };
+    reader.readAsText(file);
+    if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+    }
+  };
+
+  const processImportedCsv = async (csvString: string) => {
+    const lines = csvString.split(/\r\n|\n/).filter(line => line.trim() !== '');
+    if (lines.length < 2) {
+        toast({ variant: 'destructive', title: 'Arquivo CSV inválido', description: 'O arquivo deve conter um cabeçalho e pelo menos uma linha de dados.' });
+        return;
+    }
+
+    const header = lines[0].split(',').map(h => h.trim().toLowerCase()); // Standardize header names
+    const modeloIndex = header.indexOf('modelo');
+    const placaIndex = header.indexOf('placa');
+    const anoIndex = header.indexOf('ano'); // Check for 'Ano' column
+
+    if (modeloIndex === -1 || placaIndex === -1) {
+        toast({ variant: 'destructive', title: 'Cabeçalho CSV inválido', description: 'Esperado: Modelo, Placa (Ano é opcional).' });
+        return;
+    }
+
+    let successCount = 0;
+    let errorCount = 0;
+    const errors: string[] = [];
+
+    setIsSaving(true);
+
+    for (let i = 1; i < lines.length; i++) {
+        const values = lines[i].split(',').map(v => v.trim());
+        const vehicleModel = values[modeloIndex];
+        const vehicleLicensePlate = values[placaIndex];
+        const vehicleYearString = anoIndex !== -1 ? values[anoIndex] : null;
+        
+        let vehicleYear = new Date().getFullYear(); // Default to current year
+        if (vehicleYearString) {
+            const parsedYear = parseInt(vehicleYearString, 10);
+            if (!isNaN(parsedYear) && parsedYear > 1900 && parsedYear <= new Date().getFullYear() + 1) {
+                vehicleYear = parsedYear;
+            } else {
+                errors.push(`Linha ${i + 1}: Ano '${vehicleYearString}' inválido para ${vehicleModel} (${vehicleLicensePlate}). Usando ano atual.`);
+            }
+        }
+
+
+        if (!vehicleModel || !vehicleLicensePlate) {
+            errors.push(`Linha ${i + 1}: Modelo ou Placa faltando.`);
+            errorCount++;
+            continue;
+        }
+
+        // Basic license plate format validation (optional, can be more robust)
+        if (!/^[A-Z0-9]{6,7}$/i.test(vehicleLicensePlate.replace(/-/g, ''))) {
+             errors.push(`Linha ${i + 1}: Formato de placa inválido para ${vehicleLicensePlate}.`);
+             errorCount++;
+             continue;
+        }
+
+
+        const created = await _createNewVehicle(vehicleModel, vehicleYear, vehicleLicensePlate);
+        if (created) {
+            successCount++;
+        } else {
+            errorCount++;
+            // _createNewVehicle already shows a toast for specific creation errors
+        }
+    }
+    setIsSaving(false);
+
+    if (successCount > 0) {
+        toast({ title: 'Importação Concluída', description: `${successCount} veículo(s) importado(s) com sucesso.` });
+    }
+    if (errorCount > 0 || errors.length > 0) {
+        const detailedErrors = errors.slice(0,3).join('; ') + (errors.length > 3 ? '...' : '');
+        toast({
+            variant: 'destructive',
+            title: 'Erros na Importação',
+            description: `${errorCount} veículo(s) não puderam ser importados. ${detailedErrors ? `Detalhes: ${detailedErrors}` : ''}`,
+            duration: 10000
+        });
+    }
+    if (successCount === 0 && errorCount === 0 && lines.length > 1) {
+        toast({ variant: 'default', title: 'Importação', description: 'Nenhum veículo novo para importar ou todos já existem.' });
+    }
+  };
+
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-semibold">Gerenciar Veículos</h2>
-        <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
-          <DialogTrigger asChild>
-             <Button onClick={() => { resetForm(); setIsCreateModalOpen(true); }} className="bg-primary hover:bg-primary/90 text-primary-foreground" disabled={isSaving}>
-              <PlusCircle className="mr-2 h-4 w-4" /> Cadastrar Veículo
+        <div className="flex gap-2">
+            <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileImport}
+                accept=".csv"
+                className="hidden"
+                id="import-csv-vehicles-input"
+            />
+            <Button onClick={() => fileInputRef.current?.click()} variant="outline" className="text-primary-foreground bg-green-600 hover:bg-green-700" disabled={isSaving}>
+                <FileUp className="mr-2 h-4 w-4" /> Importar Veículos
             </Button>
-          </DialogTrigger>
-          <DialogContent className="sm:max-w-[425px]">
-            <DialogHeader>
-              <DialogTitle>Cadastrar Novo Veículo</DialogTitle>
-            </DialogHeader>
-            <form onSubmit={handleAddVehicle} className="grid gap-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="model">Modelo*</Label>
-                <Input id="model" value={model} onChange={(e) => setModel(e.target.value)} required placeholder="Ex: Scania R450" disabled={isSaving} />
-              </div>
-              <div className="space-y-2">
-                 <Label htmlFor="year">Ano*</Label>
-                 <Input id="year" type="number" value={year} onChange={(e) => setYear(Number(e.target.value) > 0 ? Number(e.target.value) : '')} required placeholder="Ex: 2023" min="1900" max={new Date().getFullYear() + 1} disabled={isSaving}/>
-               </div>
-               <div className="space-y-2">
-                 <Label htmlFor="licensePlate">Placa*</Label>
-                 <Input id="licensePlate" value={licensePlate} onChange={(e) => setLicensePlate(e.target.value)} required placeholder="Ex: BRA2E19" disabled={isSaving}/>
-               </div>
-              <DialogFooter>
-                 <DialogClose asChild>
-                    <Button type="button" variant="outline" onClick={closeCreateModal} disabled={isSaving}>Cancelar</Button>
-                 </DialogClose>
-                 <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isSaving}>
-                    {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                    {isSaving ? 'Salvando...' : 'Salvar Veículo Local'}
-                 </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+            <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
+              <DialogTrigger asChild>
+                 <Button onClick={() => { resetForm(); setIsCreateModalOpen(true); }} className="bg-primary hover:bg-primary/90 text-primary-foreground" disabled={isSaving}>
+                  <PlusCircle className="mr-2 h-4 w-4" /> Cadastrar Veículo
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-[425px]">
+                <DialogHeader>
+                  <DialogTitle>Cadastrar Novo Veículo</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleAddVehicle} className="grid gap-4 py-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="model">Modelo*</Label>
+                    <Input id="model" value={model} onChange={(e) => setModel(e.target.value)} required placeholder="Ex: Scania R450" disabled={isSaving} />
+                  </div>
+                  <div className="space-y-2">
+                     <Label htmlFor="year">Ano*</Label>
+                     <Input id="year" type="number" value={year} onChange={(e) => setYear(Number(e.target.value) > 0 ? Number(e.target.value) : '')} required placeholder="Ex: 2023" min="1900" max={new Date().getFullYear() + 1} disabled={isSaving}/>
+                   </div>
+                   <div className="space-y-2">
+                     <Label htmlFor="licensePlate">Placa*</Label>
+                     <Input id="licensePlate" value={licensePlate} onChange={(e) => setLicensePlate(e.target.value.toUpperCase())} required placeholder="Ex: BRA2E19" disabled={isSaving}/>
+                   </div>
+                  <DialogFooter>
+                     <DialogClose asChild>
+                        <Button type="button" variant="outline" onClick={closeCreateModal} disabled={isSaving}>Cancelar</Button>
+                     </DialogClose>
+                     <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isSaving}>
+                        {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        {isSaving ? 'Salvando...' : 'Salvar Veículo Local'}
+                     </Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+        </div>
       </div>
 
        {loading ? (
@@ -329,8 +434,6 @@ export const Vehicle: React.FC = () => {
          <Card className="text-center py-10 bg-card border border-border shadow-sm rounded-lg">
            <CardContent>
              <p className="text-muted-foreground">Nenhum veículo encontrado localmente.</p>
-             {/* Option to fetch online if needed */}
-             {/* <Button variant="link" onClick={fetchVehiclesData} className="mt-2 text-primary">Tentar buscar online</Button> */}
            </CardContent>
          </Card>
        ) : (
@@ -346,12 +449,8 @@ export const Vehicle: React.FC = () => {
                    <CardDescription className="text-sm text-muted-foreground flex items-center gap-1">
                        <CalendarDays className="h-3 w-3" /> Ano: {vehicle.year}
                    </CardDescription>
-                    {/* Display sync status if relevant (fetch original local record if needed) */}
-                   {/* {vehicle.syncStatus === 'pending' && <Badge variant="outline" className="mt-1 text-xs border-yellow-500 text-yellow-700">Pendente</Badge>}
-                   {vehicle.syncStatus === 'error' && <Badge variant="destructive" className="mt-1 text-xs">Erro Sinc</Badge>} */}
                 </div>
                  <div className="flex gap-1">
-                     {/* Edit Button */}
                      <Dialog open={isEditModalOpen && currentVehicle?.id === vehicle.id} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); else openEditModal(vehicle); }}>
                        <DialogTrigger asChild>
                          <Button variant="ghost" size="icon" onClick={() => openEditModal(vehicle)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving}>
@@ -374,7 +473,7 @@ export const Vehicle: React.FC = () => {
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="editLicensePlate">Placa*</Label>
-                                <Input id="editLicensePlate" value={licensePlate} onChange={(e) => setLicensePlate(e.target.value)} required disabled={isSaving} />
+                                <Input id="editLicensePlate" value={licensePlate} onChange={(e) => setLicensePlate(e.target.value.toUpperCase())} required disabled={isSaving} />
                             </div>
                            <DialogFooter>
                               <DialogClose asChild>
@@ -389,7 +488,6 @@ export const Vehicle: React.FC = () => {
                        </DialogContent>
                      </Dialog>
 
-                     {/* Delete Button */}
                       <AlertDialog open={isDeleteModalOpen && vehicleToDelete?.id === vehicle.id} onOpenChange={(isOpen) => !isOpen && closeDeleteModal()}>
                         <AlertDialogTrigger asChild>
                           <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => openDeleteModal(vehicle)} disabled={isSaving}>
