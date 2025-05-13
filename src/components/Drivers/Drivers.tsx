@@ -90,6 +90,7 @@ export const Drivers: React.FC = () => {
                         }
                     } catch (onlineError: any) {
                         console.error("[Drivers] Error fetching online drivers:", onlineError);
+                        toast({ variant: "destructive", title: "Erro Online", description: `Não foi possível carregar motoristas online: ${onlineError.message}` });
                         // If local data was loaded, keep it, otherwise set empty
                         if(localDriversData.length === 0) setDrivers([]);
                     }
@@ -100,6 +101,10 @@ export const Drivers: React.FC = () => {
                 }
             } catch (localError: any) {
                 console.error("[Drivers] Error fetching local drivers:", localError);
+                // Do not show toast for common errors like "Failed to fetch" if it's just an offline scenario and local data is missing
+                if (!(localError.message.includes("Failed to fetch") || localError.message.includes("NetworkError"))) {
+                     toast({ variant: "destructive", title: "Erro Local", description: `Não foi possível carregar motoristas locais: ${localError.message}` });
+                }
                  setDrivers([]); // Set empty on local error
             } finally {
                 setLoadingDrivers(false);
@@ -160,7 +165,11 @@ export const Drivers: React.FC = () => {
                            toast({ variant: "destructive", title: "Erro Online", description: "O formato do e-mail é inválido para cadastro online.", duration: 7000 });
                            setIsSaving(false);
                            return false;
-                      }
+                      } else if (authError.code === 'auth/operation-not-allowed' || authError.code === 'auth/missing-api-key' || authError.code === 'auth/unauthorized-domain' || authError.code === 'auth/configuration-not-found') {
+                        toast({ variant: "destructive", title: "Erro Configuração Firebase", description: `(${authError.code}) Verifique as configurações do Firebase.`, duration: 7000 });
+                        setIsSaving(false);
+                        return false;
+                    }
                  }
              } else {
                   console.log("[Drivers] Offline or Auth unavailable, creating user locally only.");
@@ -200,7 +209,7 @@ export const Drivers: React.FC = () => {
         } catch (error: any) {
             console.error("[Drivers] Error in _createNewDriver:", error);
             let description = `Ocorreu um erro ao cadastrar o motorista: ${error.message}`;
-            if (!(error.code?.startsWith('auth/'))) {
+            if (!(error.code?.startsWith('auth/'))) { // Avoid double-toasting for Firebase auth errors
                  toast({ variant: "destructive", title: "Erro no Cadastro", description });
             }
             return false;
