@@ -90,9 +90,6 @@ export const Drivers: React.FC = () => {
                         }
                     } catch (onlineError: any) {
                         console.error("[Drivers] Error fetching online drivers:", onlineError);
-                        if (localDriversData.length === 0) { // Only toast if there were no local ones either
-                            // toast({ variant: "destructive", title: "Erro Online", description: `Não foi possível carregar motoristas online.` });
-                        }
                         // If local data was loaded, keep it, otherwise set empty
                         if(localDriversData.length === 0) setDrivers([]);
                     }
@@ -103,8 +100,7 @@ export const Drivers: React.FC = () => {
                 }
             } catch (localError: any) {
                 console.error("[Drivers] Error fetching local drivers:", localError);
-                toast({ variant: "destructive", title: "Erro Local", description: `Não foi possível carregar motoristas locais: ${localError.message}` });
-                setDrivers([]); // Set empty on local error
+                 setDrivers([]); // Set empty on local error
             } finally {
                 setLoadingDrivers(false);
             }
@@ -165,7 +161,6 @@ export const Drivers: React.FC = () => {
                            setIsSaving(false);
                            return false;
                       }
-                      // toast({ variant: "destructive", title: "Aviso Online", description: `Falha ao criar usuário online (${authError.code}). O usuário será criado apenas localmente.`, duration: 7000 });
                  }
              } else {
                   console.log("[Drivers] Offline or Auth unavailable, creating user locally only.");
@@ -205,7 +200,6 @@ export const Drivers: React.FC = () => {
         } catch (error: any) {
             console.error("[Drivers] Error in _createNewDriver:", error);
             let description = `Ocorreu um erro ao cadastrar o motorista: ${error.message}`;
-            // Avoid double-toasting for Firebase auth errors already handled
             if (!(error.code?.startsWith('auth/'))) {
                  toast({ variant: "destructive", title: "Erro no Cadastro", description });
             }
@@ -647,10 +641,10 @@ export const Drivers: React.FC = () => {
                                                 <div className="space-y-2">
                                                     <Label htmlFor="editEmail">E-mail*</Label>
                                                     <Input id="editEmail" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required
-                                                        disabled={isSaving || !driver.id.startsWith('local_')} // Disable email edit for non-local (Firebase) users
-                                                        title={!driver.id.startsWith('local_') ? "Alteração de e-mail deve ser feita pelo perfil do motorista." : ""}
+                                                        disabled={isSaving || (driver && !driver.id.startsWith('local_'))} // Disable email edit for non-local (Firebase) users
+                                                        title={(driver && !driver.id.startsWith('local_')) ? "Alteração de e-mail deve ser feita pelo perfil do motorista." : ""}
                                                     />
-                                                     {!driver.id.startsWith('local_') && (
+                                                     {(driver && !driver.id.startsWith('local_')) && (
                                                         <p className="text-xs text-muted-foreground">Alteração de e-mail indisponível aqui para contas online.</p>
                                                       )}
                                                 </div>
