@@ -4,15 +4,16 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Edit, Trash2, User, Mail, Hash, Lock, Building, Loader2, UploadCloud, FileUp } from 'lucide-react'; // Added FileUp
+import { PlusCircle, Edit, Trash2, User, Mail, Hash, Lock, Building, Loader2, UploadCloud, FileUp } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '@/lib/firebase'; // Reverted to alias path
-import { getDrivers as fetchOnlineDrivers, addUser, updateUser, deleteUser, getUserData } from '@/services/firestoreService';
+// Removed Firebase Auth and firestoreService imports for user management as we are moving to local-only
+// import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+// import { auth } from '@/lib/firebase';
+// import { getDrivers as fetchOnlineDrivers, addUser, updateUser, deleteUser, getUserData } from '@/services/firestoreService';
 import {
     getLocalUser,
     saveLocalUser,
@@ -21,9 +22,9 @@ import {
     openDB,
     STORE_USERS,
     getLocalUserByEmail,
-    getLocalRecordsByRole,
+    getLocalRecordsByRole, // Keep this for fetching local drivers
+    addLocalRecord, // Keep for adding users
     updateLocalRecord,
-    addLocalRecord
 } from '@/services/localDbService';
 import type { DriverInfo, User as AppUser } from '@/contexts/AuthContext';
 import { LoadingSpinner } from '../LoadingSpinner';
@@ -61,40 +62,42 @@ export const Drivers: React.FC = () => {
                     setDrivers(localDriversData.map(({ passwordHash, ...driverData }) => driverData as Driver));
                 }
 
-                if (localDriversData.length === 0 && navigator.onLine) {
-                    console.log("[Drivers] No local drivers found, fetching online...");
-                    try {
-                        const onlineDriversData = await fetchOnlineDrivers();
-                        console.log(`[Drivers] Found ${onlineDriversData.length} drivers online.`);
+                // Remove online fetching logic as Firebase is considered removed for this context
+                // if (localDriversData.length === 0 && navigator.onLine) {
+                //     console.log("[Drivers] No local drivers found, fetching online...");
+                //     try {
+                //         const onlineDriversData = await fetchOnlineDrivers();
+                //         console.log(`[Drivers] Found ${onlineDriversData.length} drivers online.`);
 
-                        if (onlineDriversData.length > 0) {
-                            const savePromises = onlineDriversData.map(async (driver) => {
-                                const existingLocal = await getLocalUser(driver.id).catch(() => null);
-                                const localUserData: DbUser = {
-                                    ...driver,
-                                    id: driver.id,
-                                    passwordHash: existingLocal?.passwordHash || '', // Keep existing hash or set empty
-                                    lastLogin: existingLocal?.lastLogin || new Date().toISOString(),
-                                };
-                                try {
-                                    await saveLocalUser(localUserData);
-                                } catch (saveError) {
-                                     console.error(`[Drivers] Error saving/updating driver ${driver.id} locally:`, saveError);
-                                }
-                            });
-                            await Promise.all(savePromises);
-                            console.log("[Drivers] Updated local DB with online drivers.");
-                            setDrivers(onlineDriversData); // Set UI state with fetched drivers
-                        } else {
-                             setDrivers([]); // No online drivers, set empty
-                        }
-                    } catch (onlineError: any) {
-                        console.error("[Drivers] Error fetching online drivers:", onlineError);
-                        toast({ variant: "destructive", title: "Erro Online", description: `Não foi possível carregar motoristas online: ${onlineError.message}` });
-                        // If local data was loaded, keep it, otherwise set empty
-                        if(localDriversData.length === 0) setDrivers([]);
-                    }
-                } else if (localDriversData.length === 0 && !navigator.onLine) {
+                //         if (onlineDriversData.length > 0) {
+                //             const savePromises = onlineDriversData.map(async (driver) => {
+                //                 const existingLocal = await getLocalUser(driver.id).catch(() => null);
+                //                 const localUserData: DbUser = {
+                //                     ...driver,
+                //                     id: driver.id,
+                //                     passwordHash: existingLocal?.passwordHash || '', // Keep existing hash or set empty
+                //                     lastLogin: existingLocal?.lastLogin || new Date().toISOString(),
+                //                 };
+                //                 try {
+                //                     await saveLocalUser(localUserData);
+                //                 } catch (saveError) {
+                //                      console.error(`[Drivers] Error saving/updating driver ${driver.id} locally:`, saveError);
+                //                 }
+                //             });
+                //             await Promise.all(savePromises);
+                //             console.log("[Drivers] Updated local DB with online drivers.");
+                //             setDrivers(onlineDriversData); // Set UI state with fetched drivers
+                //         } else {
+                //              setDrivers([]); // No online drivers, set empty
+                //         }
+                //     } catch (onlineError: any) {
+                //         console.error("[Drivers] Error fetching online drivers:", onlineError);
+                //         toast({ variant: "destructive", title: "Erro Online", description: `Não foi possível carregar motoristas online: ${onlineError.message}` });
+                //         // If local data was loaded, keep it, otherwise set empty
+                //         if(localDriversData.length === 0) setDrivers([]);
+                //     }
+                // } else
+                if (localDriversData.length === 0) { // Simplified: if no local drivers, set empty
                      console.log("[Drivers] Offline and no local drivers found.");
                      setDrivers([]);
                      toast({ variant: "default", title: "Offline", description: "Nenhum motorista local encontrado. Conecte-se para buscar online." });
@@ -121,8 +124,7 @@ export const Drivers: React.FC = () => {
         driverBase: string,
         driverPassword: string
     ): Promise<boolean> => {
-        setIsSaving(true);
-        let firebaseUserId: string | undefined = undefined;
+        setIsSaving(true);        
         try {
             let emailExistsLocally = false;
             let usernameExistsLocally = false;
@@ -150,52 +152,30 @@ export const Drivers: React.FC = () => {
                 return false;
             }
 
-            if (navigator.onLine && auth) {
-                 try {
-                     const userCredential = await createUserWithEmailAndPassword(auth, driverEmail, driverPassword);
-                     firebaseUserId = userCredential.user.uid;
-                     console.log(`[Drivers] Firebase Auth user created: ${firebaseUserId}`);
-                 } catch (authError: any) {
-                      console.warn(`[Drivers] Firebase Auth user creation failed: ${authError.code}. Proceeding with local creation.`);
-                      if (authError.code === 'auth/email-already-in-use') {
-                           toast({ variant: "destructive", title: "Erro Online", description: "Este e-mail já está em uso online. Tente um e-mail diferente ou faça login.", duration: 7000 });
-                           setIsSaving(false);
-                           return false;
-                      } else if (authError.code === 'auth/invalid-email') {
-                           toast({ variant: "destructive", title: "Erro Online", description: "O formato do e-mail é inválido para cadastro online.", duration: 7000 });
-                           setIsSaving(false);
-                           return false;
-                      } else if (authError.code === 'auth/operation-not-allowed' || authError.code === 'auth/missing-api-key' || authError.code === 'auth/unauthorized-domain' || authError.code === 'auth/configuration-not-found') {
-                        toast({ variant: "destructive", title: "Erro Configuração Firebase", description: `(${authError.code}) Verifique as configurações do Firebase.`, duration: 7000 });
-                        setIsSaving(false);
-                        return false;
-                    }
-                 }
-             } else {
-                  console.log("[Drivers] Offline or Auth unavailable, creating user locally only.");
-             }
-
-            const userId = firebaseUserId || `local_user_${uuidv4()}`;
-            const userDataForDb: Omit<DbUser, 'passwordHash' | 'lastLogin'> = {
-                id: userId,
+            // Removed Firebase user creation logic
+            // const userId = firebaseUserId || `local_user_${uuidv4()}`;
+            const userId = `local_user_${uuidv4()}`; // Always generate local ID
+            const userDataForDb: Omit<DbUser, 'passwordHash' | 'lastLogin' | 'id'> = { // id will be part of localUserData
                 name: driverName,
                 username: driverUsername,
                 email: driverEmail,
                 base: driverBase.toUpperCase(),
                 role: 'driver',
             };
-
-              if (firebaseUserId && navigator.onLine) {
-                  try {
-                      await addUser(firebaseUserId, userDataForDb); // addUser now accepts Omit<User, 'id'>
-                      console.log(`[Drivers] Firestore document created for ${firebaseUserId}`);
-                  } catch (firestoreError) {
-                      console.error(`[Drivers] Error creating Firestore document for ${firebaseUserId}:`, firestoreError);
-                      toast({ variant: "destructive", title: "Erro Online", description: "Falha ao salvar dados do motorista online. A conta local foi criada.", duration: 7000 });
-                  }
-              }
+            
+            // Removed Firestore document creation logic
+            //   if (firebaseUserId && navigator.onLine) {
+            //       try {
+            //           await addUser(firebaseUserId, userDataForDb); // addUser now accepts Omit<User, 'id'>
+            //           console.log(`[Drivers] Firestore document created for ${firebaseUserId}`);
+            //       } catch (firestoreError) {
+            //           console.error(`[Drivers] Error creating Firestore document for ${firebaseUserId}:`, firestoreError);
+            //           toast({ variant: "destructive", title: "Erro Online", description: "Falha ao salvar dados do motorista online. A conta local foi criada.", duration: 7000 });
+            //       }
+            //   }
 
              const localUserData: DbUser = {
+                  id: userId,
                   ...userDataForDb,
                   passwordHash: await bcrypt.hash(driverPassword, 10),
                   lastLogin: new Date().toISOString(),
@@ -203,15 +183,15 @@ export const Drivers: React.FC = () => {
              await saveLocalUser(localUserData);
              console.log(`[Drivers] User saved locally with ID: ${userId}`);
 
-            const newDriverUI: Driver = { ...userDataForDb }; // UI object doesn't need passwordHash
+            const newDriverUI: Driver = { id: userId, ...userDataForDb }; // UI object doesn't need passwordHash
             setDrivers(prevDrivers => [newDriverUI, ...prevDrivers].sort((a,b)=> (a.name || '').localeCompare(b.name || '')));
             return true;
         } catch (error: any) {
             console.error("[Drivers] Error in _createNewDriver:", error);
             let description = `Ocorreu um erro ao cadastrar o motorista: ${error.message}`;
-            if (!(error.code?.startsWith('auth/'))) { // Avoid double-toasting for Firebase auth errors
-                 toast({ variant: "destructive", title: "Erro no Cadastro", description });
-            }
+            // if (!(error.code?.startsWith('auth/'))) { // Firebase auth errors no longer relevant here
+            toast({ variant: "destructive", title: "Erro no Cadastro", description });
+            // }
             return false;
         } finally {
             setIsSaving(false);
@@ -296,13 +276,13 @@ export const Drivers: React.FC = () => {
                 role: 'driver', // Role is fixed for drivers in this context
             };
 
-            // Prevent email change for non-local users directly here
-            if (originalLocalUser.id.startsWith('local_') === false && email !== originalLocalUser.email) {
-                 toast({ variant: "destructive", title: "Aviso", description: "Alteração de e-mail para contas online deve ser feita no perfil do motorista." });
-                 setEmail(originalLocalUser.email); // Revert email change
-                 setIsSaving(false);
-                 return;
-            }
+            // // Prevent email change for non-local users directly here - No longer relevant if Firebase is removed
+            // if (originalLocalUser.id.startsWith('local_') === false && email !== originalLocalUser.email) {
+            //      toast({ variant: "destructive", title: "Aviso", description: "Alteração de e-mail para contas online deve ser feita no perfil do motorista." });
+            //      setEmail(originalLocalUser.email); // Revert email change
+            //      setIsSaving(false);
+            //      return;
+            // }
 
             const updatedLocalData: DbUser = {
                 ...originalLocalUser,
@@ -652,10 +632,11 @@ export const Drivers: React.FC = () => {
                                                     <Input id="editEmail" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required
                                                         disabled={isSaving || (driver && !driver.id.startsWith('local_'))} // Disable email edit for non-local (Firebase) users
                                                         title={(driver && !driver.id.startsWith('local_')) ? "Alteração de e-mail deve ser feita pelo perfil do motorista." : ""}
-                                                    />
-                                                     {(driver && !driver.id.startsWith('local_')) && (
+                                                    />                                                    
+                                                     {/* Commenting out Firebase specific message, as it's local only now */}
+                                                     {/* {(driver && !driver.id.startsWith('local_')) && (
                                                         <p className="text-xs text-muted-foreground">Alteração de e-mail indisponível aqui para contas online.</p>
-                                                      )}
+                                                      )} */}
                                                 </div>
                                                  <div className="space-y-2">
                                                     <Label htmlFor="editBase">Base*</Label>
