@@ -27,10 +27,10 @@ export interface VehicleInfo extends Omit<LocalVehicle, 'syncStatus' | 'deleted'
 
 // Helper function to parse CSV data with improved logging and quote handling
 const parseVehicleCSV = (csvText: string): Record<string, string>[] => {
-    console.log("[parseVehicleCSV] Starting CSV parsing.");
-    const lines = csvText.trim().replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n'); // Normalize line endings
+    console.log("[parseVehicleCSV] Starting CSV parsing. Raw text preview:", csvText.substring(0, 200));
+    const lines = csvText.trim().replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
     if (lines.length < 2) {
-        console.log("[parseVehicleCSV] CSV has less than 2 lines (header + data). Returning empty.");
+        console.warn("[parseVehicleCSV] CSV has less than 2 lines (header + data). Returning empty.");
         return [];
     }
 
@@ -48,14 +48,19 @@ const parseVehicleCSV = (csvText: string): Record<string, string>[] => {
         'year': 'ano'
     };
 
-    const header = headerLine.split(',').map(h => {
+    // Get actual headers from the CSV
+    const actualHeaders = headerLine.split(',').map(h => {
       let cleanHeader = h.trim();
       if (cleanHeader.startsWith('"') && cleanHeader.endsWith('"')) {
         cleanHeader = cleanHeader.substring(1, cleanHeader.length - 1).trim();
       }
-      return headerMap[cleanHeader.toLowerCase()] || cleanHeader.toLowerCase();
+      return cleanHeader.toLowerCase(); // Use actual lowercase header from CSV for mapping
     });
-    console.log("[parseVehicleCSV] Processed Headers:", JSON.stringify(header));
+    console.log("[parseVehicleCSV] Actual Headers from CSV:", JSON.stringify(actualHeaders));
+
+    const normalizedHeaders = actualHeaders.map(h => headerMap[h] || h);
+    console.log("[parseVehicleCSV] Normalized Headers for internal use:", JSON.stringify(normalizedHeaders));
+
 
     const data = [];
     for (let i = 1; i < lines.length; i++) {
@@ -64,45 +69,43 @@ const parseVehicleCSV = (csvText: string): Record<string, string>[] => {
             console.log(`[parseVehicleCSV] Skipping empty line ${i + 1}.`);
             continue;
         }
-        console.log(`[parseVehicleCSV] Processing data line ${i + 1}:`, line);
+        // console.log(`[parseVehicleCSV] Processing data line ${i + 1}:`, line);
 
         const values = line.split(',');
-        console.log(`[parseVehicleCSV] Values after split for line ${i + 1}:`, JSON.stringify(values));
+        // console.log(`[parseVehicleCSV] Values after split for line ${i + 1}:`, JSON.stringify(values));
 
         const entry: Record<string, string> = {};
         let hasModelo = false;
         let hasPlaca = false;
 
-        for (let j = 0; j < header.length; j++) {
-            const headerName = header[j];
+        for (let j = 0; j < actualHeaders.length; j++) { // Iterate up to the number of actual headers found
+            const normalizedHeaderName = normalizedHeaders[j]; // Use the normalized header name for the key in `entry`
             let value = values[j]?.trim() || '';
             if (value.startsWith('"') && value.endsWith('"')) {
               value = value.substring(1, value.length - 1).trim();
             }
-            entry[headerName] = value;
-            if (headerName === 'modelo' && value) hasModelo = true;
-            if (headerName === 'placa' && value) hasPlaca = true;
+            entry[normalizedHeaderName] = value; // Use normalized header for consistent access
+            if (normalizedHeaderName === 'modelo' && value) hasModelo = true;
+            if (normalizedHeaderName === 'placa' && value) hasPlaca = true;
         }
-        console.log(`[parseVehicleCSV] Parsed entry for line ${i + 1}:`, JSON.stringify(entry));
-        console.log(`[parseVehicleCSV] Line ${i + 1} - hasModelo: ${hasModelo}, hasPlaca: ${hasPlaca}`);
+        // console.log(`[parseVehicleCSV] Parsed entry for line ${i + 1}:`, JSON.stringify(entry));
+        // console.log(`[parseVehicleCSV] Line ${i + 1} - hasModelo: ${hasModelo}, hasPlaca: ${hasPlaca}`);
 
+        // Check if the *normalized* essential headers 'modelo' and 'placa' were found AND have values
+        const modeloValue = entry['modelo'];
+        const placaValue = entry['placa'];
 
-        const modeloHeaderExists = header.includes('modelo');
-        const placaHeaderExists = header.includes('placa');
-
-        if (modeloHeaderExists && placaHeaderExists && hasModelo && hasPlaca) {
+        if (modeloValue && placaValue) {
             data.push(entry);
-            console.log(`[parseVehicleCSV] Added entry for line ${i + 1} to data.`);
+            // console.log(`[parseVehicleCSV] Added entry for line ${i + 1} to data.`);
         } else {
-            let reason = "Linha ignorada:";
-            if (!modeloHeaderExists) reason += " Cabeçalho 'Modelo' não encontrado no CSV.";
-            else if (!hasModelo) reason += " Valor para 'Modelo' ausente ou vazio.";
-            if (!placaHeaderExists) reason += " Cabeçalho 'Placa' não encontrado no CSV.";
-            else if (!hasPlaca) reason += " Valor para 'Placa' ausente ou vazio.";
-            console.warn(`[parseVehicleCSV] ${reason} Linha: "${line}"`);
+            let reason = `Linha ${i + 1} ignorada:`;
+            if (!modeloValue) reason += " Valor para 'Modelo' ausente ou vazio.";
+            if (!placaValue) reason += " Valor para 'Placa' ausente ou vazio.";
+            console.warn(`[parseVehicleCSV] ${reason} Dados da linha: ${JSON.stringify(entry)}`);
         }
     }
-    console.log("[parseVehicleCSV] Finished CSV parsing. Total records parsed:", data.length);
+    console.log("[parseVehicleCSV] Finished CSV parsing. Total records parsed for processing:", data.length);
     return data;
 };
 
@@ -364,10 +367,10 @@ export const Vehicle: React.FC = () => {
 
             try {
                 const parsedData = parseVehicleCSV(text);
-                console.log("[Vehicle CSV Import] Parsed Data:", JSON.stringify(parsedData, null, 2));
+                console.log("[Vehicle CSV Import] Parsed Data from parseVehicleCSV:", JSON.stringify(parsedData, null, 2));
 
                 if (parsedData.length === 0) {
-                    toast({ variant: "destructive", title: "Arquivo Vazio ou Inválido", description: "O CSV não contém dados válidos ou está mal formatado. Verifique o console para detalhes do parser." });
+                    toast({ variant: "destructive", title: "Arquivo Vazio ou Inválido", description: "O CSV não contém dados válidos (Modelo e Placa são obrigatórios) ou está mal formatado. Verifique o console para detalhes do parser." });
                     setIsSaving(false);
                     return;
                 }
@@ -379,9 +382,9 @@ export const Vehicle: React.FC = () => {
 
                 for (const row of parsedData) {
                     console.log("[Vehicle CSV Import] Processing row:", JSON.stringify(row));
-                    const modelo = row['modelo']?.trim();
-                    const placa = row['placa']?.trim().toUpperCase();
-                    const anoStr = row['ano']?.trim();
+                    const modelo = row['modelo']?.trim(); // Access using normalized key
+                    const placa = row['placa']?.trim().toUpperCase(); // Access using normalized key
+                    let anoStr = row['ano']?.trim(); // Access using normalized key, this might be undefined
 
                     if (!modelo) {
                         const reason = `Linha ignorada: 'Modelo' ausente ou vazio. Dados da linha: ${JSON.stringify(row)}`;
@@ -398,7 +401,7 @@ export const Vehicle: React.FC = () => {
                         continue;
                     }
 
-                    let ano = 0;
+                    let ano = 0; // Default year
                     if (anoStr) {
                         const parsedYear = parseInt(anoStr, 10);
                         if (!isNaN(parsedYear) && parsedYear >= 1900 && parsedYear <= new Date().getFullYear() + 5) {
@@ -463,7 +466,7 @@ export const Vehicle: React.FC = () => {
             toast({ variant: "destructive", title: "Erro de Leitura", description: "Não foi possível ler o arquivo selecionado." });
             setIsSaving(false);
         };
-        reader.readAsText(file, 'UTF-8');
+        reader.readAsText(file, 'UTF-8'); // Specify UTF-8 encoding
     };
 
 
@@ -537,7 +540,7 @@ export const Vehicle: React.FC = () => {
            </CardContent>
          </Card>
        ) : (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
           {vehicles.map((vehicle) => (
             <Card key={vehicle.id} className="shadow-sm transition-shadow hover:shadow-md bg-card border border-border">
               <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-2">
@@ -569,7 +572,7 @@ export const Vehicle: React.FC = () => {
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="editYear">Ano*</Label>
-                                <Input id="editYear" type="number" value={year} onChange={(e) => setYear(Number(e.target.value) > 0 ? Number(e.target.value) : '')} required min="1900" max={new Date().getFullYear() + 5} disabled={isSaving} />
+                                <Input id="editYear" type="number" value={year === 0 ? '' : year} onChange={(e) => setYear(Number(e.target.value) > 0 ? Number(e.target.value) : '')} required min="1900" max={new Date().getFullYear() + 5} disabled={isSaving} />
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="editLicensePlate">Placa*</Label>
