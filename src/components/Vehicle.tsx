@@ -8,7 +8,7 @@ import { PlusCircle, Edit, Trash2, Car, CalendarDays, Gauge, Fuel, Milestone, Us
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"; // Removed AlertDialogTrigger as it was unused
 import { useToast } from "@/hooks/use-toast";
 import {
     addLocalDbVehicle,
@@ -36,7 +36,7 @@ export const Vehicle: React.FC = () => {
   const [currentVehicle, setCurrentVehicle] = useState<VehicleInfo | null>(null);
   const [vehicleToDelete, setVehicleToDelete] = useState<VehicleInfo | null>(null);
   const { toast } = useToast();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Removed fileInputRef as it's no longer used
 
   const [model, setModel] = useState('');
   const [year, setYear] = useState<number | ''>('');
@@ -51,23 +51,20 @@ export const Vehicle: React.FC = () => {
                console.log("[Vehicle] No local vehicles, fetching online...");
                try {
                    const onlineVehicles = await fetchOnlineVehicles();
-                    const savePromises = onlineVehicles.map(async (v) => { // Make async for await inside
-                        // Correctly structure data for addLocalDbVehicle
-                        const vehicleDataForAdd: Omit<VehicleInfo, 'id'> = {
+                    const savePromises = onlineVehicles.map(async (v) => { 
+                        const vehicleDataForAdd: Omit<LocalVehicle, 'id' | 'localId' | 'syncStatus' | 'deleted' | 'firebaseId'> = {
                             model: v.model,
                             year: v.year,
                             licensePlate: v.licensePlate,
                         };
-                        // addLocalDbVehicle expects firebaseId as a separate optional param
                         try {
                             await addLocalDbVehicle(vehicleDataForAdd, v.id);
                         } catch (addError) {
                              console.error(`Error adding vehicle ${v.id} locally:`, addError);
-                             // Optionally, collect these errors to show a summary toast later
                         }
                     });
                    await Promise.all(savePromises);
-                   localVehicles = await getLocalVehicles(); // Re-fetch after saving
+                   localVehicles = await getLocalVehicles(); 
 
                } catch (fetchError: any) {
                    console.error("Error fetching/saving online vehicles:", fetchError);
@@ -94,7 +91,7 @@ export const Vehicle: React.FC = () => {
     vehicleModel: string,
     vehicleYear: number,
     vehicleLicensePlate: string,
-    firebaseId?: string // Optional firebaseId for seeding/importing
+    firebaseId?: string 
   ): Promise<boolean> => {
     const vehicleDataForAdd: Omit<LocalVehicle, 'id' | 'localId' | 'syncStatus' | 'deleted' | 'firebaseId'> = {
       model: vehicleModel,
@@ -252,171 +249,14 @@ export const Vehicle: React.FC = () => {
       setCurrentVehicle(null);
     }
 
-  const handleFileImport = (event: React.ChangeEvent<HTMLInputElement>) => {
-    console.log("[Vehicle.tsx] handleFileImport triggered. Event:", event);
-    const file = event.target.files?.[0];
-    if (!file) {
-        toast({ variant: 'destructive', title: 'Nenhum arquivo selecionado.' });
-        return;
-    }
-    if (file.type !== 'text/csv') {
-        toast({ variant: 'destructive', title: 'Tipo de arquivo inválido.', description: 'Por favor, selecione um arquivo CSV.' });
-        return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-        const csvString = e.target?.result as string;
-        if (csvString) {
-            console.log("[Vehicle.tsx] CSV string loaded, processing...");
-            await processImportedCsv(csvString);
-        } else {
-            toast({ variant: 'destructive', title: 'Erro ao ler arquivo.' });
-            console.error("[Vehicle.tsx] CSV string is empty after file load.");
-        }
-        if (fileInputRef.current) {
-            fileInputRef.current.value = '';
-        }
-    };
-    reader.onerror = () => {
-        toast({ variant: 'destructive', title: 'Erro ao ler arquivo.' });
-        console.error("[Vehicle.tsx] FileReader error.");
-        if (fileInputRef.current) {
-            fileInputRef.current.value = '';
-        }
-    };
-    reader.readAsText(file);
-  };
-
-  const processImportedCsv = async (csvString: string) => {
-    console.log("[Vehicle.tsx] processImportedCsv called with string:", csvString.substring(0, 100) + "...");
-    const lines = csvString.split(/\r\n|\n/).filter(line => line.trim() !== '');
-    if (lines.length < 2) {
-        toast({ variant: 'destructive', title: 'Arquivo CSV inválido', description: 'O arquivo deve conter um cabeçalho e pelo menos uma linha de dados.' });
-        console.warn("[Vehicle.tsx] CSV invalid: Less than 2 lines.");
-        return;
-    }
-
-    const header = lines[0].split(',').map(h => h.trim().toLowerCase());
-    console.log("[Vehicle.tsx] Parsed CSV Header:", header);
-
-    const modeloIndex = header.indexOf('modelo');
-    const placaIndex = header.indexOf('placa');
-    const anoIndex = header.indexOf('ano');
-
-    if (modeloIndex === -1 || placaIndex === -1) {
-        toast({ variant: 'destructive', title: 'Cabeçalho CSV inválido', description: 'Esperado: Colunas "Modelo" e "Placa". A coluna "Ano" é opcional.' });
-        console.warn("[Vehicle.tsx] CSV header invalid. ModeloIndex:", modeloIndex, "PlacaIndex:", placaIndex);
-        return;
-    }
-
-    let successCount = 0;
-    let errorCount = 0;
-    const errors: string[] = [];
-
-    setIsSaving(true);
-    try {
-        for (let i = 1; i < lines.length; i++) {
-            const values = lines[i].split(',').map(v => v.trim());
-            const vehicleModel = values[modeloIndex];
-            const vehicleLicensePlate = values[placaIndex];
-            let vehicleYear = new Date().getFullYear(); // Default to current year
-
-            if (anoIndex !== -1 && values[anoIndex]) {
-                const parsedYear = parseInt(values[anoIndex], 10);
-                if (!isNaN(parsedYear) && parsedYear > 1900 && parsedYear <= new Date().getFullYear() + 1) {
-                    vehicleYear = parsedYear;
-                } else {
-                    errors.push(`Linha ${i + 1}: Ano '${values[anoIndex]}' inválido para ${vehicleModel} (${vehicleLicensePlate}). Usando ano atual (${vehicleYear}).`);
-                    console.warn(`[Vehicle.tsx] Invalid year on line ${i + 1}: '${values[anoIndex]}'. Defaulting to ${vehicleYear}.`);
-                }
-            } else {
-                 console.log(`[Vehicle.tsx] Coluna 'Ano' ausente ou vazia para a linha ${i+1}. Usando ano atual ${vehicleYear}.`);
-            }
-
-
-            if (!vehicleModel || !vehicleLicensePlate) {
-                errors.push(`Linha ${i + 1}: Modelo ou Placa faltando.`);
-                errorCount++;
-                console.warn(`[Vehicle.tsx] Missing model or plate on line ${i + 1}.`);
-                continue;
-            }
-            // Basic plate format validation (adjust regex as needed for specific country formats)
-             // Relaxed regex to allow more flexible plate formats during import, actual validation should be robust
-            if (!/^[A-Z0-9-]{3,10}$/i.test(vehicleLicensePlate.replace(/-/g, ''))) {
-                 errors.push(`Linha ${i + 1}: Formato de placa pode ser inválido para ${vehicleLicensePlate}.`);
-                 // Not incrementing errorCount here, just warning.
-                 console.warn(`[Vehicle.tsx] Potentially invalid plate format on line ${i + 1}: ${vehicleLicensePlate}. Proceeding with import.`);
-            }
-
-            console.log(`[Vehicle.tsx] Attempting to create vehicle from CSV: Model=${vehicleModel}, Plate=${vehicleLicensePlate}, Year=${vehicleYear}`);
-            const created = await _createNewVehicle(vehicleModel, vehicleYear, vehicleLicensePlate);
-            if (created) {
-                successCount++;
-            } else {
-                errorCount++;
-                // _createNewVehicle already shows a toast, so just logging here
-                console.warn(`[Vehicle.tsx] _createNewVehicle failed for line ${i + 1}.`);
-            }
-        }
-    } catch (importError) {
-        console.error("[Vehicle.tsx] Error during CSV processing loop:", importError);
-        toast({ variant: "destructive", title: "Erro na Importação", description: "Ocorreu um erro inesperado durante o processamento do arquivo." });
-        errorCount = lines.length - 1; // Assume all failed if loop crashes
-        successCount = 0;
-    } finally {
-        setIsSaving(false);
-    }
-
-
-    if (successCount > 0) {
-        toast({ title: 'Importação Concluída', description: `${successCount} veículo(s) importado(s) com sucesso.` });
-    }
-    if (errorCount > 0 || errors.length > 0) {
-        const detailedErrors = errors.slice(0,3).join('; ') + (errors.length > 3 ? '...' : '');
-        toast({
-            variant: 'destructive',
-            title: 'Erros na Importação',
-            description: `${errorCount > 0 ? `${errorCount} veículo(s) não puderam ser importados. ` : ''}${detailedErrors ? `Detalhes: ${detailedErrors}` : ''}`,
-            duration: 10000
-        });
-    }
-    if (successCount === 0 && errorCount === 0 && lines.length > 1 && errors.length === 0) {
-        toast({ variant: 'default', title: 'Importação', description: 'Nenhum veículo novo para importar ou todos já existem/contêm erros.' });
-    }
-     console.log("[Vehicle.tsx] processImportedCsv finished. Success:", successCount, "Errors:", errorCount, "Detailed Errors:", errors);
-  };
-
+  // Removed handleFileImport and processImportedCsv functions
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-semibold">Gerenciar Veículos</h2>
         <div className="flex gap-2">
-            <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileImport}
-                accept=".csv"
-                className="hidden"
-                id="import-csv-vehicles-input"
-            />
-            <Button
-                onClick={() => {
-                    console.log("[Vehicle.tsx] Import button clicked. fileInputRef.current:", fileInputRef.current);
-                    if (fileInputRef.current) {
-                        fileInputRef.current.click();
-                    } else {
-                        console.error("[Vehicle.tsx] File input ref is not available.");
-                        toast({ variant: "destructive", title: "Erro", description: "Não foi possível abrir o seletor de arquivos. Tente novamente." });
-                    }
-                }}
-                variant="outline"
-                className="text-primary-foreground bg-green-600 hover:bg-green-700"
-                disabled={isSaving}
-            >
-                <FileUp className="mr-2 h-4 w-4" /> Importar Veículos (CSV)
-            </Button>
+            {/* Removed Import CSV Button and hidden file input */}
             <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
               <DialogTrigger asChild>
                  <Button onClick={() => { resetForm(); setIsCreateModalOpen(true); }} className="bg-primary hover:bg-primary/90 text-primary-foreground" disabled={isSaving}>
@@ -518,12 +358,12 @@ export const Vehicle: React.FC = () => {
                      </Dialog>
 
                       <AlertDialog open={isDeleteModalOpen && vehicleToDelete?.id === vehicle.id} onOpenChange={(isOpen) => !isOpen && closeDeleteModal()}>
-                        <AlertDialogTrigger asChild>
+                        <DialogTrigger asChild>
                           <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => openDeleteModal(vehicle)} disabled={isSaving}>
                             <Trash2 className="h-4 w-4" />
                             <span className="sr-only">Excluir Veículo</span>
                           </Button>
-                        </AlertDialogTrigger>
+                        </DialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
                             <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
