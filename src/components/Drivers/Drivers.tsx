@@ -380,7 +380,6 @@ export const Drivers: React.FC = () => {
                                 <TableRow>
                                     <TableHead>Nome</TableHead>
                                     <TableHead>E-mail</TableHead>
-                                    <TableHead className="hidden md:table-cell">ID</TableHead>
                                     <TableHead>Base</TableHead>
                                     <TableHead className="hidden sm:table-cell">Último Login</TableHead>
                                     <TableHead className="text-right">Ações</TableHead>
@@ -391,7 +390,6 @@ export const Drivers: React.FC = () => {
                                     <TableRow key={driver.id}>
                                         <TableCell className="font-medium">{driver.name || 'N/A'}</TableCell>
                                         <TableCell>{driver.email}</TableCell>
-                                        <TableCell className="hidden md:table-cell text-xs text-muted-foreground truncate max-w-[100px]" title={driver.id}>{driver.id}</TableCell>
                                         <TableCell>{driver.base || 'N/A'}</TableCell>
                                         <TableCell className="hidden sm:table-cell">
                                             {driver.lastLogin ? format(new Date(driver.lastLogin), 'dd/MM/yyyy HH:mm') : 'N/A'}
@@ -413,7 +411,7 @@ export const Drivers: React.FC = () => {
                                                             <p><strong>Nome:</strong> {currentDriver?.name || 'N/A'}</p>
                                                             <p><strong>Nome de Usuário:</strong> {currentDriver?.username || 'N/A'}</p>
                                                             <p><strong>E-mail:</strong> {currentDriver?.email}</p>
-                                                            <p><strong>ID:</strong> {currentDriver?.id}</p>
+                                                            <p><strong>ID do Sistema:</strong> {currentDriver?.id}</p>
                                                             <p><strong>Base:</strong> {currentDriver?.base || 'N/A'}</p>
                                                             <p><strong>Função:</strong> {currentDriver?.role}</p>
                                                             <p><strong>Último Login:</strong> {currentDriver?.lastLogin ? format(new Date(currentDriver.lastLogin), 'dd/MM/yyyy HH:mm:ss') : 'N/A'}</p>
