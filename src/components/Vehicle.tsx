@@ -25,12 +25,18 @@ export interface VehicleInfo extends Omit<LocalVehicle, 'syncStatus' | 'deleted'
   id: string;
 }
 
-// Helper function to parse CSV data
+// Helper function to parse CSV data with improved logging and quote handling
 const parseVehicleCSV = (csvText: string): Record<string, string>[] => {
-    const lines = csvText.trim().split('\n');
-    if (lines.length < 2) return []; // Needs header and at least one data row
+    console.log("[parseVehicleCSV] Starting CSV parsing.");
+    const lines = csvText.trim().replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n'); // Normalize line endings
+    if (lines.length < 2) {
+        console.log("[parseVehicleCSV] CSV has less than 2 lines (header + data). Returning empty.");
+        return [];
+    }
 
     const headerLine = lines[0].trim();
+    console.log("[parseVehicleCSV] Raw Header line:", headerLine);
+
     const headerMap: Record<string, string> = {
         'modelo': 'modelo',
         'model': 'modelo',
@@ -38,36 +44,65 @@ const parseVehicleCSV = (csvText: string): Record<string, string>[] => {
         'licenseplate': 'placa',
         'license plate': 'placa',
         'licencaplate': 'placa',
-        'ano': 'ano', // Primary expected header for year
-        'year': 'ano'  // Alternative header for year
+        'ano': 'ano',
+        'year': 'ano'
     };
-    const header = headerLine.split(',').map(h => headerMap[h.trim().toLowerCase()] || h.trim().toLowerCase());
-    const data = [];
 
+    const header = headerLine.split(',').map(h => {
+      let cleanHeader = h.trim();
+      if (cleanHeader.startsWith('"') && cleanHeader.endsWith('"')) {
+        cleanHeader = cleanHeader.substring(1, cleanHeader.length - 1).trim();
+      }
+      return headerMap[cleanHeader.toLowerCase()] || cleanHeader.toLowerCase();
+    });
+    console.log("[parseVehicleCSV] Processed Headers:", JSON.stringify(header));
+
+    const data = [];
     for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
-        if (!line) continue;
+        if (!line) {
+            console.log(`[parseVehicleCSV] Skipping empty line ${i + 1}.`);
+            continue;
+        }
+        console.log(`[parseVehicleCSV] Processing data line ${i + 1}:`, line);
 
         const values = line.split(',');
+        console.log(`[parseVehicleCSV] Values after split for line ${i + 1}:`, JSON.stringify(values));
+
         const entry: Record<string, string> = {};
         let hasModelo = false;
         let hasPlaca = false;
 
         for (let j = 0; j < header.length; j++) {
             const headerName = header[j];
-            const value = values[j]?.trim() || '';
+            let value = values[j]?.trim() || '';
+            if (value.startsWith('"') && value.endsWith('"')) {
+              value = value.substring(1, value.length - 1).trim();
+            }
             entry[headerName] = value;
             if (headerName === 'modelo' && value) hasModelo = true;
             if (headerName === 'placa' && value) hasPlaca = true;
         }
+        console.log(`[parseVehicleCSV] Parsed entry for line ${i + 1}:`, JSON.stringify(entry));
+        console.log(`[parseVehicleCSV] Line ${i + 1} - hasModelo: ${hasModelo}, hasPlaca: ${hasPlaca}`);
 
-        // Only add if Modelo and Placa are present
-        if (hasModelo && hasPlaca) {
+
+        const modeloHeaderExists = header.includes('modelo');
+        const placaHeaderExists = header.includes('placa');
+
+        if (modeloHeaderExists && placaHeaderExists && hasModelo && hasPlaca) {
             data.push(entry);
+            console.log(`[parseVehicleCSV] Added entry for line ${i + 1} to data.`);
         } else {
-            console.warn(`[Vehicle CSV Parse] Skipping line ${i + 1} due to missing 'Modelo' or 'Placa'. Line: "${line}"`);
+            let reason = "Linha ignorada:";
+            if (!modeloHeaderExists) reason += " Cabeçalho 'Modelo' não encontrado no CSV.";
+            else if (!hasModelo) reason += " Valor para 'Modelo' ausente ou vazio.";
+            if (!placaHeaderExists) reason += " Cabeçalho 'Placa' não encontrado no CSV.";
+            else if (!hasPlaca) reason += " Valor para 'Placa' ausente ou vazio.";
+            console.warn(`[parseVehicleCSV] ${reason} Linha: "${line}"`);
         }
     }
+    console.log("[parseVehicleCSV] Finished CSV parsing. Total records parsed:", data.length);
     return data;
 };
 
@@ -140,13 +175,13 @@ export const Vehicle: React.FC = () => {
 
   const _createNewVehicle = async (
     vehicleModel: string,
-    vehicleYear: number, // Year is now a number
+    vehicleYear: number,
     vehicleLicensePlate: string,
     firebaseId?: string
   ): Promise<boolean> => {
     const vehicleDataForAdd: Omit<LocalVehicle, 'id' | 'localId' | 'syncStatus' | 'deleted' | 'firebaseId'> = {
       model: vehicleModel,
-      year: vehicleYear, // Use the number directly
+      year: vehicleYear,
       licensePlate: vehicleLicensePlate.toUpperCase(),
     };
 
@@ -325,11 +360,14 @@ export const Vehicle: React.FC = () => {
                 setIsSaving(false);
                 return;
             }
+            console.log("[Vehicle CSV Import] File content read. Length:", text.length);
 
             try {
                 const parsedData = parseVehicleCSV(text);
+                console.log("[Vehicle CSV Import] Parsed Data:", JSON.stringify(parsedData, null, 2));
+
                 if (parsedData.length === 0) {
-                    toast({ variant: "destructive", title: "Arquivo Vazio ou Inválido", description: "O CSV não contém dados válidos ou está mal formatado." });
+                    toast({ variant: "destructive", title: "Arquivo Vazio ou Inválido", description: "O CSV não contém dados válidos ou está mal formatado. Verifique o console para detalhes do parser." });
                     setIsSaving(false);
                     return;
                 }
@@ -337,45 +375,44 @@ export const Vehicle: React.FC = () => {
                 let importedCount = 0;
                 let skippedCount = 0;
                 const skippedReasons: string[] = [];
-                const currentLocalVehicles = await getLocalVehicles(); // Fetch current vehicles for duplicate check
+                const currentLocalVehicles = await getLocalVehicles();
 
                 for (const row of parsedData) {
+                    console.log("[Vehicle CSV Import] Processing row:", JSON.stringify(row));
                     const modelo = row['modelo']?.trim();
                     const placa = row['placa']?.trim().toUpperCase();
-                    const anoStr = row['ano']?.trim(); // Year is now optional
+                    const anoStr = row['ano']?.trim();
 
                     if (!modelo) {
-                        const reason = `Linha ignorada: 'Modelo' ausente. Dados: ${JSON.stringify(row)}`;
+                        const reason = `Linha ignorada: 'Modelo' ausente ou vazio. Dados da linha: ${JSON.stringify(row)}`;
                         console.warn(`[Vehicle CSV Import] ${reason}`);
                         skippedReasons.push(reason);
                         skippedCount++;
                         continue;
                     }
                     if (!placa) {
-                        const reason = `Linha ignorada: 'Placa' ausente para modelo ${modelo}. Dados: ${JSON.stringify(row)}`;
+                        const reason = `Linha ignorada: 'Placa' ausente ou vazia para modelo ${modelo}. Dados da linha: ${JSON.stringify(row)}`;
                         console.warn(`[Vehicle CSV Import] ${reason}`);
                         skippedReasons.push(reason);
                         skippedCount++;
                         continue;
                     }
 
-                    let ano = 0; // Default year
+                    let ano = 0;
                     if (anoStr) {
                         const parsedYear = parseInt(anoStr, 10);
                         if (!isNaN(parsedYear) && parsedYear >= 1900 && parsedYear <= new Date().getFullYear() + 5) {
                             ano = parsedYear;
                         } else {
-                            console.warn(`[Vehicle CSV Import] 'Ano' inválido (${anoStr}) para ${modelo}, placa ${placa}. Usando ano padrão 0. Dados: ${JSON.stringify(row)}`);
-                            // Do not add to skippedReasons for invalid year, just use default
+                            console.warn(`[Vehicle CSV Import] 'Ano' inválido ('${anoStr}') para ${modelo}, placa ${placa}. Usando ano padrão 0. Dados: ${JSON.stringify(row)}`);
                         }
                     } else {
                         console.warn(`[Vehicle CSV Import] 'Ano' ausente para ${modelo}, placa ${placa}. Usando ano padrão 0. Dados: ${JSON.stringify(row)}`);
                     }
 
-
                     const existingByPlate = currentLocalVehicles.find(v => v.licensePlate.toUpperCase() === placa);
                     if (existingByPlate) {
-                        const reason = `Veículo com placa ${placa} já existe (${existingByPlate.model}, ${existingByPlate.year}).`;
+                        const reason = `Veículo com placa ${placa} já existe localmente (${existingByPlate.model}, ${existingByPlate.year}).`;
                         console.warn(`[Vehicle CSV Import] ${reason}`);
                         skippedReasons.push(reason);
                         skippedCount++;
@@ -387,12 +424,12 @@ export const Vehicle: React.FC = () => {
                         importedCount++;
                     } else {
                         skippedCount++;
-                         if (!skippedReasons.some(sr => sr.includes(placa))) { // Avoid double-logging duplicate reason
+                         if (!skippedReasons.some(sr => sr.includes(placa))) {
                             skippedReasons.push(`Falha ao salvar veículo ${modelo}, placa ${placa} (ver erro anterior no toast/console).`);
                          }
                     }
                 }
-                // Refresh the list of vehicles in the UI after import
+
                 const updatedVehicles = await getLocalVehicles();
                 setVehicles(updatedVehicles.map(lv => ({
                     id: lv.firebaseId || lv.localId,
@@ -400,7 +437,6 @@ export const Vehicle: React.FC = () => {
                     year: lv.year,
                     licensePlate: lv.licensePlate
                 } as VehicleInfo)).sort((a, b) => a.model.localeCompare(b.model)));
-
 
                 let importToastDescription = `${importedCount} veículos importados. ${skippedCount} ignorados.`;
                 if (skippedReasons.length > 0) {
@@ -419,7 +455,7 @@ export const Vehicle: React.FC = () => {
             } finally {
                 setIsSaving(false);
                 if (fileInputRef.current) {
-                    fileInputRef.current.value = ""; // Reset file input
+                    fileInputRef.current.value = "";
                 }
             }
         };
@@ -427,7 +463,7 @@ export const Vehicle: React.FC = () => {
             toast({ variant: "destructive", title: "Erro de Leitura", description: "Não foi possível ler o arquivo selecionado." });
             setIsSaving(false);
         };
-        reader.readAsText(file, 'UTF-8'); // Specify UTF-8 encoding
+        reader.readAsText(file, 'UTF-8');
     };
 
 
@@ -471,7 +507,6 @@ export const Vehicle: React.FC = () => {
                 </form>
               </DialogContent>
             </Dialog>
-            {/* CSV Import Button Block START */}
             <input
               type="file"
               accept=".csv"
@@ -488,7 +523,6 @@ export const Vehicle: React.FC = () => {
               <FileUp className="mr-2 h-4 w-4" />
               Importar Veículos (CSV)
             </Button>
-            {/* CSV Import Button Block END */}
         </div>
       </div>
 
@@ -499,7 +533,7 @@ export const Vehicle: React.FC = () => {
        ) : vehicles.length === 0 ? (
          <Card className="text-center py-10 bg-card border border-border shadow-sm rounded-lg">
            <CardContent>
-             <p className="text-muted-foreground">Nenhum veículo encontrado localmente.</p>
+             <p className="text-muted-foreground">Nenhum veículo encontrado localmente. Clique em "Cadastrar Veículo" ou "Importar Veículos (CSV)".</p>
            </CardContent>
          </Card>
        ) : (
@@ -535,7 +569,7 @@ export const Vehicle: React.FC = () => {
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="editYear">Ano*</Label>
-                                <Input id="editYear" type="number" value={year} onChange={(e) => setYear(Number(e.target.value) > 0 ? Number(e.target.value) : '')} required min="0" max={new Date().getFullYear() + 5} disabled={isSaving} />
+                                <Input id="editYear" type="number" value={year} onChange={(e) => setYear(Number(e.target.value) > 0 ? Number(e.target.value) : '')} required min="1900" max={new Date().getFullYear() + 5} disabled={isSaving} />
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="editLicensePlate">Placa*</Label>
