@@ -10,7 +10,6 @@ import {
   query,
   where,
   Timestamp, // Keep Timestamp for Firestore operations
-  writeBatch,
   orderBy, // Added orderBy
   type QueryConstraint, // Added QueryConstraint type
   addDoc, // Ensure addDoc is imported
@@ -60,15 +59,15 @@ export const getUserData = async (userId: string): Promise<User | null> => {
         console.warn(`[firestoreService getUserData ${getUserStartTime}] Admin user ${userId} has base ${userData.base}, correcting to 'ALL'.`);
         userData.base = 'ALL';
       }
-      console.log(`[firestoreService getUserData ${getUserStartTime}] User data found. Time: ${getUserEndTime - getUserStartTime} ms`);
+      console.log(`[firestoreService getUserData ${getUserStartTime}] User data found for ${userId}. Time: ${getUserEndTime - getUserStartTime} ms. Data:`, JSON.stringify(userData));
       return userData;
     } else {
-      console.log(`[firestoreService getUserData ${getUserStartTime}] No such user document! Time: ${getUserEndTime - getUserStartTime} ms`);
+      console.log(`[firestoreService getUserData ${getUserStartTime}] No such user document for ${userId}! Time: ${getUserEndTime - getUserStartTime} ms`);
       return null;
     }
   } catch (error) {
     const getUserEndTime = performance.now();
-    console.error(`[firestoreService getUserData ${getUserStartTime}] Error getting user document. Time: ${getUserEndTime - getUserStartTime} ms`, error);
+    console.error(`[firestoreService getUserData ${getUserStartTime}] Error getting user document for ${userId}. Time: ${getUserEndTime - getUserStartTime} ms`, error);
     if ((error as any).code === 'unavailable') {
         console.warn('Firestore is offline. Cannot fetch user data.');
     }
@@ -107,10 +106,10 @@ export const addUser = async (userId: string, userData: Omit<User, 'id'>): Promi
         if (!db) throw new Error("Firestore DB not initialized.");
         const userDocRef = doc(db, 'users', userId);
         // Ensure role is present and base matches role
-        const finalUserData = {
+        const finalUserData: Omit<User, 'id'> = {
              ...userData,
              role: userData.role || 'driver',
-             base: userData.role === 'admin' ? 'ALL' : (userData.base || '')
+             base: userData.role === 'admin' ? 'ALL' : (userData.base || 'N/A') // Ensure base is N/A if empty for non-admins
          };
         await setDoc(userDocRef, finalUserData);
         const addUserEndTime = performance.now();
@@ -131,14 +130,14 @@ export const updateUser = async (userId: string, data: Partial<DriverInfo>) => {
     const { passwordHash, role, base, ...restData } = data as User; // Cast to User to access passwordHash
     const dataToUpdate: Partial<User> = { ...restData };
 
-    if (role) {
+    if (role) { // If role is being explicitly updated
        dataToUpdate.role = role;
-       dataToUpdate.base = role === 'admin' ? 'ALL' : (base || '');
-    } else if (base !== undefined) {
+       dataToUpdate.base = role === 'admin' ? 'ALL' : (base || 'N/A'); // Ensure base is N/A if empty for non-admins
+    } else if (base !== undefined) { // If only base is being updated
        // Fetch current role to ensure base is consistent if role isn't changing
        const currentUserData = await getUserData(userId);
        if (currentUserData?.role !== 'admin') {
-           dataToUpdate.base = base;
+           dataToUpdate.base = base || 'N/A'; // Ensure base is N/A if empty for non-admins
        } else {
             console.warn(`[firestoreService updateUser] Attempted to change base for admin user ${userId}. Base remains 'ALL'.`);
             dataToUpdate.base = 'ALL'; // Ensure admin base stays 'ALL'
@@ -147,7 +146,7 @@ export const updateUser = async (userId: string, data: Partial<DriverInfo>) => {
 
 
     try {
-        await updateDoc(userDocRef, dataToUpdate);
+        await updateDoc(userDocRef, dataToUpdate as any); // Use 'as any' if type issues persist with Partial<User>
         const updateUserEndTime = performance.now();
         console.log(`[firestoreService updateUser ${updateUserStartTime}] User updated successfully. Time: ${updateUserEndTime - updateUserStartTime} ms`);
     } catch (error) {
@@ -175,28 +174,31 @@ export const deleteUser = async (userId: string) => {
 
 export const getDrivers = async (): Promise<DriverInfo[]> => {
     const getDriversStartTime = performance.now();
-    console.log(`[firestoreService getDrivers ${getDriversStartTime}] Fetching drivers from 'users' collection...`);
+    console.log(`[firestoreService getDrivers ${getDriversStartTime}] Fetching drivers from 'users' collection where role is 'driver'...`);
     if (!usersCollectionRef) {
       console.warn(`[firestoreService getDrivers ${getDriversStartTime}] Users collection ref not initialized or Firestore not connected. Returning empty array.`);
       return [];
     }
     try {
-        // Fetches users from Firestore where role is 'driver'
         const q = query(usersCollectionRef, where('role', '==', 'driver'));
+        console.log(`[firestoreService getDrivers ${getDriversStartTime}] Query constructed:`, q);
         const querySnapshot = await getDocs(q);
-        const drivers = querySnapshot.docs.map(doc => {
-            const data = doc.data();
+        console.log(`[firestoreService getDrivers ${getDriversStartTime}] Query snapshot received. Found ${querySnapshot.docs.length} documents.`);
+
+        const drivers = querySnapshot.docs.map(docInstance => { // Renamed doc to docInstance to avoid conflict
+            const data = docInstance.data();
+            console.log(`[firestoreService getDrivers ${getDriversStartTime}] Processing document ID: ${docInstance.id}, Data:`, JSON.stringify(data));
             return {
-                id: doc.id, // This is the Firebase Auth UID
+                id: docInstance.id, // This is the Firebase Auth UID
                 email: data.email,
-                name: data.name || data.email, // Fallback to email if name is not set
+                name: data.name || data.email || `Motorista ${docInstance.id.substring(0,6)}`, // Fallback for name
                 username: data.username,
-                role: 'driver',
-                base: data.base || 'N/A',
+                role: 'driver', // Explicitly 'driver'
+                base: data.base || 'N/A', // Default base if missing
             } as DriverInfo;
         });
         const getDriversEndTime = performance.now();
-        console.log(`[firestoreService getDrivers ${getDriversStartTime}] Found ${drivers.length} drivers in Firestore. Time: ${getDriversEndTime - getDriversStartTime} ms`);
+        console.log(`[firestoreService getDrivers ${getDriversStartTime}] Mapped ${drivers.length} drivers. Time: ${getDriversEndTime - getDriversStartTime} ms. Drivers:`, JSON.stringify(drivers));
         return drivers;
     } catch (error) {
          const getDriversEndTime = performance.now();
@@ -207,6 +209,7 @@ export const getDrivers = async (): Promise<DriverInfo[]> => {
          return [];
     }
 };
+
 
 // --- Vehicle Service ---
 const vehiclesCollectionRef = db ? collection(db, 'vehicles') : null; // Handle potential null db
@@ -744,4 +747,16 @@ export const deleteTripAndRelatedData = async (tripId: string) => {
          console.error(`[firestoreService deleteTripAndRelatedData ${deleteBatchStartTime}] Error deleting trip ${tripId} and related data. Time: ${deleteBatchEndTime - deleteBatchStartTime} ms`, error);
          throw error;
     }
+};
+
+// Function to get user data by email (example, adjust as needed)
+export const getUserByEmail = async (email: string): Promise<User | null> => {
+    if (!usersCollectionRef) return null;
+    const q = query(usersCollectionRef, where('email', '==', email));
+    const querySnapshot = await getDocs(q);
+    if (!querySnapshot.empty) {
+        const userDoc = querySnapshot.docs[0];
+        return { id: userDoc.id, ...userDoc.data() } as User;
+    }
+    return null;
 };
