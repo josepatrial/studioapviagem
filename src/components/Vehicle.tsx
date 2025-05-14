@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Edit, Trash2, Car, CalendarDays, Gauge, Fuel, Milestone, Users, Loader2, FileUp } from 'lucide-react'; // Added FileUp
+import { PlusCircle, Edit, Trash2, Car, CalendarDays, Gauge, Fuel, Milestone, Users, Loader2, FileUp } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,13 +25,23 @@ export interface VehicleInfo extends Omit<LocalVehicle, 'syncStatus' | 'deleted'
   id: string;
 }
 
-// Helper function to parse CSV data (similar to Drivers.tsx)
+// Helper function to parse CSV data
 const parseVehicleCSV = (csvText: string): Record<string, string>[] => {
     const lines = csvText.trim().split('\n');
     if (lines.length < 2) return [];
 
     const headerLine = lines[0].trim();
-    const header = headerLine.split(',').map(h => h.trim().toLowerCase());
+    // Normalize header: lowercase and trim. Also map common variations.
+    const headerMap: Record<string, string> = {
+        'modelo': 'modelo',
+        'model': 'modelo',
+        'placa': 'placa',
+        'licenseplate': 'placa',
+        'license plate': 'placa',
+        'ano': 'ano',
+        'year': 'ano'
+    };
+    const header = headerLine.split(',').map(h => headerMap[h.trim().toLowerCase()] || h.trim().toLowerCase());
     const data = [];
 
     for (let i = 1; i < lines.length; i++) {
@@ -63,7 +73,7 @@ export const Vehicle: React.FC = () => {
   const [currentVehicle, setCurrentVehicle] = useState<VehicleInfo | null>(null);
   const [vehicleToDelete, setVehicleToDelete] = useState<VehicleInfo | null>(null);
   const { toast } = useToast();
-  const fileInputRef = useRef<HTMLInputElement>(null); // Ref for file input
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [model, setModel] = useState('');
   const [year, setYear] = useState<number | ''>('');
@@ -85,7 +95,6 @@ export const Vehicle: React.FC = () => {
                             licensePlate: v.licensePlate,
                         };
                         try {
-                            // Check if vehicle already exists locally by firebaseId before adding
                             const existingLocalByFirebaseId = localVehicles.find(lv => lv.firebaseId === v.id);
                             if (!existingLocalByFirebaseId) {
                                 await addLocalDbVehicle(vehicleDataForAdd, v.id);
@@ -133,7 +142,6 @@ export const Vehicle: React.FC = () => {
     };
 
     try {
-        // Check for existing vehicle by license plate locally before adding
         const existingLocalByPlate = await getLocalVehicles().then(
             allLocal => allLocal.find(v => v.licensePlate.toUpperCase() === vehicleLicensePlate.toUpperCase())
         );
@@ -165,7 +173,7 @@ export const Vehicle: React.FC = () => {
       toast({ variant: "destructive", title: "Erro", description: "Todos os campos são obrigatórios." });
       return;
     }
-     if (Number(year) < 1900 || Number(year) > new Date().getFullYear() + 5) { // Allow a bit into the future for new models
+     if (Number(year) < 1900 || Number(year) > new Date().getFullYear() + 5) {
         toast({ variant: "destructive", title: "Erro", description: "Ano do veículo inválido." });
         return;
       }
@@ -212,7 +220,7 @@ export const Vehicle: React.FC = () => {
      try {
          await updateLocalDbVehicle(updatedLocalData);
           const updatedVehicleUI: VehicleInfo = {
-             id: currentVehicle.id, // This ID is firebaseId or localId depending on what was set
+             id: currentVehicle.id,
              model: updatedLocalData.model,
              year: updatedLocalData.year,
              licensePlate: updatedLocalData.licensePlate
@@ -318,7 +326,7 @@ export const Vehicle: React.FC = () => {
                 let importedCount = 0;
                 let skippedCount = 0;
                 const skippedReasons: string[] = [];
-                const currentLocalVehicles = await getLocalVehicles(); // Fetch current vehicles to check for duplicates
+                const currentLocalVehicles = await getLocalVehicles();
 
                 for (const row of parsedData) {
                     const modelo = row['modelo']?.trim();
@@ -326,32 +334,41 @@ export const Vehicle: React.FC = () => {
                     const anoStr = row['ano']?.trim();
 
                     if (!modelo) {
-                        skippedReasons.push(`Linha ignorada: 'Modelo' ausente. Dados: ${JSON.stringify(row)}`);
+                        const reason = `Linha ignorada: 'Modelo' ausente. Dados: ${JSON.stringify(row)}`;
+                        console.warn(`[Vehicle CSV Import] ${reason}`);
+                        skippedReasons.push(reason);
                         skippedCount++;
                         continue;
                     }
                     if (!placa) {
-                        skippedReasons.push(`Linha ignorada: 'Placa' ausente para modelo ${modelo}. Dados: ${JSON.stringify(row)}`);
+                        const reason = `Linha ignorada: 'Placa' ausente para modelo ${modelo}. Dados: ${JSON.stringify(row)}`;
+                        console.warn(`[Vehicle CSV Import] ${reason}`);
+                        skippedReasons.push(reason);
                         skippedCount++;
                         continue;
                     }
                      if (!anoStr) {
-                        skippedReasons.push(`Linha ignorada: 'Ano' ausente para modelo ${modelo}, placa ${placa}. Dados: ${JSON.stringify(row)}`);
+                        const reason = `Linha ignorada: 'Ano' ausente para modelo ${modelo}, placa ${placa}. Dados: ${JSON.stringify(row)}`;
+                        console.warn(`[Vehicle CSV Import] ${reason}`);
+                        skippedReasons.push(reason);
                         skippedCount++;
                         continue;
                     }
 
                     const ano = parseInt(anoStr, 10);
                     if (isNaN(ano) || ano < 1900 || ano > new Date().getFullYear() + 5) {
-                        skippedReasons.push(`Linha ignorada: 'Ano' inválido (${anoStr}) para ${modelo}, placa ${placa}. Dados: ${JSON.stringify(row)}`);
+                        const reason = `Linha ignorada: 'Ano' inválido (${anoStr}) para ${modelo}, placa ${placa}. Dados: ${JSON.stringify(row)}`;
+                        console.warn(`[Vehicle CSV Import] ${reason}`);
+                        skippedReasons.push(reason);
                         skippedCount++;
                         continue;
                     }
 
-                    // Check for existing vehicle by license plate
                     const existingByPlate = currentLocalVehicles.find(v => v.licensePlate.toUpperCase() === placa);
                     if (existingByPlate) {
-                        skippedReasons.push(`Veículo com placa ${placa} já existe (${existingByPlate.model}, ${existingByPlate.year}).`);
+                        const reason = `Veículo com placa ${placa} já existe (${existingByPlate.model}, ${existingByPlate.year}).`;
+                        console.warn(`[Vehicle CSV Import] ${reason}`);
+                        skippedReasons.push(reason);
                         skippedCount++;
                         continue;
                     }
@@ -360,20 +377,14 @@ export const Vehicle: React.FC = () => {
                     if (success) {
                         importedCount++;
                     } else {
-                        // _createNewVehicle already shows a toast on failure
                         skippedCount++;
-                        skippedReasons.push(`Falha ao salvar veículo ${modelo}, placa ${placa} (ver erro anterior).`);
+                        skippedReasons.push(`Falha ao salvar veículo ${modelo}, placa ${placa} (ver erro anterior no toast).`);
                     }
                 }
 
-                // No need to call fetchVehiclesData() here as _createNewVehicle updates state
-                // But if state isn't updating correctly, uncomment the line below:
-                // await fetchVehiclesData();
-
-
                 let importToastDescription = `${importedCount} veículos importados. ${skippedCount} ignorados.`;
                 if (skippedReasons.length > 0) {
-                    importToastDescription += ` Detalhes no console.`;
+                    importToastDescription += ` Verifique o console do navegador para detalhes dos itens ignorados.`;
                     console.warn("[Vehicle CSV Import] Detalhes dos veículos ignorados:", skippedReasons.join("\n"));
                 }
                 toast({
@@ -388,7 +399,7 @@ export const Vehicle: React.FC = () => {
             } finally {
                 setIsSaving(false);
                 if (fileInputRef.current) {
-                    fileInputRef.current.value = ""; // Reset file input
+                    fileInputRef.current.value = "";
                 }
             }
         };
@@ -396,7 +407,7 @@ export const Vehicle: React.FC = () => {
             toast({ variant: "destructive", title: "Erro de Leitura", description: "Não foi possível ler o arquivo selecionado." });
             setIsSaving(false);
         };
-        reader.readAsText(file, 'UTF-8'); // Specify encoding if known, e.g., UTF-8
+        reader.readAsText(file, 'UTF-8');
     };
 
 
@@ -440,7 +451,6 @@ export const Vehicle: React.FC = () => {
                 </form>
               </DialogContent>
             </Dialog>
-            {/* Import Button */}
             <input type="file" accept=".csv" ref={fileInputRef} onChange={handleVehicleFileImport} style={{ display: 'none' }} />
             <Button onClick={() => fileInputRef.current?.click()} variant="outline" disabled={isSaving}>
                 <FileUp className="mr-2 h-4 w-4" /> Importar Veículos (CSV)
