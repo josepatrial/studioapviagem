@@ -34,11 +34,15 @@ const parseCSV = (csvText: string): Record<string, string>[] => {
     const lines = csvText.trim().split('\n');
     if (lines.length < 2) return []; // Needs header and at least one data row
 
-    const header = lines[0].split(',').map(h => h.trim().toLowerCase()); // Normalize header
+    const headerLine = lines[0].trim(); // Trim header line
+    const header = headerLine.split(',').map(h => h.trim().toLowerCase()); // Normalize header
     const data = [];
 
     for (let i = 1; i < lines.length; i++) {
-        const values = lines[i].split(',');
+        const line = lines[i].trim(); // Trim data line
+        if (!line) continue; // Skip empty lines
+
+        const values = line.split(',');
         if (values.length === header.length) {
             const entry: Record<string, string> = {};
             for (let j = 0; j < header.length; j++) {
@@ -46,7 +50,7 @@ const parseCSV = (csvText: string): Record<string, string>[] => {
             }
             data.push(entry);
         } else {
-            console.warn(`Skipping line ${i + 1} due to mismatched column count.`);
+            console.warn(`[CSV Parse] Skipping line ${i + 1} due to mismatched column count. Expected ${header.length}, got ${values.length}. Line: "${line}"`);
         }
     }
     return data;
@@ -379,7 +383,7 @@ export const Drivers: React.FC = () => {
                 return;
             }
 
-            const DEFAULT_PASSWORD = "DefaultPassword@123"; // Define a default password
+            const DEFAULT_PASSWORD = "DefaultPassword@123";
             let usedDefaultPassword = false;
 
             try {
@@ -392,25 +396,24 @@ export const Drivers: React.FC = () => {
 
                 let importedCount = 0;
                 let skippedCount = 0;
+                const skippedReasons: string[] = [];
 
                 for (const row of parsedData) {
-                    const name = row['nome']?.trim(); // 'nome' is the Portuguese header for Name
+                    const name = row['nome']?.trim();
 
                     if (!name) {
-                        console.warn("Skipping row due to missing 'Nome':", row);
+                        console.warn("[CSV Import] Skipping row due to missing 'Nome':", row);
                         skippedCount++;
+                        skippedReasons.push(`Linha ignorada: 'Nome' ausente. Dados da linha: ${JSON.stringify(row)}`);
                         continue;
                     }
 
-                    // Use values from CSV if present, otherwise default
                     const email = row['email']?.trim() || `${name.toLowerCase().replace(/\s+/g, '.')}.${uuidv4().substring(0, 4)}@imported.local`;
-                    let password = row['senha']?.trim(); // 'senha' is Password
-                    if (!password) {
-                        password = DEFAULT_PASSWORD;
-                        usedDefaultPassword = true;
-                    } else if (password.length < 6) {
-                        console.warn(`Skipping user ${name} due to short password in CSV.`);
-                        toast({ variant: "warning", title: "Senha Curta Ignorada", description: `Senha para ${name} no CSV é muito curta e foi ignorada. Usando senha padrão.` });
+                    let password = row['senha']?.trim();
+                    if (!password || password.length < 6) {
+                        if (password && password.length < 6) {
+                            console.warn(`[CSV Import] Senha para ${name} no CSV é muito curta. Usando senha padrão.`);
+                        }
                         password = DEFAULT_PASSWORD;
                         usedDefaultPassword = true;
                     }
@@ -421,14 +424,16 @@ export const Drivers: React.FC = () => {
                     // Check for existing user by email or username
                     const existingByEmail = await getLocalUserByEmail(email);
                     if (existingByEmail) {
-                        console.warn(`Skipping user ${email} (already exists by email).`);
+                        console.warn(`[CSV Import] Skipping user ${name} (Email: ${email}) - email já existe.`);
                         skippedCount++;
+                        skippedReasons.push(`Email '${email}' (Nome: ${name}) já existe.`);
                         continue;
                     }
                     const existingByUsername = await getLocalUserByUsername(username);
                     if (existingByUsername) {
-                        console.warn(`Skipping user with username ${username} (already exists).`);
+                        console.warn(`[CSV Import] Skipping user ${name} (Username: ${username}) - nome de usuário já existe.`);
                         skippedCount++;
+                        skippedReasons.push(`Nome de usuário '${username}' (Nome: ${name}) já existe.`);
                         continue;
                     }
 
@@ -451,30 +456,35 @@ export const Drivers: React.FC = () => {
                         await saveLocalUser(newDriverData);
                         importedCount++;
                     } catch (saveError: any) {
-                        console.error(`Error saving imported driver ${email}:`, saveError);
-                        toast({ variant: "destructive", title: "Erro ao Salvar Motorista", description: `Falha ao salvar ${email}: ${saveError.message}`});
+                        console.error(`[CSV Import] Error saving imported driver ${name} (Email: ${email}):`, saveError);
+                        toast({ variant: "destructive", title: "Erro ao Salvar Motorista Importado", description: `Falha ao salvar ${name}: ${saveError.message}`});
                         skippedCount++;
+                        skippedReasons.push(`Erro ao salvar ${name} (Email: ${email}): ${saveError.message}`);
                     }
                 }
 
-                await fetchLocalDriversData(); // Refresh the list
+                await fetchLocalDriversData();
                 let importToastDescription = `${importedCount} motoristas importados. ${skippedCount} ignorados.`;
                 if (usedDefaultPassword) {
                     importToastDescription += ` Senha padrão "${DEFAULT_PASSWORD}" usada para alguns motoristas. Altere-as imediatamente.`;
                 }
+                if (skippedReasons.length > 0) {
+                    importToastDescription += ` Motivos para ignorados (ver console): ${skippedReasons.slice(0,2).join(', ')}${skippedReasons.length > 2 ? '...' : ''}`;
+                    console.warn("[CSV Import] Detalhes dos motoristas ignorados:", skippedReasons.join("\n"));
+                }
                 toast({
                     title: "Importação Concluída",
                     description: importToastDescription,
-                    duration: usedDefaultPassword ? 10000 : 5000 // Longer duration if default pass used
+                    duration: (usedDefaultPassword || skippedReasons.length > 0) ? 10000 : 5000
                 });
 
             } catch (parseError: any) {
-                console.error("Error parsing CSV:", parseError);
+                console.error("[CSV Import] Error parsing CSV:", parseError);
                 toast({ variant: "destructive", title: "Erro ao Processar CSV", description: parseError.message });
             } finally {
                 setIsSaving(false);
                 if (fileInputRef.current) {
-                    fileInputRef.current.value = ""; // Reset file input
+                    fileInputRef.current.value = "";
                 }
             }
         };
@@ -517,7 +527,7 @@ export const Drivers: React.FC = () => {
 
 
     const closeCreateModal = () => {
-        resetCreateForm();
+        resetForm();
         setIsCreateModalOpen(false);
     }
     const closeEditModal = () => {
@@ -536,10 +546,6 @@ export const Drivers: React.FC = () => {
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                 <h2 className="text-2xl font-semibold">Gerenciar Motoristas</h2>
                 <div className="flex flex-wrap gap-2">
-                    <Button onClick={handleSyncOnlineDrivers} variant="outline" disabled={isSyncingOnline || isSaving}>
-                        <RefreshCw className={`mr-2 h-4 w-4 ${isSyncingOnline ? 'animate-spin' : ''}`} />
-                        {isSyncingOnline ? 'Sincronizando...' : 'Sincronizar Online'}
-                    </Button>
                      <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
                         <DialogTrigger asChild>
                             <Button className="bg-primary hover:bg-primary/90 text-primary-foreground" disabled={isSaving}>
@@ -601,9 +607,8 @@ export const Drivers: React.FC = () => {
                     </CardHeader>
                     <CardContent>
                         <p className="text-muted-foreground">
-                            Nenhum motorista cadastrado localmente. Clique em "Sincronizar Online" para buscar motoristas do servidor,
-                            "Cadastrar Motorista" para adicionar manually, ou "Importar Motoristas (CSV)".
-                            Se o problema persistir após sincronizar, verifique se há motoristas com a função 'driver' no Firestore.
+                            Nenhum motorista cadastrado localmente.
+                            Clique em "Cadastrar Motorista" para adicionar manualmente, ou "Importar Motoristas (CSV)".
                         </p>
                     </CardContent>
                 </Card>
@@ -650,8 +655,7 @@ export const Drivers: React.FC = () => {
                                                             <p><strong>Nome:</strong> {currentDriver?.name || 'N/A'}</p>
                                                             <p><strong>Nome de Usuário:</strong> {currentDriver?.username || 'N/A'}</p>
                                                             <p><strong>E-mail:</strong> {currentDriver?.email}</p>
-                                                            <p><strong>ID Local:</strong> {currentDriver?.id}</p>
-                                                            <p><strong>ID Firebase:</strong> {currentDriver?.firebaseId || 'Não Sincronizado'}</p>
+                                                            <p><strong>ID Local/Firebase:</strong> {currentDriver?.id}</p>
                                                             <p><strong>Base:</strong> {currentDriver?.base || 'N/A'}</p>
                                                             <p><strong>Função:</strong> {currentDriver?.role}</p>
                                                             <p><strong>Último Login:</strong> {currentDriver?.lastLogin ? format(new Date(currentDriver.lastLogin), 'dd/MM/yyyy HH:mm:ss') : 'N/A'}</p>
@@ -688,7 +692,7 @@ export const Drivers: React.FC = () => {
                                                             <div className="space-y-2">
                                                                 <Label htmlFor="editEmail">E-mail*</Label>
                                                                 <Input id="editEmail" type="email" value={editEmail} onChange={(e) => setEditEmail(e.target.value)} required
-                                                                    disabled={isSaving || !!driver.firebaseId} // Disable if has firebaseId (synced)
+                                                                    disabled={isSaving || !!driver.firebaseId} 
                                                                     title={!!driver.firebaseId ? "E-mail não pode ser alterado para contas sincronizadas online." : ""}
                                                                 />
                                                                  {!!driver.firebaseId && (
