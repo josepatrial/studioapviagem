@@ -12,7 +12,7 @@ import { parseISO, startOfDay, endOfDay, isWithinInterval } from 'date-fns';
 
 
 const DB_NAME = 'RotaCertaDB';
-const DB_VERSION = 4; // Increment version for new index on fuelings (fuelType)
+const DB_VERSION = 5; // Increment version for new index on users (username)
 
 // Define object stores - Export constants
 export const STORE_VEHICLES = 'vehicles';
@@ -38,7 +38,7 @@ export type LocalVisit = Omit<BaseVisit, 'id'> & LocalRecord & { localId: string
 export type LocalExpense = Omit<Expense, 'id'> & LocalRecord & { localId: string; tripLocalId: string; id?: string };
 // Update LocalFueling to include odometerKm and fuelType
 export type LocalFueling = Omit<BaseFueling, 'id'> & LocalRecord & { localId: string; tripLocalId: string; odometerKm: number; fuelType: string; id?: string };
-export type LocalUser = User & { lastLogin?: string; passwordHash?: string; };
+export type LocalUser = User & { lastLogin?: string; passwordHash?: string; username?: string; }; // Added username to LocalUser
 
 const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin'> & {password: string})[] = [
   // Admin users
@@ -46,19 +46,19 @@ const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin'> & {password:
     id: 'admin@grupo2irmaos.com.br',
     email: 'admin@grupo2irmaos.com.br',
     name: 'Admin Grupo 2 Irmãos',
-    username: 'admin',
+    username: 'admin_g2i', // Ensure admin has a username
     role: 'admin',
     base: 'ALL',
     password: 'admin123',
   },
   {
-    id: 'grupo2irmaos@grupo2irmaos.com.br', // From image, interpreted as admin
+    id: 'grupo2irmaos@grupo2irmaos.com.br',
     email: 'grupo2irmaos@grupo2irmaos.com.br',
-    name: 'Grupo 2 Irmãos Admin', // Clarify name origin
-    username: 'grupo2irmaos_admin', // Ensure unique username
+    name: 'Grupo 2 Irmãos Admin',
+    username: 'grupo2irmaos_admin',
     role: 'admin',
     base: 'ALL',
-    password: 'password1', // Using a slightly more secure placeholder
+    password: 'password1',
   },
   // Original Drivers from previous seed
   {
@@ -108,10 +108,10 @@ const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin'> & {password:
     password: 'password1',
   },
   {
-    id: 'otadio.medina@grupo2irmaos.com.br', // Assuming this is Otavio from image
-    email: 'otadio.medina@grupo2irmaos.com.br',
+    id: 'otavio.medina@grupo2irmaos.com.br', // Corrected email for Otavio
+    email: 'otavio.medina@grupo2irmaos.com.br',
     name: 'Otavio Medina',
-    username: 'otavio.medina', // Corrected username from 'otadio'
+    username: 'otavio.medina',
     role: 'driver',
     base: 'SP',
     password: 'password1',
@@ -248,7 +248,7 @@ export const openDB = (): Promise<IDBDatabase> => {
        if (!tripStore.indexNames.contains('syncStatus')) tripStore.createIndex('syncStatus', 'syncStatus', { unique: false });
        if (!tripStore.indexNames.contains('deleted')) tripStore.createIndex('deleted', 'deleted', { unique: false });
        if (!tripStore.indexNames.contains('createdAt')) tripStore.createIndex('createdAt', 'createdAt', { unique: false });
-       if (!tripStore.indexNames.contains('base')) tripStore.createIndex('base', 'base', { unique: false }); // Added index for base
+       if (!tripStore.indexNames.contains('base')) tripStore.createIndex('base', 'base', { unique: false });
 
       let visitStore: IDBObjectStore;
       if (!tempDb.objectStoreNames.contains(STORE_VISITS)) {
@@ -262,7 +262,7 @@ export const openDB = (): Promise<IDBDatabase> => {
        if (!visitStore.indexNames.contains('syncStatus')) visitStore.createIndex('syncStatus', 'syncStatus', { unique: false });
        if (!visitStore.indexNames.contains('deleted')) visitStore.createIndex('deleted', 'deleted', { unique: false });
        if (!visitStore.indexNames.contains('timestamp')) visitStore.createIndex('timestamp', 'timestamp', { unique: false });
-       if (!visitStore.indexNames.contains('visitType')) visitStore.createIndex('visitType', 'visitType', { unique: false }); // Added index for visitType
+       if (!visitStore.indexNames.contains('visitType')) visitStore.createIndex('visitType', 'visitType', { unique: false });
 
       let expenseStore: IDBObjectStore;
       if (!tempDb.objectStoreNames.contains(STORE_EXPENSES)) {
@@ -291,7 +291,7 @@ export const openDB = (): Promise<IDBDatabase> => {
        if (!fuelingStore.indexNames.contains('date')) fuelingStore.createIndex('date', 'date', { unique: false });
        if (!fuelingStore.indexNames.contains('vehicleId')) fuelingStore.createIndex('vehicleId', 'vehicleId', { unique: false });
        if (!fuelingStore.indexNames.contains('odometerKm')) fuelingStore.createIndex('odometerKm', 'odometerKm', { unique: false });
-       if (!fuelingStore.indexNames.contains('fuelType')) fuelingStore.createIndex('fuelType', 'fuelType', { unique: false }); // Add index for fuelType
+       if (!fuelingStore.indexNames.contains('fuelType')) fuelingStore.createIndex('fuelType', 'fuelType', { unique: false });
 
 
       let userStore: IDBObjectStore;
@@ -302,6 +302,7 @@ export const openDB = (): Promise<IDBDatabase> => {
            userStore = transaction.objectStore(STORE_USERS);
        }
        if (!userStore.indexNames.contains('email')) userStore.createIndex('email', 'email', { unique: true });
+       if (!userStore.indexNames.contains('username')) userStore.createIndex('username', 'username', { unique: true }); // Add username index
        if (!userStore.indexNames.contains('lastLogin')) userStore.createIndex('lastLogin', 'lastLogin', { unique: false });
        if (!userStore.indexNames.contains('role')) userStore.createIndex('role', 'role', { unique: false });
        if (!userStore.indexNames.contains('base')) userStore.createIndex('base', 'base', { unique: false });
@@ -601,6 +602,33 @@ export const getLocalUserByEmail = (email: string): Promise<LocalUser | null> =>
     });
 };
 
+export const getLocalUserByUsername = (username: string): Promise<LocalUser | null> => {
+    const getByUsernameStartTime = performance.now();
+    console.log(`[getLocalUserByUsername ${getByUsernameStartTime}] Getting user with username: ${username}`);
+    return getLocalDbStore(STORE_USERS, 'readonly').then(store => {
+        return new Promise<LocalUser | null>((resolve, reject) => {
+            if (!store.indexNames.contains('username')) {
+                 console.error(`[getLocalUserByUsername ${getByUsernameStartTime}] Index 'username' not found on ${STORE_USERS}. Cannot get user by username.`);
+                 reject(`Index 'username' not found on ${STORE_USERS}`);
+                 return;
+             }
+            const index = store.index('username');
+            const request = index.get(username);
+            request.onsuccess = () => {
+                const getByUsernameEndTime = performance.now();
+                console.log(`[getLocalUserByUsername ${getByUsernameStartTime}] User with username ${username} ${request.result ? 'found' : 'not found'}. Time: ${getByUsernameEndTime - getByUsernameStartTime} ms`);
+                resolve(request.result as LocalUser | null);
+            };
+            request.onerror = () => {
+                const getByUsernameEndTime = performance.now();
+                console.error(`[getLocalUserByUsername ${getByUsernameStartTime}] Error getting user by username ${username}. Time: ${getByUsernameEndTime - getByUsernameStartTime} ms`, request.error);
+                reject(`Error getting user by username ${username}: ${request.error?.message}`);
+            }
+        });
+    });
+};
+
+
 export const saveLocalUser = (user: LocalUser): Promise<void> => {
     const saveUserStartTime = performance.now();
     console.log(`[saveLocalUser ${saveUserStartTime}] Saving user with ID: ${user.id}`);
@@ -626,28 +654,29 @@ export const deleteLocalUser = (userId: string): Promise<void> => {
      return deleteLocalRecordByKey(STORE_USERS, userId);
 };
 
-export const addLocalVehicle = (vehicle: Omit<VehicleInfo, 'id'>): Promise<string> => {
+export const addLocalDbVehicle = (vehicle: Omit<VehicleInfo, 'id'>, firebaseId?: string): Promise<string> => {
     const localId = `local_vehicle_${uuidv4()}`;
     const newLocalVehicle: LocalVehicle = {
         ...(vehicle as Omit<VehicleInfo, 'id'>),
         localId,
-        id: localId,
-        syncStatus: 'pending',
+        id: firebaseId || localId, // Use firebaseId for 'id' if provided
+        firebaseId: firebaseId,
+        syncStatus: firebaseId ? 'synced' : 'pending', // Synced if firebaseId is present
         deleted: false,
     };
-    console.log(`[addLocalVehicle] Preparing to add vehicle with localId: ${localId}`);
+    console.log(`[addLocalDbVehicle] Preparing to add vehicle with localId: ${localId}, firebaseId: ${firebaseId}`);
     return addLocalRecord<LocalVehicle>(STORE_VEHICLES, newLocalVehicle);
 };
 
-export const updateLocalVehicle = (vehicle: LocalVehicle): Promise<void> => {
-    console.log(`[updateLocalVehicle] Preparing to update vehicle with localId: ${vehicle.localId}`);
+export const updateLocalDbVehicle = (vehicle: LocalVehicle): Promise<void> => {
+    console.log(`[updateLocalDbVehicle] Preparing to update vehicle with localId: ${vehicle.localId}`);
     const updatedSyncStatus = vehicle.syncStatus === 'synced' ? 'pending' : vehicle.syncStatus;
     const updatedVehicle = { ...vehicle, syncStatus: updatedSyncStatus };
     return updateLocalRecord<LocalVehicle>(STORE_VEHICLES, updatedVehicle);
 };
 
-export const deleteLocalVehicle = (localId: string): Promise<void> => {
-    console.log(`[deleteLocalVehicle] Preparing to mark vehicle for deletion with localId: ${localId}`);
+export const deleteLocalDbVehicle = (localId: string): Promise<void> => {
+    console.log(`[deleteLocalDbVehicle] Preparing to mark vehicle for deletion with localId: ${localId}`);
     return markRecordForDeletion(STORE_VEHICLES, localId);
 };
 
@@ -1185,6 +1214,7 @@ export const seedInitialUsers = async () => {
                 const finalUserData: LocalUser = {
                     ...userData,
                     id: user.id || user.email, // Use email as ID if id is not present
+                    username: user.username || user.email.split('@')[0], // Ensure username
                     passwordHash: hash,
                     lastLogin: new Date().toISOString(),
                     role: user.role || 'driver', // Default to 'driver' if not specified
@@ -1197,10 +1227,8 @@ export const seedInitialUsers = async () => {
             usersToSeed.forEach(user => {
                 const addReq = store.add(user);
                 addReq.onerror = () => {
-                    // If add fails, it might be because a user with the same email (ID) already exists from a previous partial seed or manual entry.
-                    // In this case, we can try to update.
                     console.warn(`[seedInitialUsers] Error adding user ${user.email} (ID: ${user.id}), attempting update... Error:`, addReq.error);
-                    const updateReq = store.put(user); // `put` will update if exists, add if not
+                    const updateReq = store.put(user);
                     updateReq.onerror = () => {
                          console.error(`[seedInitialUsers] Error updating user ${user.email} (ID: ${user.id}) after add failed:`, updateReq.error);
                     };

@@ -11,9 +11,9 @@ import { Label } from "@/components/ui/label";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
-    addLocalVehicle as addLocalDbVehicle,
-    updateLocalVehicle as updateLocalDbVehicle,
-    deleteLocalVehicle as deleteLocalDbVehicle,
+    addLocalDbVehicle,
+    updateLocalDbVehicle,
+    deleteLocalDbVehicle,
     getLocalVehicles,
     LocalVehicle,
 } from '@/services/localDbService';
