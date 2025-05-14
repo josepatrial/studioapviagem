@@ -4,11 +4,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Edit, Trash2, Car, CalendarDays, Gauge, Fuel, Milestone, Users, Loader2, FileUp } from 'lucide-react';
+import { PlusCircle, Edit, Trash2, Car, CalendarDays, Gauge, Fuel, Milestone, Users, Loader2 } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"; // Removed AlertDialogTrigger as it was unused
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import {
     addLocalDbVehicle,
@@ -36,7 +36,6 @@ export const Vehicle: React.FC = () => {
   const [currentVehicle, setCurrentVehicle] = useState<VehicleInfo | null>(null);
   const [vehicleToDelete, setVehicleToDelete] = useState<VehicleInfo | null>(null);
   const { toast } = useToast();
-  // Removed fileInputRef as it's no longer used
 
   const [model, setModel] = useState('');
   const [year, setYear] = useState<number | ''>('');
@@ -51,7 +50,7 @@ export const Vehicle: React.FC = () => {
                console.log("[Vehicle] No local vehicles, fetching online...");
                try {
                    const onlineVehicles = await fetchOnlineVehicles();
-                    const savePromises = onlineVehicles.map(async (v) => { 
+                    const savePromises = onlineVehicles.map(async (v) => {
                         const vehicleDataForAdd: Omit<LocalVehicle, 'id' | 'localId' | 'syncStatus' | 'deleted' | 'firebaseId'> = {
                             model: v.model,
                             year: v.year,
@@ -64,7 +63,7 @@ export const Vehicle: React.FC = () => {
                         }
                     });
                    await Promise.all(savePromises);
-                   localVehicles = await getLocalVehicles(); 
+                   localVehicles = await getLocalVehicles();
 
                } catch (fetchError: any) {
                    console.error("Error fetching/saving online vehicles:", fetchError);
@@ -91,7 +90,7 @@ export const Vehicle: React.FC = () => {
     vehicleModel: string,
     vehicleYear: number,
     vehicleLicensePlate: string,
-    firebaseId?: string 
+    firebaseId?: string
   ): Promise<boolean> => {
     const vehicleDataForAdd: Omit<LocalVehicle, 'id' | 'localId' | 'syncStatus' | 'deleted' | 'firebaseId'> = {
       model: vehicleModel,
@@ -249,14 +248,12 @@ export const Vehicle: React.FC = () => {
       setCurrentVehicle(null);
     }
 
-  // Removed handleFileImport and processImportedCsv functions
 
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
         <h2 className="text-2xl font-semibold">Gerenciar Veículos</h2>
         <div className="flex gap-2">
-            {/* Removed Import CSV Button and hidden file input */}
             <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
               <DialogTrigger asChild>
                  <Button onClick={() => { resetForm(); setIsCreateModalOpen(true); }} className="bg-primary hover:bg-primary/90 text-primary-foreground" disabled={isSaving}>
@@ -358,12 +355,12 @@ export const Vehicle: React.FC = () => {
                      </Dialog>
 
                       <AlertDialog open={isDeleteModalOpen && vehicleToDelete?.id === vehicle.id} onOpenChange={(isOpen) => !isOpen && closeDeleteModal()}>
-                        <DialogTrigger asChild>
+                        <AlertDialogTrigger asChild>
                           <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => openDeleteModal(vehicle)} disabled={isSaving}>
                             <Trash2 className="h-4 w-4" />
                             <span className="sr-only">Excluir Veículo</span>
                           </Button>
-                        </DialogTrigger>
+                        </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
                             <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
