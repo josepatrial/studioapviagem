@@ -18,7 +18,7 @@ import {
     LocalUser as DbUser,
     getLocalUserByEmail,
     getLocalRecordsByRole,
-    getLocalUserByUsername, // Import getLocalUserByUsername
+    getLocalUserByUsername,
 } from '@/services/localDbService';
 import type { DriverInfo, User as AppUser } from '@/contexts/AuthContext';
 import { LoadingSpinner } from '../LoadingSpinner';
@@ -379,6 +379,9 @@ export const Drivers: React.FC = () => {
                 return;
             }
 
+            const DEFAULT_PASSWORD = "DefaultPassword@123"; // Define a default password
+            let usedDefaultPassword = false;
+
             try {
                 const parsedData = parseCSV(text);
                 if (parsedData.length === 0) {
@@ -391,22 +394,29 @@ export const Drivers: React.FC = () => {
                 let skippedCount = 0;
 
                 for (const row of parsedData) {
-                    const name = row['nome'];
-                    const email = row['email'];
-                    const password = row['senha']; // Assume 'senha' column for password
-                    const base = row['base'];
-                    const username = row['username'] || email?.split('@')[0]; // Optional username
+                    const name = row['nome']?.trim(); // 'nome' is the Portuguese header for Name
 
-                    if (!name || !email || !password || !base ) { // Username is optional
-                        console.warn("Skipping row due to missing required fields:", row);
+                    if (!name) {
+                        console.warn("Skipping row due to missing 'Nome':", row);
                         skippedCount++;
                         continue;
                     }
-                    if (password.length < 6) {
-                        console.warn("Skipping row due to short password:", row);
-                        skippedCount++;
-                        continue;
+
+                    // Use values from CSV if present, otherwise default
+                    const email = row['email']?.trim() || `${name.toLowerCase().replace(/\s+/g, '.')}.${uuidv4().substring(0, 4)}@imported.local`;
+                    let password = row['senha']?.trim(); // 'senha' is Password
+                    if (!password) {
+                        password = DEFAULT_PASSWORD;
+                        usedDefaultPassword = true;
+                    } else if (password.length < 6) {
+                        console.warn(`Skipping user ${name} due to short password in CSV.`);
+                        toast({ variant: "warning", title: "Senha Curta Ignorada", description: `Senha para ${name} no CSV é muito curta e foi ignorada. Usando senha padrão.` });
+                        password = DEFAULT_PASSWORD;
+                        usedDefaultPassword = true;
                     }
+                    
+                    const base = row['base']?.trim().toUpperCase() || 'CSV_IMPORTED';
+                    const username = row['username']?.trim() || email.split('@')[0];
 
                     // Check for existing user by email or username
                     const existingByEmail = await getLocalUserByEmail(email);
@@ -415,15 +425,12 @@ export const Drivers: React.FC = () => {
                         skippedCount++;
                         continue;
                     }
-                    if (username) {
-                        const existingByUsername = await getLocalUserByUsername(username);
-                        if (existingByUsername) {
-                            console.warn(`Skipping user with username ${username} (already exists).`);
-                            skippedCount++;
-                            continue;
-                        }
+                    const existingByUsername = await getLocalUserByUsername(username);
+                    if (existingByUsername) {
+                        console.warn(`Skipping user with username ${username} (already exists).`);
+                        skippedCount++;
+                        continue;
                     }
-
 
                     const passwordHash = await bcrypt.hash(password, 10);
                     const newDriverLocalId = `local_user_${uuidv4()}`;
@@ -435,7 +442,7 @@ export const Drivers: React.FC = () => {
                         username,
                         passwordHash,
                         role: 'driver',
-                        base: base.toUpperCase(),
+                        base,
                         lastLogin: new Date().toISOString(),
                         syncStatus: 'pending',
                     };
@@ -451,9 +458,14 @@ export const Drivers: React.FC = () => {
                 }
 
                 await fetchLocalDriversData(); // Refresh the list
+                let importToastDescription = `${importedCount} motoristas importados. ${skippedCount} ignorados.`;
+                if (usedDefaultPassword) {
+                    importToastDescription += ` Senha padrão "${DEFAULT_PASSWORD}" usada para alguns motoristas. Altere-as imediatamente.`;
+                }
                 toast({
                     title: "Importação Concluída",
-                    description: `${importedCount} motoristas importados. ${skippedCount} ignorados (duplicados, dados ausentes ou senha curta).`
+                    description: importToastDescription,
+                    duration: usedDefaultPassword ? 10000 : 5000 // Longer duration if default pass used
                 });
 
             } catch (parseError: any) {
@@ -590,7 +602,7 @@ export const Drivers: React.FC = () => {
                     <CardContent>
                         <p className="text-muted-foreground">
                             Nenhum motorista cadastrado localmente. Clique em "Sincronizar Online" para buscar motoristas do servidor,
-                            "Cadastrar Motorista" para adicionar manualmente, ou "Importar Motoristas (CSV)".
+                            "Cadastrar Motorista" para adicionar manually, ou "Importar Motoristas (CSV)".
                             Se o problema persistir após sincronizar, verifique se há motoristas com a função 'driver' no Firestore.
                         </p>
                     </CardContent>
