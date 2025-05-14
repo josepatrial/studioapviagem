@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { getDrivers as fetchOnlineDrivers, addUser as addUserOnline, updateUser as updateUserOnline, deleteUser as deleteUserOnline, getUserByEmail } from '@/services/firestoreService';
+import { getDrivers as fetchOnlineDrivers, setUserData as setFirestoreUserData } from '@/services/firestoreService';
 import {
     getLocalUser,
     saveLocalUser,
@@ -18,8 +18,6 @@ import {
     LocalUser as DbUser,
     getLocalUserByEmail,
     getLocalRecordsByRole,
-    addLocalRecord,
-    updateLocalRecord,
 } from '@/services/localDbService';
 import type { DriverInfo, User as AppUser } from '@/contexts/AuthContext';
 import { LoadingSpinner } from '../LoadingSpinner';
@@ -33,32 +31,29 @@ type Driver = AppUser & { username?: string };
 export const Drivers: React.FC = () => {
     const [drivers, setDrivers] = useState<Driver[]>([]);
     const [loadingDrivers, setLoadingDrivers] = useState(true);
-    const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [isViewModalOpen, setIsViewModalOpen] = useState(false);
     const [currentDriver, setCurrentDriver] = useState<Driver | null>(null);
     const { toast } = useToast();
-    const fileInputRef = useRef<HTMLInputElement>(null);
 
     const [name, setName] = useState('');
     const [username, setUsername] = useState('');
     const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [confirmPassword, setConfirmPassword] = useState('');
     const [base, setBase] = useState('');
     const [isSaving, setIsSaving] = useState(false);
     const [isSyncingOnline, setIsSyncingOnline] = useState(false);
 
     const fetchLocalDriversData = async () => {
         setLoadingDrivers(true);
+        console.log("[Drivers - fetchLocalDriversData] Fetching local drivers...");
         try {
             const localDriversDataRaw: DbUser[] = await getLocalRecordsByRole('driver');
-            console.log(`[Drivers - fetchLocalDriversData] Found ${localDriversDataRaw.length} raw drivers locally. Data:`, JSON.stringify(localDriversDataRaw.map(d => ({id: d.id, name: d.name, email: d.email, role: d.role, base: d.base}))));
+            console.log(`[Drivers - fetchLocalDriversData] Found ${localDriversDataRaw.length} raw drivers locally.`);
             
             const mappedDrivers = localDriversDataRaw
-                .filter(driver => driver.role === 'driver') // Ensure role is 'driver'
+                .filter(driver => driver.role === 'driver') 
                 .map(driverData => {
-                    const { passwordHash, ...driverForUI } = driverData; // Exclude passwordHash from UI object
+                    const { passwordHash, ...driverForUI } = driverData; 
                     return driverForUI as Driver;
                 })
                 .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
@@ -89,18 +84,18 @@ export const Drivers: React.FC = () => {
         setIsSyncingOnline(true);
         toast({ title: "Sincronizando...", description: "Buscando motoristas online." });
         try {
-            const onlineDriversData: DriverInfo[] = await fetchOnlineDrivers(); // Fetches users with role 'driver'
-            console.log(`[Drivers Sync] Found ${onlineDriversData.length} drivers online from Firestore 'users' collection with role 'driver'. Data:`, JSON.stringify(onlineDriversData));
+            const onlineDriversData: DriverInfo[] = await fetchOnlineDrivers();
+            console.log(`[Drivers Sync] Found ${onlineDriversData.length} drivers online from Firestore 'users' collection with role 'driver'.`);
 
             let newDriversAddedCount = 0;
             let updatedDriversCount = 0;
+            let existingWithNoLocalRoleChange = 0;
 
             if (onlineDriversData.length > 0) {
                 for (const onlineDriver of onlineDriversData) {
                     console.log(`[Drivers Sync] Processing online driver: ${onlineDriver.email} (ID: ${onlineDriver.id}, Name: ${onlineDriver.name}, Base: ${onlineDriver.base})`);
                     let existingLocalDriver: DbUser | null = null;
                     try {
-                        // Try to find by Firebase UID
                         existingLocalDriver = await getLocalUser(onlineDriver.id);
                         console.log(`[Drivers Sync] Checked for local user with ID ${onlineDriver.id}. Found:`, existingLocalDriver ? existingLocalDriver.email : 'Not found');
                     } catch (e) {
@@ -108,36 +103,44 @@ export const Drivers: React.FC = () => {
                     }
 
                     const dbUserData: DbUser = {
-                        id: onlineDriver.id, // Use Firebase UID as the primary ID
+                        id: onlineDriver.id,
                         email: onlineDriver.email,
                         name: onlineDriver.name || onlineDriver.email || `Motorista ${onlineDriver.id.substring(0, 6)}`,
                         username: onlineDriver.username || '',
-                        role: 'driver', // Explicitly set role, as getDrivers already filters by this
+                        role: 'driver', // Explicitly set role
                         base: onlineDriver.base || 'N/A',
-                        lastLogin: existingLocalDriver?.lastLogin || new Date().toISOString(), // Preserve existing or set new
-                        passwordHash: existingLocalDriver?.passwordHash || '', // Preserve existing hash or set empty
-                        syncStatus: 'synced', // Mark as synced
+                        lastLogin: existingLocalDriver?.lastLogin || new Date().toISOString(),
+                        passwordHash: existingLocalDriver?.passwordHash || '', // Preserve hash
+                        syncStatus: 'synced',
                     };
 
                     try {
                         await saveLocalUser(dbUserData);
+                         // Also ensure Firestore has 'driver' role for this user for future syncs consistency
+                        await setFirestoreUserData(onlineDriver.id, { role: 'driver', base: dbUserData.base, name: dbUserData.name, email: dbUserData.email });
+
                         if (existingLocalDriver) {
-                            updatedDriversCount++;
-                            console.log(`[Drivers Sync] Driver ${dbUserData.name} (ID: ${dbUserData.id}) updated locally.`);
+                            if(existingLocalDriver.role !== 'driver' || existingLocalDriver.base !== dbUserData.base || existingLocalDriver.name !== dbUserData.name || existingLocalDriver.email !== dbUserData.email) {
+                                updatedDriversCount++;
+                                console.log(`[Drivers Sync] Driver ${dbUserData.name} (ID: ${dbUserData.id}) updated locally and role/base/name/email updated in Firestore.`);
+                            } else {
+                                existingWithNoLocalRoleChange++;
+                                console.log(`[Drivers Sync] Driver ${dbUserData.name} (ID: ${dbUserData.id}) already up-to-date locally (role/base/name/email). Firestore role/base/name/email re-affirmed.`);
+                            }
                         } else {
                             newDriversAddedCount++;
-                            console.log(`[Drivers Sync] New driver ${dbUserData.name} (ID: ${dbUserData.id}) saved locally.`);
+                            console.log(`[Drivers Sync] New driver ${dbUserData.name} (ID: ${dbUserData.id}) saved locally and role/base/name/email set in Firestore.`);
                         }
                     } catch (saveError) {
-                        console.error(`[Drivers Sync] Error saving/updating driver ${onlineDriver.id} locally:`, saveError);
+                        console.error(`[Drivers Sync] Error saving/updating driver ${onlineDriver.id} locally/online:`, saveError);
                     }
                 }
-                console.log(`[Drivers Sync] All save/update operations attempted. New: ${newDriversAddedCount}, Updated: ${updatedDriversCount}`);
+                console.log(`[Drivers Sync] All save/update operations attempted. New: ${newDriversAddedCount}, Updated: ${updatedDriversCount}, No Local Change: ${existingWithNoLocalRoleChange}`);
             } else {
                 console.log("[Drivers Sync] No drivers found online in Firestore 'users' collection with role 'driver'.");
             }
 
-            await fetchLocalDriversData(); // Refresh UI after sync
+            await fetchLocalDriversData(); 
 
             toast({
                 title: "Sincronização Concluída!",
@@ -152,62 +155,6 @@ export const Drivers: React.FC = () => {
             setIsSyncingOnline(false);
         }
     };
-
-    const _createNewDriver = async (
-        driverName: string,
-        driverUsername: string | undefined,
-        driverEmail: string,
-        driverBase: string,
-        driverPassword: string
-    ): Promise<boolean> => {
-        setIsSaving(true);
-        try {
-            const existingByEmail = await getLocalUserByEmail(driverEmail).catch(() => null);
-            if (existingByEmail) {
-                toast({ variant: "destructive", title: "Erro de Duplicidade", description: `E-mail ${driverEmail} já cadastrado localmente.` });
-                setIsSaving(false);
-                return false;
-            }
-            if (driverUsername) {
-                const usernameExistsLocally = drivers.some(d => d.username === driverUsername);
-                if (usernameExistsLocally) {
-                    toast({ variant: "destructive", title: "Erro de Duplicidade", description: `Nome de usuário ${driverUsername} já existe localmente.` });
-                    setIsSaving(false);
-                    return false;
-                }
-            }
-
-            const userId = `local_user_${uuidv4()}`; // Temp local ID
-            const userDataForDb: Omit<DbUser, 'passwordHash' | 'lastLogin' | 'id'> = {
-                name: driverName,
-                username: driverUsername,
-                email: driverEmail,
-                base: driverBase.toUpperCase(),
-                role: 'driver',
-            };
-
-            const localUserData: DbUser = {
-                id: userId,
-                ...userDataForDb,
-                passwordHash: await bcrypt.hash(driverPassword, 10),
-                lastLogin: new Date().toISOString(),
-            };
-            await saveLocalUser(localUserData);
-            console.log(`[Drivers] User saved locally with ID: ${userId}`);
-
-            // For UI update, map back to Driver type (excluding passwordHash)
-            const { passwordHash, ...newDriverUI } = localUserData;
-            setDrivers(prevDrivers => [newDriverUI as Driver, ...prevDrivers].sort((a, b) => (a.name || '').localeCompare(b.name || '')));
-            return true;
-        } catch (error: any) {
-            console.error("[Drivers] Error in _createNewDriver:", error);
-            toast({ variant: "destructive", title: "Erro no Cadastro", description: `Ocorreu um erro ao cadastrar o motorista: ${error.message}` });
-            return false;
-        } finally {
-            setIsSaving(false);
-        }
-    };
-
 
     const handleEditDriver = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -298,7 +245,7 @@ export const Drivers: React.FC = () => {
                 setIsSaving(false);
                 return;
             }
-            await deleteLocalDbUser(driverId); // This should mark as deleted and pending sync
+            await deleteLocalDbUser(driverId); 
             console.log(`[Drivers] Driver ${driverId} marked for deletion locally.`);
             setDrivers(prevDrivers => prevDrivers.filter(d => d.id !== driverId));
             toast({ title: "Motorista marcado para exclusão.", description: "A exclusão online ocorrerá na próxima sincronização." });
@@ -319,8 +266,6 @@ export const Drivers: React.FC = () => {
         setUsername(driver.username || '');
         setEmail(driver.email || '');
         setBase(driver.base || '');
-        setPassword('');
-        setConfirmPassword('');
         setIsEditModalOpen(true);
     };
 
@@ -333,15 +278,9 @@ export const Drivers: React.FC = () => {
         setName('');
         setUsername('');
         setEmail('');
-        setPassword('');
-        setConfirmPassword('');
         setBase('');
     };
 
-    const closeCreateModal = () => {
-        resetForm();
-        setIsCreateModalOpen(false);
-    }
 
     const closeEditModal = () => {
         resetForm();
@@ -380,11 +319,9 @@ export const Drivers: React.FC = () => {
                             Nenhum motorista cadastrado localmente.
                             Clique em "Sincronizar Online" para buscar motoristas do servidor.
                         </p>
-                        <p className="text-xs text-muted-foreground mt-2">
-                            Se o problema persistir, verifique no Console do Firebase:
-                            <br /> 1. Se existem documentos na coleção 'users'.
-                            <br /> 2. Se esses documentos possuem o campo 'role' com o valor 'driver'.
-                        </p>
+                         <p className="text-xs text-muted-foreground mt-2">
+                             Se o problema persistir, verifique se há motoristas com a função 'driver' no Firestore.
+                         </p>
                     </CardContent>
                 </Card>
             ) : (
@@ -469,8 +406,8 @@ export const Drivers: React.FC = () => {
                                                             <div className="space-y-2">
                                                                 <Label htmlFor="editEmail">E-mail*</Label>
                                                                 <Input id="editEmail" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required
-                                                                    disabled={isSaving || (driver && !driver.id.startsWith('local_'))}
-                                                                    title={(driver && !driver.id.startsWith('local_')) ? "Alteração de e-mail indisponível para contas sincronizadas online." : ""}
+                                                                    disabled={isSaving || (driver && !driver.id.startsWith('local_user_'))}
+                                                                    title={(driver && !driver.id.startsWith('local_user_')) ? "Alteração de e-mail indisponível para contas sincronizadas online." : ""}
                                                                 />
                                                             </div>
                                                             <div className="space-y-2">
