@@ -13,6 +13,7 @@ import {
   writeBatch,
   orderBy, // Added orderBy
   type QueryConstraint, // Added QueryConstraint type
+  addDoc, // Ensure addDoc is imported
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase'; // Ensure db is correctly initialized and exported from firebase.ts
 import type { User, DriverInfo, UserRole } from '@/contexts/AuthContext';
@@ -174,21 +175,32 @@ export const deleteUser = async (userId: string) => {
 
 export const getDrivers = async (): Promise<DriverInfo[]> => {
     const getDriversStartTime = performance.now();
-    console.log(`[firestoreService getDrivers ${getDriversStartTime}] Fetching drivers...`);
+    console.log(`[firestoreService getDrivers ${getDriversStartTime}] Fetching drivers from 'users' collection...`);
     if (!usersCollectionRef) {
       console.warn(`[firestoreService getDrivers ${getDriversStartTime}] Users collection ref not initialized or Firestore not connected. Returning empty array.`);
       return [];
     }
     try {
+        // Fetches users from Firestore where role is 'driver'
         const q = query(usersCollectionRef, where('role', '==', 'driver'));
         const querySnapshot = await getDocs(q);
-        const drivers = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as DriverInfo);
+        const drivers = querySnapshot.docs.map(doc => {
+            const data = doc.data();
+            return {
+                id: doc.id, // This is the Firebase Auth UID
+                email: data.email,
+                name: data.name || data.email, // Fallback to email if name is not set
+                username: data.username,
+                role: 'driver',
+                base: data.base || 'N/A',
+            } as DriverInfo;
+        });
         const getDriversEndTime = performance.now();
-        console.log(`[firestoreService getDrivers ${getDriversStartTime}] Found ${drivers.length} drivers. Time: ${getDriversEndTime - getDriversStartTime} ms`);
+        console.log(`[firestoreService getDrivers ${getDriversStartTime}] Found ${drivers.length} drivers in Firestore. Time: ${getDriversEndTime - getDriversStartTime} ms`);
         return drivers;
     } catch (error) {
          const getDriversEndTime = performance.now();
-         console.error(`[firestoreService getDrivers ${getDriversStartTime}] Error fetching drivers. Time: ${getDriversEndTime - getDriversStartTime} ms`, error);
+         console.error(`[firestoreService getDrivers ${getDriversStartTime}] Error fetching drivers from Firestore. Time: ${getDriversEndTime - getDriversStartTime} ms`, error);
           if ((error as any).code === 'unavailable') {
               console.warn('Firestore is offline. Cannot fetch drivers.');
           }

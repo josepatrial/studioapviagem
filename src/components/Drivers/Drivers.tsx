@@ -10,7 +10,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { getDrivers as fetchOnlineDrivers, addUser as addUserOnline, updateUser as updateUserOnline, deleteUser as deleteUserOnline } from '@/services/firestoreService'; // Renamed to avoid conflict
+// Removed Firebase Auth import as it's not directly used for listing all users client-side
+import { getDrivers as fetchOnlineDrivers, addUser as addUserOnline, updateUser as updateUserOnline, deleteUser as deleteUserOnline } from '@/services/firestoreService';
 import {
     getLocalUser,
     saveLocalUser,
@@ -76,23 +77,25 @@ export const Drivers: React.FC = () => {
         setIsSyncingOnline(true);
         toast({ title: "Sincronizando...", description: "Buscando motoristas online." });
         try {
-            const onlineDriversData = await fetchOnlineDrivers(); // Fetches DriverInfo[]
-            console.log(`[Drivers Sync] Found ${onlineDriversData.length} drivers online.`);
+            // This fetches from the 'users' collection in Firestore where role is 'driver'
+            const onlineDriversData = await fetchOnlineDrivers();
+            console.log(`[Drivers Sync] Found ${onlineDriversData.length} drivers online from Firestore 'users' collection.`);
 
             let newDriversAddedCount = 0;
             let updatedDriversCount = 0;
 
             if (onlineDriversData.length > 0) {
                 const savePromises = onlineDriversData.map(async (onlineDriver) => {
+                    // onlineDriver.id is the Firebase UID
                     const existingLocalDriver = await getLocalUser(onlineDriver.id).catch(() => null);
                     const localUserData: DbUser = {
-                        id: onlineDriver.id,
+                        id: onlineDriver.id, // This is the Firebase Auth UID
                         email: onlineDriver.email,
                         name: onlineDriver.name || onlineDriver.email || `Motorista ${onlineDriver.id.substring(0,6)}`,
                         username: onlineDriver.username,
                         role: 'driver', // Ensure role is driver
                         base: onlineDriver.base || 'N/A',
-                        passwordHash: existingLocalDriver?.passwordHash || '', // Preserve existing hash or set empty
+                        passwordHash: existingLocalDriver?.passwordHash || '', // Preserve existing hash or set empty; passwords are not synced from Auth
                         lastLogin: existingLocalDriver?.lastLogin || new Date().toISOString(),
                     };
 
@@ -100,8 +103,16 @@ export const Drivers: React.FC = () => {
                         await saveLocalUser(localUserData);
                         if (!existingLocalDriver) {
                             newDriversAddedCount++;
-                        } else if (JSON.stringify(existingLocalDriver) !== JSON.stringify(localUserData) ) { // Basic check for actual changes
-                            updatedDriversCount++;
+                        } else {
+                             // Basic check for actual changes, excluding passwordHash and lastLogin which are managed locally
+                             const hasChanged = existingLocalDriver.name !== localUserData.name ||
+                                               existingLocalDriver.email !== localUserData.email ||
+                                               existingLocalDriver.username !== localUserData.username ||
+                                               existingLocalDriver.base !== localUserData.base ||
+                                               existingLocalDriver.role !== localUserData.role;
+                            if (hasChanged) {
+                               updatedDriversCount++;
+                            }
                         }
                     } catch (saveError) {
                         console.error(`[Drivers Sync] Error saving/updating driver ${onlineDriver.id} locally:`, saveError);
@@ -112,12 +123,12 @@ export const Drivers: React.FC = () => {
             await fetchLocalDriversData(); // Refresh local driver list
             toast({
                 title: "Sincronização Concluída!",
-                description: `${newDriversAddedCount} novo(s) motorista(s) adicionado(s). ${updatedDriversCount} motorista(s) atualizado(s). Total online: ${onlineDriversData.length}.`,
+                description: `${newDriversAddedCount} novo(s) motorista(s) adicionado(s). ${updatedDriversCount} motorista(s) atualizado(s). Total online (Firestore 'users'): ${onlineDriversData.length}.`,
                 duration: 7000,
             });
 
         } catch (onlineError: any) {
-            console.error("[Drivers Sync] Error fetching online drivers:", onlineError);
+            console.error("[Drivers Sync] Error fetching online drivers from Firestore 'users':", onlineError);
             toast({ variant: "destructive", title: "Erro na Sincronização Online", description: `Não foi possível buscar motoristas online: ${onlineError.message}` });
         } finally {
             setIsSyncingOnline(false);
