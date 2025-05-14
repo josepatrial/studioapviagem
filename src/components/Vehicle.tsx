@@ -28,7 +28,7 @@ export interface VehicleInfo extends Omit<LocalVehicle, 'syncStatus' | 'deleted'
 // Helper function to parse CSV data
 const parseVehicleCSV = (csvText: string): Record<string, string>[] => {
     const lines = csvText.trim().split('\n');
-    if (lines.length < 2) return [];
+    if (lines.length < 2) return []; // Needs header and at least one data row
 
     const headerLine = lines[0].trim();
     // Normalize header: lowercase and trim. Also map common variations.
@@ -38,6 +38,7 @@ const parseVehicleCSV = (csvText: string): Record<string, string>[] => {
         'placa': 'placa',
         'licenseplate': 'placa',
         'license plate': 'placa',
+        'licencaplate': 'placa', // common misspelling
         'ano': 'ano',
         'year': 'ano'
     };
@@ -46,17 +47,32 @@ const parseVehicleCSV = (csvText: string): Record<string, string>[] => {
 
     for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
-        if (!line) continue;
+        if (!line) continue; // Skip empty lines
 
         const values = line.split(',');
-        if (values.length === header.length) {
-            const entry: Record<string, string> = {};
-            for (let j = 0; j < header.length; j++) {
-                entry[header[j]] = values[j].trim();
+        // Allow for rows that might have fewer columns than the header if optional columns are at the end
+        const entry: Record<string, string> = {};
+        for (let j = 0; j < header.length; j++) {
+            if (j < values.length) { // Only assign if value exists for this header
+                 entry[header[j]] = values[j].trim();
+            } else {
+                 entry[header[j]] = ''; // Assign empty string for missing optional columns
             }
+        }
+        // Basic check: ensure at least the mandatory fields (modelo, placa) are present if they are in headers
+        if (header.includes('modelo') && header.includes('placa')) {
             data.push(entry);
+        } else if (values.length >= 2) { // If headers are non-standard, assume first two are model and plate
+            console.warn(`[Vehicle CSV Parse] Headers 'modelo' or 'placa' not found or malformed. Attempting to use first columns for row ${i+1}. Line: "${line}"`);
+            if (header.length >= 2) {
+                entry[header[0]] = values[0]?.trim() || '';
+                entry[header[1]] = values[1]?.trim() || '';
+                data.push(entry);
+            } else {
+                 console.warn(`[Vehicle CSV Parse] Skipping line ${i+1} due to insufficient columns and non-standard headers. Line: "${line}"`);
+            }
         } else {
-            console.warn(`[Vehicle CSV Parse] Skipping line ${i + 1} due to mismatched column count. Expected ${header.length}, got ${values.length}. Line: "${line}"`);
+            console.warn(`[Vehicle CSV Parse] Skipping line ${i + 1} due to insufficient columns for modelo/placa. Line: "${line}"`);
         }
     }
     return data;
@@ -108,7 +124,7 @@ export const Vehicle: React.FC = () => {
                    await Promise.all(savePromises);
                    localVehicles = await getLocalVehicles();
 
-               } catch (fetchError: any) {
+               } catch (fetchError: any) { // Explicitly type fetchError
                    console.error("Error fetching/saving online vehicles:", fetchError);
                    toast({ variant: "destructive", title: "Erro Online", description: "Não foi possível buscar ou salvar veículos online." });
                }
@@ -169,8 +185,8 @@ export const Vehicle: React.FC = () => {
 
   const handleAddVehicle = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!model || !year || !licensePlate) {
-      toast({ variant: "destructive", title: "Erro", description: "Todos os campos são obrigatórios." });
+    if (!model || year === '' || !licensePlate) { // Ensure year is checked against empty string too if type is number | ''
+      toast({ variant: "destructive", title: "Erro", description: "Modelo, Ano e Placa são obrigatórios." });
       return;
     }
      if (Number(year) < 1900 || Number(year) > new Date().getFullYear() + 5) {
@@ -191,8 +207,8 @@ export const Vehicle: React.FC = () => {
    const handleEditVehicle = async (e: React.FormEvent) => {
      e.preventDefault();
      if (!currentVehicle) return;
-      if (!model || !year || !licensePlate) {
-         toast({ variant: "destructive", title: "Erro", description: "Todos os campos são obrigatórios." });
+      if (!model || year === '' || !licensePlate) {
+         toast({ variant: "destructive", title: "Erro", description: "Modelo, Ano e Placa são obrigatórios." });
          return;
        }
         if (Number(year) < 1900 || Number(year) > new Date().getFullYear() + 5) {
@@ -331,7 +347,7 @@ export const Vehicle: React.FC = () => {
                 for (const row of parsedData) {
                     const modelo = row['modelo']?.trim();
                     const placa = row['placa']?.trim().toUpperCase();
-                    const anoStr = row['ano']?.trim();
+                    const anoStr = row['ano']?.trim(); // Ano is now optional
 
                     if (!modelo) {
                         const reason = `Linha ignorada: 'Modelo' ausente. Dados: ${JSON.stringify(row)}`;
@@ -347,22 +363,24 @@ export const Vehicle: React.FC = () => {
                         skippedCount++;
                         continue;
                     }
-                     if (!anoStr) {
-                        const reason = `Linha ignorada: 'Ano' ausente para modelo ${modelo}, placa ${placa}. Dados: ${JSON.stringify(row)}`;
+
+                    let ano = 0; // Default year if not provided or invalid
+                    if (anoStr) {
+                        const parsedYear = parseInt(anoStr, 10);
+                        if (!isNaN(parsedYear) && parsedYear >= 1900 && parsedYear <= new Date().getFullYear() + 5) {
+                            ano = parsedYear;
+                        } else {
+                            const reason = `Linha ignorada: 'Ano' inválido (${anoStr}) para ${modelo}, placa ${placa}. Usando ano padrão 0. Dados: ${JSON.stringify(row)}`;
+                            console.warn(`[Vehicle CSV Import] ${reason}`);
+                            skippedReasons.push(reason + " (Ano Inválido)"); // Add more detail to reason
+                            // We will still try to import with default year 0 if Modelo and Placa are present
+                        }
+                    } else {
+                        const reason = `Aviso: 'Ano' ausente para ${modelo}, placa ${placa}. Usando ano padrão 0. Dados: ${JSON.stringify(row)}`;
                         console.warn(`[Vehicle CSV Import] ${reason}`);
-                        skippedReasons.push(reason);
-                        skippedCount++;
-                        continue;
+                        // Not necessarily a skipped row, but a warning.
                     }
 
-                    const ano = parseInt(anoStr, 10);
-                    if (isNaN(ano) || ano < 1900 || ano > new Date().getFullYear() + 5) {
-                        const reason = `Linha ignorada: 'Ano' inválido (${anoStr}) para ${modelo}, placa ${placa}. Dados: ${JSON.stringify(row)}`;
-                        console.warn(`[Vehicle CSV Import] ${reason}`);
-                        skippedReasons.push(reason);
-                        skippedCount++;
-                        continue;
-                    }
 
                     const existingByPlate = currentLocalVehicles.find(v => v.licensePlate.toUpperCase() === placa);
                     if (existingByPlate) {
@@ -377,15 +395,29 @@ export const Vehicle: React.FC = () => {
                     if (success) {
                         importedCount++;
                     } else {
+                        // _createNewVehicle already toasts on specific failure, so we just count it as skipped.
                         skippedCount++;
-                        skippedReasons.push(`Falha ao salvar veículo ${modelo}, placa ${placa} (ver erro anterior no toast).`);
+                        // The reason for failure would have been toasted by _createNewVehicle or was a duplicate.
+                        // Add a generic skipped reason if not already covered (e.g., by duplicate check)
+                        if (!skippedReasons.some(sr => sr.includes(placa))) {
+                             skippedReasons.push(`Falha ao salvar veículo ${modelo}, placa ${placa} (ver erro anterior no toast/console).`);
+                        }
                     }
                 }
+                // Refresh the list of vehicles in the UI after import
+                const updatedVehicles = await getLocalVehicles();
+                setVehicles(updatedVehicles.map(lv => ({
+                    id: lv.firebaseId || lv.localId,
+                    model: lv.model,
+                    year: lv.year,
+                    licensePlate: lv.licensePlate
+                } as VehicleInfo)).sort((a, b) => a.model.localeCompare(b.model)));
+
 
                 let importToastDescription = `${importedCount} veículos importados. ${skippedCount} ignorados.`;
                 if (skippedReasons.length > 0) {
                     importToastDescription += ` Verifique o console do navegador para detalhes dos itens ignorados.`;
-                    console.warn("[Vehicle CSV Import] Detalhes dos veículos ignorados:", skippedReasons.join("\n"));
+                    console.warn("[Vehicle CSV Import] Detalhes dos veículos ignorados/com avisos:", skippedReasons.join("\n"));
                 }
                 toast({
                     title: "Importação de Veículos Concluída",
@@ -399,7 +431,7 @@ export const Vehicle: React.FC = () => {
             } finally {
                 setIsSaving(false);
                 if (fileInputRef.current) {
-                    fileInputRef.current.value = "";
+                    fileInputRef.current.value = ""; // Reset file input
                 }
             }
         };
@@ -407,7 +439,7 @@ export const Vehicle: React.FC = () => {
             toast({ variant: "destructive", title: "Erro de Leitura", description: "Não foi possível ler o arquivo selecionado." });
             setIsSaving(false);
         };
-        reader.readAsText(file, 'UTF-8');
+        reader.readAsText(file, 'UTF-8'); // Specify UTF-8 encoding
     };
 
 
@@ -451,10 +483,7 @@ export const Vehicle: React.FC = () => {
                 </form>
               </DialogContent>
             </Dialog>
-            <input type="file" accept=".csv" ref={fileInputRef} onChange={handleVehicleFileImport} style={{ display: 'none' }} />
-            <Button onClick={() => fileInputRef.current?.click()} variant="outline" disabled={isSaving}>
-                <FileUp className="mr-2 h-4 w-4" /> Importar Veículos (CSV)
-            </Button>
+            {/* Removed CSV import button and input */}
         </div>
       </div>
 
@@ -479,7 +508,7 @@ export const Vehicle: React.FC = () => {
                      <Gauge className="h-3 w-3" /> Placa: {vehicle.licensePlate}
                    </CardDescription>
                    <CardDescription className="text-sm text-muted-foreground flex items-center gap-1">
-                       <CalendarDays className="h-3 w-3" /> Ano: {vehicle.year}
+                       <CalendarDays className="h-3 w-3" /> Ano: {vehicle.year === 0 ? 'N/I' : vehicle.year}
                    </CardDescription>
                 </div>
                  <div className="flex gap-1">
@@ -501,7 +530,7 @@ export const Vehicle: React.FC = () => {
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="editYear">Ano*</Label>
-                                <Input id="editYear" type="number" value={year} onChange={(e) => setYear(Number(e.target.value) > 0 ? Number(e.target.value) : '')} required min="1900" max={new Date().getFullYear() + 5} disabled={isSaving} />
+                                <Input id="editYear" type="number" value={year} onChange={(e) => setYear(Number(e.target.value) > 0 ? Number(e.target.value) : '')} required min="0" max={new Date().getFullYear() + 5} disabled={isSaving} />
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="editLicensePlate">Placa*</Label>
