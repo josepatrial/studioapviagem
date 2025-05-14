@@ -31,48 +31,41 @@ const parseVehicleCSV = (csvText: string): Record<string, string>[] => {
     if (lines.length < 2) return []; // Needs header and at least one data row
 
     const headerLine = lines[0].trim();
-    // Normalize header: lowercase and trim. Also map common variations.
     const headerMap: Record<string, string> = {
         'modelo': 'modelo',
         'model': 'modelo',
         'placa': 'placa',
         'licenseplate': 'placa',
         'license plate': 'placa',
-        'licencaplate': 'placa', // common misspelling
-        'ano': 'ano',
-        'year': 'ano'
+        'licencaplate': 'placa',
+        'ano': 'ano', // Primary expected header for year
+        'year': 'ano'  // Alternative header for year
     };
     const header = headerLine.split(',').map(h => headerMap[h.trim().toLowerCase()] || h.trim().toLowerCase());
     const data = [];
 
     for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
-        if (!line) continue; // Skip empty lines
+        if (!line) continue;
 
         const values = line.split(',');
-        // Allow for rows that might have fewer columns than the header if optional columns are at the end
         const entry: Record<string, string> = {};
+        let hasModelo = false;
+        let hasPlaca = false;
+
         for (let j = 0; j < header.length; j++) {
-            if (j < values.length) { // Only assign if value exists for this header
-                 entry[header[j]] = values[j].trim();
-            } else {
-                 entry[header[j]] = ''; // Assign empty string for missing optional columns
-            }
+            const headerName = header[j];
+            const value = values[j]?.trim() || '';
+            entry[headerName] = value;
+            if (headerName === 'modelo' && value) hasModelo = true;
+            if (headerName === 'placa' && value) hasPlaca = true;
         }
-        // Basic check: ensure at least the mandatory fields (modelo, placa) are present if they are in headers
-        if (header.includes('modelo') && header.includes('placa')) {
+
+        // Only add if Modelo and Placa are present
+        if (hasModelo && hasPlaca) {
             data.push(entry);
-        } else if (values.length >= 2) { // If headers are non-standard, assume first two are model and plate
-            console.warn(`[Vehicle CSV Parse] Headers 'modelo' or 'placa' not found or malformed. Attempting to use first columns for row ${i+1}. Line: "${line}"`);
-            if (header.length >= 2) {
-                entry[header[0]] = values[0]?.trim() || '';
-                entry[header[1]] = values[1]?.trim() || '';
-                data.push(entry);
-            } else {
-                 console.warn(`[Vehicle CSV Parse] Skipping line ${i+1} due to insufficient columns and non-standard headers. Line: "${line}"`);
-            }
         } else {
-            console.warn(`[Vehicle CSV Parse] Skipping line ${i + 1} due to insufficient columns for modelo/placa. Line: "${line}"`);
+            console.warn(`[Vehicle CSV Parse] Skipping line ${i + 1} due to missing 'Modelo' or 'Placa'. Line: "${line}"`);
         }
     }
     return data;
@@ -124,7 +117,7 @@ export const Vehicle: React.FC = () => {
                    await Promise.all(savePromises);
                    localVehicles = await getLocalVehicles();
 
-               } catch (fetchError: any) { // Explicitly type fetchError
+               } catch (fetchError: any) {
                    console.error("Error fetching/saving online vehicles:", fetchError);
                    toast({ variant: "destructive", title: "Erro Online", description: "Não foi possível buscar ou salvar veículos online." });
                }
@@ -147,13 +140,13 @@ export const Vehicle: React.FC = () => {
 
   const _createNewVehicle = async (
     vehicleModel: string,
-    vehicleYear: number,
+    vehicleYear: number, // Year is now a number
     vehicleLicensePlate: string,
     firebaseId?: string
   ): Promise<boolean> => {
     const vehicleDataForAdd: Omit<LocalVehicle, 'id' | 'localId' | 'syncStatus' | 'deleted' | 'firebaseId'> = {
       model: vehicleModel,
-      year: vehicleYear,
+      year: vehicleYear, // Use the number directly
       licensePlate: vehicleLicensePlate.toUpperCase(),
     };
 
@@ -185,16 +178,17 @@ export const Vehicle: React.FC = () => {
 
   const handleAddVehicle = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!model || year === '' || !licensePlate) { // Ensure year is checked against empty string too if type is number | ''
+    if (!model || year === '' || !licensePlate) {
       toast({ variant: "destructive", title: "Erro", description: "Modelo, Ano e Placa são obrigatórios." });
       return;
     }
-     if (Number(year) < 1900 || Number(year) > new Date().getFullYear() + 5) {
+     const numericYear = Number(year);
+     if (isNaN(numericYear) || numericYear < 1900 || numericYear > new Date().getFullYear() + 5) {
         toast({ variant: "destructive", title: "Erro", description: "Ano do veículo inválido." });
         return;
       }
     setIsSaving(true);
-    const success = await _createNewVehicle(model, Number(year), licensePlate);
+    const success = await _createNewVehicle(model, numericYear, licensePlate);
     setIsSaving(false);
 
     if(success){
@@ -211,7 +205,8 @@ export const Vehicle: React.FC = () => {
          toast({ variant: "destructive", title: "Erro", description: "Modelo, Ano e Placa são obrigatórios." });
          return;
        }
-        if (Number(year) < 1900 || Number(year) > new Date().getFullYear() + 5) {
+       const numericYear = Number(year);
+        if (isNaN(numericYear) || numericYear < 1900 || numericYear > new Date().getFullYear() + 5) {
            toast({ variant: "destructive", title: "Erro", description: "Ano do veículo inválido." });
            return;
          }
@@ -227,7 +222,7 @@ export const Vehicle: React.FC = () => {
      const updatedLocalData: LocalVehicle = {
        ...originalLocalVehicle,
        model,
-       year: Number(year),
+       year: numericYear,
        licensePlate: licensePlate.toUpperCase(),
        syncStatus: originalLocalVehicle.syncStatus === 'synced' ? 'pending' : originalLocalVehicle.syncStatus,
      };
@@ -334,7 +329,7 @@ export const Vehicle: React.FC = () => {
             try {
                 const parsedData = parseVehicleCSV(text);
                 if (parsedData.length === 0) {
-                    toast({ variant: "destructive", title: "Arquivo Vazio ou Inválido", description: "O CSV não contém dados ou está mal formatado." });
+                    toast({ variant: "destructive", title: "Arquivo Vazio ou Inválido", description: "O CSV não contém dados válidos ou está mal formatado." });
                     setIsSaving(false);
                     return;
                 }
@@ -342,12 +337,12 @@ export const Vehicle: React.FC = () => {
                 let importedCount = 0;
                 let skippedCount = 0;
                 const skippedReasons: string[] = [];
-                const currentLocalVehicles = await getLocalVehicles();
+                const currentLocalVehicles = await getLocalVehicles(); // Fetch current vehicles for duplicate check
 
                 for (const row of parsedData) {
                     const modelo = row['modelo']?.trim();
                     const placa = row['placa']?.trim().toUpperCase();
-                    const anoStr = row['ano']?.trim(); // Ano is now optional
+                    const anoStr = row['ano']?.trim(); // Year is now optional
 
                     if (!modelo) {
                         const reason = `Linha ignorada: 'Modelo' ausente. Dados: ${JSON.stringify(row)}`;
@@ -364,21 +359,17 @@ export const Vehicle: React.FC = () => {
                         continue;
                     }
 
-                    let ano = 0; // Default year if not provided or invalid
+                    let ano = 0; // Default year
                     if (anoStr) {
                         const parsedYear = parseInt(anoStr, 10);
                         if (!isNaN(parsedYear) && parsedYear >= 1900 && parsedYear <= new Date().getFullYear() + 5) {
                             ano = parsedYear;
                         } else {
-                            const reason = `Linha ignorada: 'Ano' inválido (${anoStr}) para ${modelo}, placa ${placa}. Usando ano padrão 0. Dados: ${JSON.stringify(row)}`;
-                            console.warn(`[Vehicle CSV Import] ${reason}`);
-                            skippedReasons.push(reason + " (Ano Inválido)"); // Add more detail to reason
-                            // We will still try to import with default year 0 if Modelo and Placa are present
+                            console.warn(`[Vehicle CSV Import] 'Ano' inválido (${anoStr}) para ${modelo}, placa ${placa}. Usando ano padrão 0. Dados: ${JSON.stringify(row)}`);
+                            // Do not add to skippedReasons for invalid year, just use default
                         }
                     } else {
-                        const reason = `Aviso: 'Ano' ausente para ${modelo}, placa ${placa}. Usando ano padrão 0. Dados: ${JSON.stringify(row)}`;
-                        console.warn(`[Vehicle CSV Import] ${reason}`);
-                        // Not necessarily a skipped row, but a warning.
+                        console.warn(`[Vehicle CSV Import] 'Ano' ausente para ${modelo}, placa ${placa}. Usando ano padrão 0. Dados: ${JSON.stringify(row)}`);
                     }
 
 
@@ -395,13 +386,10 @@ export const Vehicle: React.FC = () => {
                     if (success) {
                         importedCount++;
                     } else {
-                        // _createNewVehicle already toasts on specific failure, so we just count it as skipped.
                         skippedCount++;
-                        // The reason for failure would have been toasted by _createNewVehicle or was a duplicate.
-                        // Add a generic skipped reason if not already covered (e.g., by duplicate check)
-                        if (!skippedReasons.some(sr => sr.includes(placa))) {
-                             skippedReasons.push(`Falha ao salvar veículo ${modelo}, placa ${placa} (ver erro anterior no toast/console).`);
-                        }
+                         if (!skippedReasons.some(sr => sr.includes(placa))) { // Avoid double-logging duplicate reason
+                            skippedReasons.push(`Falha ao salvar veículo ${modelo}, placa ${placa} (ver erro anterior no toast/console).`);
+                         }
                     }
                 }
                 // Refresh the list of vehicles in the UI after import
@@ -483,7 +471,24 @@ export const Vehicle: React.FC = () => {
                 </form>
               </DialogContent>
             </Dialog>
-            {/* Removed CSV import button and input */}
+            {/* CSV Import Button Block START */}
+            <input
+              type="file"
+              accept=".csv"
+              ref={fileInputRef}
+              onChange={handleVehicleFileImport}
+              style={{ display: 'none' }}
+              disabled={isSaving}
+            />
+            <Button
+              onClick={() => fileInputRef.current?.click()}
+              variant="outline"
+              disabled={isSaving}
+            >
+              <FileUp className="mr-2 h-4 w-4" />
+              Importar Veículos (CSV)
+            </Button>
+            {/* CSV Import Button Block END */}
         </div>
       </div>
 
