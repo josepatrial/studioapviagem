@@ -89,75 +89,44 @@ export const Drivers: React.FC = () => {
         setIsSyncingOnline(true);
         toast({ title: "Sincronizando...", description: "Buscando motoristas online." });
         try {
-            const onlineDriversData = await fetchOnlineDrivers(); // This fetches DriverInfo[]
-            console.log(`[Drivers Sync] Found ${onlineDriversData.length} drivers online from Firestore 'users' collection. Data:`, JSON.stringify(onlineDriversData.map(d => ({id: d.id, name: d.name, email: d.email, role: d.role, base: d.base}))));
+            const onlineDriversData: DriverInfo[] = await fetchOnlineDrivers(); // Fetches users with role 'driver'
+            console.log(`[Drivers Sync] Found ${onlineDriversData.length} drivers online from Firestore 'users' collection with role 'driver'. Data:`, JSON.stringify(onlineDriversData));
 
             let newDriversAddedCount = 0;
             let updatedDriversCount = 0;
-            let skippedExistingCount = 0;
 
             if (onlineDriversData.length > 0) {
                 for (const onlineDriver of onlineDriversData) {
-                    if (onlineDriver.role !== 'driver') {
-                        console.log(`[Drivers Sync] Skipping online user ${onlineDriver.email} (ID: ${onlineDriver.id}) because role is not 'driver' (is '${onlineDriver.role}').`);
-                        continue;
-                    }
-
+                    console.log(`[Drivers Sync] Processing online driver: ${onlineDriver.email} (ID: ${onlineDriver.id}, Name: ${onlineDriver.name}, Base: ${onlineDriver.base})`);
                     let existingLocalDriver: DbUser | null = null;
                     try {
-                        // Try to find by Firebase UID first
+                        // Try to find by Firebase UID
                         existingLocalDriver = await getLocalUser(onlineDriver.id);
-                        if (!existingLocalDriver && onlineDriver.email) {
-                            // If not found by UID, try by email (in case it's a user created locally first then linked)
-                            existingLocalDriver = await getLocalUserByEmail(onlineDriver.email);
-                            if (existingLocalDriver && existingLocalDriver.id !== onlineDriver.id) {
-                                console.warn(`[Drivers Sync] Local user with email ${onlineDriver.email} has local ID ${existingLocalDriver.id}, but Firestore ID is ${onlineDriver.id}. This might indicate a mismatch. Prioritizing Firestore ID.`);
-                                // Potentially, one might want to update the local ID here, but it's complex.
-                                // For now, we'll assume a new record if IDs don't match, or update if UID matches.
-                                if (existingLocalDriver.id.startsWith('local_')) {
-                                    // If local ID is temporary, better to update it or re-create with Firebase ID
-                                    console.log(`[Drivers Sync] Found local user by email with temp ID ${existingLocalDriver.id}. Will update with Firebase ID ${onlineDriver.id}.`);
-                                     // To effectively update the ID, we might need to delete and re-add, or have a specific updateId function.
-                                     // For simplicity here, we'll treat it as an update if the local ID was temporary.
-                                }
-                            }
-                        }
+                        console.log(`[Drivers Sync] Checked for local user with ID ${onlineDriver.id}. Found:`, existingLocalDriver ? existingLocalDriver.email : 'Not found');
                     } catch (e) {
-                        console.log(`[Drivers Sync] No existing local user found for online driver ${onlineDriver.id} or email ${onlineDriver.email}. Will attempt to create new.`);
+                        console.log(`[Drivers Sync] No existing local user found for online driver ID ${onlineDriver.id}. Will attempt to create new.`);
                     }
 
-                    const localUserDataPayload: Omit<DbUser, 'passwordHash'> = {
+                    const dbUserData: DbUser = {
                         id: onlineDriver.id, // Use Firebase UID as the primary ID
                         email: onlineDriver.email,
                         name: onlineDriver.name || onlineDriver.email || `Motorista ${onlineDriver.id.substring(0, 6)}`,
                         username: onlineDriver.username || '',
-                        role: 'driver', // Explicitly set role from Firestore data or default
-                        base: onlineDriver.base || 'N/A', // Use base from Firestore or default
-                        lastLogin: new Date().toISOString(), // Update lastLogin for completeness
+                        role: 'driver', // Explicitly set role, as getDrivers already filters by this
+                        base: onlineDriver.base || 'N/A',
+                        lastLogin: existingLocalDriver?.lastLogin || new Date().toISOString(), // Preserve existing or set new
+                        passwordHash: existingLocalDriver?.passwordHash || '', // Preserve existing hash or set empty
+                        syncStatus: 'synced', // Mark as synced
                     };
 
                     try {
+                        await saveLocalUser(dbUserData);
                         if (existingLocalDriver) {
-                            // Update existing local driver
-                            const updatedLocalData: DbUser = {
-                                ...existingLocalDriver, // Keep existing local data like passwordHash
-                                ...localUserDataPayload, // Override with new data from Firestore
-                                id: onlineDriver.id, // Ensure ID is the Firebase UID
-                            };
-                            await saveLocalUser(updatedLocalData);
                             updatedDriversCount++;
-                            console.log(`[Drivers Sync] Driver ${updatedLocalData.name} (ID: ${updatedLocalData.id}) updated locally.`);
+                            console.log(`[Drivers Sync] Driver ${dbUserData.name} (ID: ${dbUserData.id}) updated locally.`);
                         } else {
-                            // Create new local driver
-                            // For newly synced users, passwordHash will be empty.
-                            // Login for these users would require Firebase Auth, or manual password setup locally.
-                            const newLocalData: DbUser = {
-                                ...localUserDataPayload,
-                                passwordHash: '', // No password hash from Firestore
-                            };
-                            await saveLocalUser(newLocalData);
                             newDriversAddedCount++;
-                            console.log(`[Drivers Sync] New driver ${newLocalData.name} (ID: ${newLocalData.id}) saved locally.`);
+                            console.log(`[Drivers Sync] New driver ${dbUserData.name} (ID: ${dbUserData.id}) saved locally.`);
                         }
                     } catch (saveError) {
                         console.error(`[Drivers Sync] Error saving/updating driver ${onlineDriver.id} locally:`, saveError);
@@ -172,7 +141,7 @@ export const Drivers: React.FC = () => {
 
             toast({
                 title: "Sincronização Concluída!",
-                description: `${newDriversAddedCount} novo(s) motorista(s) adicionado(s) localmente. ${updatedDriversCount} motorista(s) atualizado(s) localmente. Total online (Firestore 'users' com role 'driver'): ${onlineDriversData.filter(d=>d.role === 'driver').length}.`,
+                description: `${newDriversAddedCount} novo(s) motorista(s) adicionado(s) localmente. ${updatedDriversCount} motorista(s) atualizado(s) localmente. Total online (Firestore 'users' com role 'driver'): ${onlineDriversData.length}.`,
                 duration: 7000,
             });
 
@@ -412,7 +381,9 @@ export const Drivers: React.FC = () => {
                             Clique em "Sincronizar Online" para buscar motoristas do servidor.
                         </p>
                         <p className="text-xs text-muted-foreground mt-2">
-                            Se o problema persistir após a sincronização, verifique se existem documentos na coleção 'users' do Firestore com o campo 'role' definido como 'driver'.
+                            Se o problema persistir, verifique no Console do Firebase:
+                            <br /> 1. Se existem documentos na coleção 'users'.
+                            <br /> 2. Se esses documentos possuem o campo 'role' com o valor 'driver'.
                         </p>
                     </CardContent>
                 </Card>
