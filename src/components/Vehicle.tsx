@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Edit, Trash2, Car, CalendarDays, Gauge, Fuel, Milestone, Users, Loader2 } from 'lucide-react';
+import { PlusCircle, Edit, Trash2, Car, CalendarDays, Gauge, Fuel, Milestone, Users, Loader2, FileUp } from 'lucide-react'; // Added FileUp
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -25,6 +25,33 @@ export interface VehicleInfo extends Omit<LocalVehicle, 'syncStatus' | 'deleted'
   id: string;
 }
 
+// Helper function to parse CSV data (similar to Drivers.tsx)
+const parseVehicleCSV = (csvText: string): Record<string, string>[] => {
+    const lines = csvText.trim().split('\n');
+    if (lines.length < 2) return [];
+
+    const headerLine = lines[0].trim();
+    const header = headerLine.split(',').map(h => h.trim().toLowerCase());
+    const data = [];
+
+    for (let i = 1; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+
+        const values = line.split(',');
+        if (values.length === header.length) {
+            const entry: Record<string, string> = {};
+            for (let j = 0; j < header.length; j++) {
+                entry[header[j]] = values[j].trim();
+            }
+            data.push(entry);
+        } else {
+            console.warn(`[Vehicle CSV Parse] Skipping line ${i + 1} due to mismatched column count. Expected ${header.length}, got ${values.length}. Line: "${line}"`);
+        }
+    }
+    return data;
+};
+
 
 export const Vehicle: React.FC = () => {
   const [vehicles, setVehicles] = useState<VehicleInfo[]>([]);
@@ -36,6 +63,7 @@ export const Vehicle: React.FC = () => {
   const [currentVehicle, setCurrentVehicle] = useState<VehicleInfo | null>(null);
   const [vehicleToDelete, setVehicleToDelete] = useState<VehicleInfo | null>(null);
   const { toast } = useToast();
+  const fileInputRef = useRef<HTMLInputElement>(null); // Ref for file input
 
   const [model, setModel] = useState('');
   const [year, setYear] = useState<number | ''>('');
@@ -57,7 +85,13 @@ export const Vehicle: React.FC = () => {
                             licensePlate: v.licensePlate,
                         };
                         try {
-                            await addLocalDbVehicle(vehicleDataForAdd, v.id);
+                            // Check if vehicle already exists locally by firebaseId before adding
+                            const existingLocalByFirebaseId = localVehicles.find(lv => lv.firebaseId === v.id);
+                            if (!existingLocalByFirebaseId) {
+                                await addLocalDbVehicle(vehicleDataForAdd, v.id);
+                            } else {
+                                console.log(`[Vehicle Sync] Vehicle ${v.id} already exists locally. Skipping add.`);
+                            }
                         } catch (addError) {
                              console.error(`Error adding vehicle ${v.id} locally:`, addError);
                         }
@@ -75,7 +109,7 @@ export const Vehicle: React.FC = () => {
                 model: lv.model,
                 year: lv.year,
                 licensePlate: lv.licensePlate
-           } as VehicleInfo)));
+           } as VehicleInfo)).sort((a,b)=> a.model.localeCompare(b.model)));
       } catch (error) {
         console.error("Error fetching local vehicles:", error);
         toast({ variant: "destructive", title: "Erro Local", description: "Não foi possível carregar os veículos locais." });
@@ -99,6 +133,15 @@ export const Vehicle: React.FC = () => {
     };
 
     try {
+        // Check for existing vehicle by license plate locally before adding
+        const existingLocalByPlate = await getLocalVehicles().then(
+            allLocal => allLocal.find(v => v.licensePlate.toUpperCase() === vehicleLicensePlate.toUpperCase())
+        );
+        if (existingLocalByPlate && (!firebaseId || existingLocalByPlate.firebaseId !== firebaseId)) {
+             toast({ variant: "destructive", title: "Duplicidade", description: `Veículo com placa ${vehicleLicensePlate.toUpperCase()} já existe localmente.` });
+             return false;
+        }
+
         const assignedLocalId = await addLocalDbVehicle(vehicleDataForAdd, firebaseId);
         const createdVehicleUI: VehicleInfo = {
              id: firebaseId || assignedLocalId,
@@ -122,7 +165,7 @@ export const Vehicle: React.FC = () => {
       toast({ variant: "destructive", title: "Erro", description: "Todos os campos são obrigatórios." });
       return;
     }
-     if (Number(year) < 1900 || Number(year) > new Date().getFullYear() + 1) {
+     if (Number(year) < 1900 || Number(year) > new Date().getFullYear() + 5) { // Allow a bit into the future for new models
         toast({ variant: "destructive", title: "Erro", description: "Ano do veículo inválido." });
         return;
       }
@@ -144,7 +187,7 @@ export const Vehicle: React.FC = () => {
          toast({ variant: "destructive", title: "Erro", description: "Todos os campos são obrigatórios." });
          return;
        }
-        if (Number(year) < 1900 || Number(year) > new Date().getFullYear() + 1) {
+        if (Number(year) < 1900 || Number(year) > new Date().getFullYear() + 5) {
            toast({ variant: "destructive", title: "Erro", description: "Ano do veículo inválido." });
            return;
          }
@@ -169,7 +212,7 @@ export const Vehicle: React.FC = () => {
      try {
          await updateLocalDbVehicle(updatedLocalData);
           const updatedVehicleUI: VehicleInfo = {
-             id: currentVehicle.id,
+             id: currentVehicle.id, // This ID is firebaseId or localId depending on what was set
              model: updatedLocalData.model,
              year: updatedLocalData.year,
              licensePlate: updatedLocalData.licensePlate
@@ -248,12 +291,120 @@ export const Vehicle: React.FC = () => {
       setCurrentVehicle(null);
     }
 
+    const handleVehicleFileImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        setIsSaving(true);
+        toast({ title: "Importando...", description: "Processando arquivo CSV de veículos." });
+
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+            const text = e.target?.result as string;
+            if (!text) {
+                toast({ variant: "destructive", title: "Erro ao ler arquivo", description: "Não foi possível ler o conteúdo do arquivo." });
+                setIsSaving(false);
+                return;
+            }
+
+            try {
+                const parsedData = parseVehicleCSV(text);
+                if (parsedData.length === 0) {
+                    toast({ variant: "destructive", title: "Arquivo Vazio ou Inválido", description: "O CSV não contém dados ou está mal formatado." });
+                    setIsSaving(false);
+                    return;
+                }
+
+                let importedCount = 0;
+                let skippedCount = 0;
+                const skippedReasons: string[] = [];
+                const currentLocalVehicles = await getLocalVehicles(); // Fetch current vehicles to check for duplicates
+
+                for (const row of parsedData) {
+                    const modelo = row['modelo']?.trim();
+                    const placa = row['placa']?.trim().toUpperCase();
+                    const anoStr = row['ano']?.trim();
+
+                    if (!modelo) {
+                        skippedReasons.push(`Linha ignorada: 'Modelo' ausente. Dados: ${JSON.stringify(row)}`);
+                        skippedCount++;
+                        continue;
+                    }
+                    if (!placa) {
+                        skippedReasons.push(`Linha ignorada: 'Placa' ausente para modelo ${modelo}. Dados: ${JSON.stringify(row)}`);
+                        skippedCount++;
+                        continue;
+                    }
+                     if (!anoStr) {
+                        skippedReasons.push(`Linha ignorada: 'Ano' ausente para modelo ${modelo}, placa ${placa}. Dados: ${JSON.stringify(row)}`);
+                        skippedCount++;
+                        continue;
+                    }
+
+                    const ano = parseInt(anoStr, 10);
+                    if (isNaN(ano) || ano < 1900 || ano > new Date().getFullYear() + 5) {
+                        skippedReasons.push(`Linha ignorada: 'Ano' inválido (${anoStr}) para ${modelo}, placa ${placa}. Dados: ${JSON.stringify(row)}`);
+                        skippedCount++;
+                        continue;
+                    }
+
+                    // Check for existing vehicle by license plate
+                    const existingByPlate = currentLocalVehicles.find(v => v.licensePlate.toUpperCase() === placa);
+                    if (existingByPlate) {
+                        skippedReasons.push(`Veículo com placa ${placa} já existe (${existingByPlate.model}, ${existingByPlate.year}).`);
+                        skippedCount++;
+                        continue;
+                    }
+
+                    const success = await _createNewVehicle(modelo, ano, placa);
+                    if (success) {
+                        importedCount++;
+                    } else {
+                        // _createNewVehicle already shows a toast on failure
+                        skippedCount++;
+                        skippedReasons.push(`Falha ao salvar veículo ${modelo}, placa ${placa} (ver erro anterior).`);
+                    }
+                }
+
+                // No need to call fetchVehiclesData() here as _createNewVehicle updates state
+                // But if state isn't updating correctly, uncomment the line below:
+                // await fetchVehiclesData();
+
+
+                let importToastDescription = `${importedCount} veículos importados. ${skippedCount} ignorados.`;
+                if (skippedReasons.length > 0) {
+                    importToastDescription += ` Detalhes no console.`;
+                    console.warn("[Vehicle CSV Import] Detalhes dos veículos ignorados:", skippedReasons.join("\n"));
+                }
+                toast({
+                    title: "Importação de Veículos Concluída",
+                    description: importToastDescription,
+                    duration: skippedReasons.length > 0 ? 10000 : 5000
+                });
+
+            } catch (parseError: any) {
+                console.error("[Vehicle CSV Import] Error parsing CSV:", parseError);
+                toast({ variant: "destructive", title: "Erro ao Processar CSV", description: parseError.message });
+            } finally {
+                setIsSaving(false);
+                if (fileInputRef.current) {
+                    fileInputRef.current.value = ""; // Reset file input
+                }
+            }
+        };
+        reader.onerror = () => {
+            toast({ variant: "destructive", title: "Erro de Leitura", description: "Não foi possível ler o arquivo selecionado." });
+            setIsSaving(false);
+        };
+        reader.readAsText(file, 'UTF-8'); // Specify encoding if known, e.g., UTF-8
+    };
+
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
         <h2 className="text-2xl font-semibold">Gerenciar Veículos</h2>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
             <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
               <DialogTrigger asChild>
                  <Button onClick={() => { resetForm(); setIsCreateModalOpen(true); }} className="bg-primary hover:bg-primary/90 text-primary-foreground" disabled={isSaving}>
@@ -271,7 +422,7 @@ export const Vehicle: React.FC = () => {
                   </div>
                   <div className="space-y-2">
                      <Label htmlFor="year">Ano*</Label>
-                     <Input id="year" type="number" value={year} onChange={(e) => setYear(Number(e.target.value) > 0 ? Number(e.target.value) : '')} required placeholder="Ex: 2023" min="1900" max={new Date().getFullYear() + 1} disabled={isSaving}/>
+                     <Input id="year" type="number" value={year} onChange={(e) => setYear(Number(e.target.value) > 0 ? Number(e.target.value) : '')} required placeholder="Ex: 2023" min="1900" max={new Date().getFullYear() + 5} disabled={isSaving}/>
                    </div>
                    <div className="space-y-2">
                      <Label htmlFor="licensePlate">Placa*</Label>
@@ -289,6 +440,11 @@ export const Vehicle: React.FC = () => {
                 </form>
               </DialogContent>
             </Dialog>
+            {/* Import Button */}
+            <input type="file" accept=".csv" ref={fileInputRef} onChange={handleVehicleFileImport} style={{ display: 'none' }} />
+            <Button onClick={() => fileInputRef.current?.click()} variant="outline" disabled={isSaving}>
+                <FileUp className="mr-2 h-4 w-4" /> Importar Veículos (CSV)
+            </Button>
         </div>
       </div>
 
@@ -335,7 +491,7 @@ export const Vehicle: React.FC = () => {
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="editYear">Ano*</Label>
-                                <Input id="editYear" type="number" value={year} onChange={(e) => setYear(Number(e.target.value) > 0 ? Number(e.target.value) : '')} required min="1900" max={new Date().getFullYear() + 1} disabled={isSaving} />
+                                <Input id="editYear" type="number" value={year} onChange={(e) => setYear(Number(e.target.value) > 0 ? Number(e.target.value) : '')} required min="1900" max={new Date().getFullYear() + 5} disabled={isSaving} />
                             </div>
                             <div className="space-y-2">
                                 <Label htmlFor="editLicensePlate">Placa*</Label>
