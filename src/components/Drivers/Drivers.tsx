@@ -473,67 +473,7 @@ export const Drivers: React.FC = () => {
                         {isSyncingOnline ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
                         {isSyncingOnline ? 'Sincronizando...' : 'Sincronizar Online'}
                     </Button>
-                    <Button onClick={handleExportToExcel} variant="outline" className="text-primary-foreground bg-primary/90 hover:bg-primary/80" disabled={isSaving || isSyncingOnline}>
-                        <UploadCloud className="mr-2 h-4 w-4" /> Exportar
-                    </Button>
-                    <input
-                        type="file"
-                        ref={fileInputRef}
-                        onChange={handleFileImport}
-                        accept=".csv"
-                        className="hidden"
-                        id="import-csv-input"
-                    />
-                    <Button onClick={() => fileInputRef.current?.click()} variant="outline" className="text-primary-foreground bg-green-600 hover:bg-green-700" disabled={isSaving || isSyncingOnline}>
-                        <FileUp className="mr-2 h-4 w-4" /> Importar
-                    </Button>
-                    <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => !isOpen && closeCreateModal()}>
-                        <DialogTrigger asChild>
-                            <Button onClick={() => { resetForm(); setIsCreateModalOpen(true); }} className="bg-primary hover:bg-primary/90 text-primary-foreground" disabled={isSaving || isSyncingOnline}>
-                                <PlusCircle className="mr-2 h-4 w-4" /> Cadastrar Motorista
-                            </Button>
-                        </DialogTrigger>
-                        <DialogContent className="sm:max-w-lg">
-                            <DialogHeader>
-                                <DialogTitle>Cadastrar Novo Motorista</DialogTitle>
-                            </DialogHeader>
-                            <form onSubmit={handleAddDriver} className="grid gap-4 py-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="name">Nome Completo*</Label>
-                                    <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required placeholder="Nome do motorista" disabled={isSaving} />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="username">Nome de Usuário (Opcional)</Label>
-                                    <Input id="username" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Ex: joao.silva" disabled={isSaving} />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="email">E-mail*</Label>
-                                    <Input id="email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required placeholder="motorista@email.com" disabled={isSaving} />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="base">Base*</Label>
-                                    <Input id="base" value={base} onChange={(e) => setBase(e.target.value.toUpperCase())} required placeholder="Base de operação (Ex: SP, RJ)" disabled={isSaving}/>
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="password">Senha*</Label>
-                                    <Input id="password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} required placeholder="Mínimo 6 caracteres" disabled={isSaving} />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="confirmPassword">Confirmar Senha*</Label>
-                                    <Input id="confirmPassword" type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} required placeholder="Repita a senha" disabled={isSaving} />
-                                </div>
-                                <DialogFooter>
-                                    <DialogClose asChild>
-                                        <Button type="button" variant="outline" onClick={closeCreateModal} disabled={isSaving}>Cancelar</Button>
-                                    </DialogClose>
-                                    <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isSaving}>
-                                        {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                        {isSaving ? 'Salvando...' : 'Salvar Motorista'}
-                                    </Button>
-                                </DialogFooter>
-                            </form>
-                        </DialogContent>
-                    </Dialog>
+                    {/* Removed Export, Import, and Cadastrar Motorista buttons */}
                 </div>
             </div>
 
@@ -545,9 +485,7 @@ export const Drivers: React.FC = () => {
                 <Card className="text-center py-10 bg-card border border-border shadow-sm rounded-lg">
                     <CardContent>
                         <p className="text-muted-foreground">Nenhum motorista cadastrado localmente.</p>
-                        <Button variant="link" onClick={() => {resetForm(); setIsCreateModalOpen(true);}} className="mt-2 text-primary">
-                            Cadastrar o primeiro motorista
-                        </Button>
+                        {/* Button to trigger modal removed */}
                     </CardContent>
                 </Card>
             ) : (
@@ -643,6 +581,7 @@ export const Drivers: React.FC = () => {
                                     <Mail className="h-4 w-4" />
                                     <span>{driver.email}</span>
                                 </div>
+                                {/* Removed section showing passwordHash and lastLogin from UI */}
                             </CardContent>
                         </Card>
                     ))}
