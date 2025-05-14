@@ -1,6 +1,6 @@
 // src/lib/firebase.ts
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
+import { getAuth, type Auth } from 'firebase/auth';
 import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
@@ -17,9 +17,9 @@ const firebaseConfig = {
 
 // Initialize Firebase App
 let app: FirebaseApp | null = null;
-let auth: ReturnType<typeof getAuth> | null = null;
-let db: ReturnType<typeof getFirestore> | null = null;
-let storage: ReturnType<typeof getStorage> | null = null;
+let auth: Auth | null = null;
+let db: ReturnType<typeof getFirestore>;
+let storage: ReturnType<typeof getStorage>;
 // Define persistenceEnabledPromise here
 let persistenceEnabledPromise: Promise<void> | null = null;
 
@@ -54,7 +54,7 @@ try {
   // Enable offline persistence only after db is initialized
   if (db) {
     persistenceEnabledPromise = enableIndexedDbPersistence(db)
-      .then(() => {
+ .then(() => {
         console.log("Firebase Firestore persistence enabled successfully.");
       })
       .catch((err) => {
@@ -88,4 +88,27 @@ try {
 }
 
 
-export { app, auth, db, storage, persistenceEnabledPromise };
+interface TripData {
+  name: string;
+  startDate: Date;
+  endDate: Date;
+  // Adicione outros campos relevantes para a viagem aqui
+}
+
+// Função para adicionar uma nova viagem
+async function addTrip(tripData: TripData) {
+  if (!db) {
+    console.error("Firestore DB instance is not available.");
+    throw new Error("Firestore DB not initialized.");
+  }
+  try {
+    const docRef = await addDoc(collection(db, "viagens"), tripData);
+    console.log("Documento de viagem escrito com ID: ", docRef.id);
+    return docRef.id; // Retorna o ID do documento adicionado
+  } catch (e) {
+    console.error("Erro ao adicionar documento de viagem: ", e);
+    throw e; // Re-lança o erro para ser tratado por quem chamou
+  }
+}
+
+export { app, auth, db, storage, persistenceEnabledPromise, addTrip };

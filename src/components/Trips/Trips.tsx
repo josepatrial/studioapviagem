@@ -237,6 +237,12 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
   };
 
   const getDriverName = (driverId: string) => {
+       // Se o usuário logado for o motorista da viagem, use o nome do usuário logado
+       if (user && user.id === driverId) {
+           return user.name || user.email || driverId; // Use nome, email ou fallback para ID
+       }
+
+       // Para admins visualizando outras viagens, procure na lista de drivers carregada
       const driver = drivers.find(d => d.id === driverId || d.email === driverId);
       if (driver) {
           if (driver.name && driver.name.trim() !== '') {
@@ -246,6 +252,8 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
               return driverId; // Fallback to the ID used for lookup if name is missing
           }
       }
+
+       // Se o motorista não for o usuário logado e não for encontrado na lista (para admins)
       console.warn(`[Trips getDriverName] Driver not found for ID/Email: ${driverId}. Displaying ID or generic fallback.`);
       return driverId || 'Motorista Desconhecido';
   };
@@ -253,8 +261,11 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
 
    const getTripDescription = (trip: Trip): string => {
        const vehicleDisplay = getVehicleDisplay(trip.vehicleId);
-       const driverNameDisplay = getDriverName(trip.userId); // This will be name or ID
-       const driverInfo = isAdmin ? ` - ${driverNameDisplay}` : '';
+       // Use o nome do motorista logado se for a viagem dele, senão use a lógica de busca (para admins)
+       const driverNameDisplay = (user && user.id === trip.userId)
+           ? user.name || user.email || trip.userId // Nome do usuário logado
+           : getDriverName(trip.userId); // Busca na lista de motoristas (para admins)
+       const driverInfo = ` - ${driverNameDisplay}`; // Sempre inclua a info do motorista
        const baseDisplay = trip.base ? ` (Base: ${trip.base})` : '';
        return `${vehicleDisplay}${driverInfo}${baseDisplay}`;
    };

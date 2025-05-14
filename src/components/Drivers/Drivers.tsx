@@ -4,26 +4,21 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Edit, Trash2, User, Mail, Hash, Lock, Building, Loader2, UploadCloud, FileUp } from 'lucide-react';
+import { PlusCircle, Edit, Trash2, User, Mail, Hash, Lock, Building, Loader2, UploadCloud, FileUp, RefreshCw } from 'lucide-react'; // Added RefreshCw
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-// Removed Firebase Auth and firestoreService imports for user management as we are moving to local-only
-// import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
-// import { auth } from '@/lib/firebase';
-// import { getDrivers as fetchOnlineDrivers, addUser, updateUser, deleteUser, getUserData } from '@/services/firestoreService';
+import { getDrivers as fetchOnlineDrivers, addUser as addUserOnline, updateUser as updateUserOnline, deleteUser as deleteUserOnline } from '@/services/firestoreService'; // Renamed to avoid conflict
 import {
     getLocalUser,
     saveLocalUser,
     deleteLocalUser as deleteLocalDbUser,
     LocalUser as DbUser,
-    openDB,
-    STORE_USERS,
     getLocalUserByEmail,
-    getLocalRecordsByRole, // Keep this for fetching local drivers
-    addLocalRecord, // Keep for adding users
+    getLocalRecordsByRole,
+    addLocalRecord,
     updateLocalRecord,
 } from '@/services/localDbService';
 import type { DriverInfo, User as AppUser } from '@/contexts/AuthContext';
@@ -40,7 +35,7 @@ export const Drivers: React.FC = () => {
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [currentDriver, setCurrentDriver] = useState<Driver | null>(null);
     const { toast } = useToast();
-    const fileInputRef = useRef<HTMLInputElement>(null); // Ref for file input
+    const fileInputRef = useRef<HTMLInputElement>(null);
 
     const [name, setName] = useState('');
     const [username, setUsername] = useState('');
@@ -49,74 +44,88 @@ export const Drivers: React.FC = () => {
     const [confirmPassword, setConfirmPassword] = useState('');
     const [base, setBase] = useState('');
     const [isSaving, setIsSaving] = useState(false);
+    const [isSyncingOnline, setIsSyncingOnline] = useState(false); // New state for online sync
+
+    const fetchLocalDriversData = async () => {
+        setLoadingDrivers(true);
+        try {
+            const localDriversData: DbUser[] = await getLocalRecordsByRole('driver');
+            console.log(`[Drivers] Found ${localDriversData.length} drivers locally.`);
+            setDrivers(localDriversData.map(({ passwordHash, ...driverData }) => driverData as Driver).sort((a,b)=> (a.name || '').localeCompare(b.name || '')));
+        } catch (localError: any) {
+            console.error("[Drivers] Error fetching local drivers:", localError);
+            if (!(localError.message.includes("Failed to fetch") || localError.message.includes("NetworkError"))) {
+                toast({ variant: "destructive", title: "Erro Local", description: `Não foi possível carregar motoristas locais: ${localError.message}` });
+            }
+            setDrivers([]);
+        } finally {
+            setLoadingDrivers(false);
+        }
+    };
 
     useEffect(() => {
-        const fetchDriversData = async () => {
-            setLoadingDrivers(true);
-            let localDriversData: DbUser[] = [];
-            try {
-                localDriversData = await getLocalRecordsByRole('driver');
-                console.log(`[Drivers] Found ${localDriversData.length} drivers locally.`);
-
-                if (localDriversData.length > 0) {
-                    setDrivers(localDriversData.map(({ passwordHash, ...driverData }) => driverData as Driver));
-                }
-
-                // Remove online fetching logic as Firebase is considered removed for this context
-                // if (localDriversData.length === 0 && navigator.onLine) {
-                //     console.log("[Drivers] No local drivers found, fetching online...");
-                //     try {
-                //         const onlineDriversData = await fetchOnlineDrivers();
-                //         console.log(`[Drivers] Found ${onlineDriversData.length} drivers online.`);
-
-                //         if (onlineDriversData.length > 0) {
-                //             const savePromises = onlineDriversData.map(async (driver) => {
-                //                 const existingLocal = await getLocalUser(driver.id).catch(() => null);
-                //                 const localUserData: DbUser = {
-                //                     ...driver,
-                //                     id: driver.id,
-                //                     passwordHash: existingLocal?.passwordHash || '', // Keep existing hash or set empty
-                //                     lastLogin: existingLocal?.lastLogin || new Date().toISOString(),
-                //                 };
-                //                 try {
-                //                     await saveLocalUser(localUserData);
-                //                 } catch (saveError) {
-                //                      console.error(`[Drivers] Error saving/updating driver ${driver.id} locally:`, saveError);
-                //                 }
-                //             });
-                //             await Promise.all(savePromises);
-                //             console.log("[Drivers] Updated local DB with online drivers.");
-                //             setDrivers(onlineDriversData); // Set UI state with fetched drivers
-                //         } else {
-                //              setDrivers([]); // No online drivers, set empty
-                //         }
-                //     } catch (onlineError: any) {
-                //         console.error("[Drivers] Error fetching online drivers:", onlineError);
-                //         toast({ variant: "destructive", title: "Erro Online", description: `Não foi possível carregar motoristas online: ${onlineError.message}` });
-                //         // If local data was loaded, keep it, otherwise set empty
-                //         if(localDriversData.length === 0) setDrivers([]);
-                //     }
-                // } else
-                if (localDriversData.length === 0) { // Simplified: if no local drivers, set empty
-                     console.log("[Drivers] Offline and no local drivers found.");
-                     setDrivers([]);
-                     toast({ variant: "default", title: "Offline", description: "Nenhum motorista local encontrado. Conecte-se para buscar online." });
-                }
-            } catch (localError: any) {
-                console.error("[Drivers] Error fetching local drivers:", localError);
-                // Do not show toast for common errors like "Failed to fetch" if it's just an offline scenario and local data is missing
-                if (!(localError.message.includes("Failed to fetch") || localError.message.includes("NetworkError"))) {
-                     toast({ variant: "destructive", title: "Erro Local", description: `Não foi possível carregar motoristas locais: ${localError.message}` });
-                }
-                 setDrivers([]); // Set empty on local error
-            } finally {
-                setLoadingDrivers(false);
-            }
-        };
-        fetchDriversData();
+        fetchLocalDriversData();
     }, [toast]);
 
-    // Core logic for creating a new driver
+
+    const handleSyncOnlineDrivers = async () => {
+        if (!navigator.onLine) {
+            toast({ variant: "destructive", title: "Offline", description: "Você precisa estar online para sincronizar os motoristas." });
+            return;
+        }
+        setIsSyncingOnline(true);
+        toast({ title: "Sincronizando...", description: "Buscando motoristas online." });
+        try {
+            const onlineDriversData = await fetchOnlineDrivers(); // Fetches DriverInfo[]
+            console.log(`[Drivers Sync] Found ${onlineDriversData.length} drivers online.`);
+
+            let newDriversAddedCount = 0;
+            let updatedDriversCount = 0;
+
+            if (onlineDriversData.length > 0) {
+                const savePromises = onlineDriversData.map(async (onlineDriver) => {
+                    const existingLocalDriver = await getLocalUser(onlineDriver.id).catch(() => null);
+                    const localUserData: DbUser = {
+                        id: onlineDriver.id,
+                        email: onlineDriver.email,
+                        name: onlineDriver.name || onlineDriver.email || `Motorista ${onlineDriver.id.substring(0,6)}`,
+                        username: onlineDriver.username,
+                        role: 'driver', // Ensure role is driver
+                        base: onlineDriver.base || 'N/A',
+                        passwordHash: existingLocalDriver?.passwordHash || '', // Preserve existing hash or set empty
+                        lastLogin: existingLocalDriver?.lastLogin || new Date().toISOString(),
+                    };
+
+                    try {
+                        await saveLocalUser(localUserData);
+                        if (!existingLocalDriver) {
+                            newDriversAddedCount++;
+                        } else if (JSON.stringify(existingLocalDriver) !== JSON.stringify(localUserData) ) { // Basic check for actual changes
+                            updatedDriversCount++;
+                        }
+                    } catch (saveError) {
+                        console.error(`[Drivers Sync] Error saving/updating driver ${onlineDriver.id} locally:`, saveError);
+                    }
+                });
+                await Promise.all(savePromises);
+            }
+            await fetchLocalDriversData(); // Refresh local driver list
+            toast({
+                title: "Sincronização Concluída!",
+                description: `${newDriversAddedCount} novo(s) motorista(s) adicionado(s). ${updatedDriversCount} motorista(s) atualizado(s). Total online: ${onlineDriversData.length}.`,
+                duration: 7000,
+            });
+
+        } catch (onlineError: any) {
+            console.error("[Drivers Sync] Error fetching online drivers:", onlineError);
+            toast({ variant: "destructive", title: "Erro na Sincronização Online", description: `Não foi possível buscar motoristas online: ${onlineError.message}` });
+        } finally {
+            setIsSyncingOnline(false);
+        }
+    };
+
+
+    // Core logic for creating a new driver locally
     const _createNewDriver = async (
         driverName: string,
         driverUsername: string | undefined,
@@ -124,55 +133,31 @@ export const Drivers: React.FC = () => {
         driverBase: string,
         driverPassword: string
     ): Promise<boolean> => {
-        setIsSaving(true);        
+        setIsSaving(true);
         try {
-            let emailExistsLocally = false;
-            let usernameExistsLocally = false;
-            try {
-                const existingByEmail = await getLocalUserByEmail(driverEmail);
-                if (existingByEmail) emailExistsLocally = true;
-                if (driverUsername) { // Only check username if provided
-                    usernameExistsLocally = drivers.some(d => d.username === driverUsername);
-                }
-            } catch (checkError) {
-                 console.error("[Drivers] Error checking for existing user locally:", checkError);
-                 toast({ variant: "destructive", title: "Erro Interno", description: "Não foi possível verificar usuários existentes localmente." });
-                 setIsSaving(false);
-                 return false;
-            }
-
-            if (emailExistsLocally) {
+            const existingByEmail = await getLocalUserByEmail(driverEmail).catch(() => null);
+            if (existingByEmail) {
                 toast({ variant: "destructive", title: "Erro de Duplicidade", description: `E-mail ${driverEmail} já cadastrado localmente.` });
                 setIsSaving(false);
                 return false;
             }
-            if (usernameExistsLocally && driverUsername) {
-                toast({ variant: "destructive", title: "Erro de Duplicidade", description: `Nome de usuário ${driverUsername} já existe localmente.` });
-                setIsSaving(false);
-                return false;
+            if (driverUsername) {
+                const usernameExistsLocally = drivers.some(d => d.username === driverUsername);
+                if (usernameExistsLocally) {
+                    toast({ variant: "destructive", title: "Erro de Duplicidade", description: `Nome de usuário ${driverUsername} já existe localmente.` });
+                    setIsSaving(false);
+                    return false;
+                }
             }
 
-            // Removed Firebase user creation logic
-            // const userId = firebaseUserId || `local_user_${uuidv4()}`;
-            const userId = `local_user_${uuidv4()}`; // Always generate local ID
-            const userDataForDb: Omit<DbUser, 'passwordHash' | 'lastLogin' | 'id'> = { // id will be part of localUserData
+            const userId = `local_user_${uuidv4()}`;
+            const userDataForDb: Omit<DbUser, 'passwordHash' | 'lastLogin' | 'id'> = {
                 name: driverName,
                 username: driverUsername,
                 email: driverEmail,
                 base: driverBase.toUpperCase(),
                 role: 'driver',
             };
-            
-            // Removed Firestore document creation logic
-            //   if (firebaseUserId && navigator.onLine) {
-            //       try {
-            //           await addUser(firebaseUserId, userDataForDb); // addUser now accepts Omit<User, 'id'>
-            //           console.log(`[Drivers] Firestore document created for ${firebaseUserId}`);
-            //       } catch (firestoreError) {
-            //           console.error(`[Drivers] Error creating Firestore document for ${firebaseUserId}:`, firestoreError);
-            //           toast({ variant: "destructive", title: "Erro Online", description: "Falha ao salvar dados do motorista online. A conta local foi criada.", duration: 7000 });
-            //       }
-            //   }
 
              const localUserData: DbUser = {
                   id: userId,
@@ -183,15 +168,12 @@ export const Drivers: React.FC = () => {
              await saveLocalUser(localUserData);
              console.log(`[Drivers] User saved locally with ID: ${userId}`);
 
-            const newDriverUI: Driver = { id: userId, ...userDataForDb }; // UI object doesn't need passwordHash
+            const newDriverUI: Driver = { id: userId, ...userDataForDb };
             setDrivers(prevDrivers => [newDriverUI, ...prevDrivers].sort((a,b)=> (a.name || '').localeCompare(b.name || '')));
             return true;
         } catch (error: any) {
             console.error("[Drivers] Error in _createNewDriver:", error);
-            let description = `Ocorreu um erro ao cadastrar o motorista: ${error.message}`;
-            // if (!(error.code?.startsWith('auth/'))) { // Firebase auth errors no longer relevant here
-            toast({ variant: "destructive", title: "Erro no Cadastro", description });
-            // }
+            toast({ variant: "destructive", title: "Erro no Cadastro", description: `Ocorreu um erro ao cadastrar o motorista: ${error.message}` });
             return false;
         } finally {
             setIsSaving(false);
@@ -200,7 +182,7 @@ export const Drivers: React.FC = () => {
 
     const handleAddDriver = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!name || !email || !password || !confirmPassword || !base) { // Username is now optional
+        if (!name || !email || !password || !confirmPassword || !base) {
             toast({ variant: "destructive", title: "Erro", description: "Nome, E-mail, Senha, Confirmar Senha e Base são obrigatórios." });
             return;
         }
@@ -213,18 +195,18 @@ export const Drivers: React.FC = () => {
             return;
          }
 
-        const success = await _createNewDriver(name, username || undefined, email, base, password); // Pass username as undefined if empty
+        const success = await _createNewDriver(name, username || undefined, email, base, password);
         if (success) {
             resetForm();
             setIsCreateModalOpen(false);
-            toast({ title: "Motorista cadastrado!", description: "Conta criada com sucesso." });
+            toast({ title: "Motorista cadastrado localmente!", description: "Conta criada com sucesso. Sincronize para enviar online." });
         }
     };
 
     const handleEditDriver = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!currentDriver) return;
-        if (!name || !email || !base) { // Username is optional
+        if (!name || !email || !base) {
             toast({ variant: "destructive", title: "Erro", description: "Nome, E-mail e Base são obrigatórios." });
             return;
         }
@@ -248,7 +230,7 @@ export const Drivers: React.FC = () => {
          try {
               const existingByEmail = await getLocalUserByEmail(email);
               if (existingByEmail && existingByEmail.id !== originalLocalUser.id) emailExists = true;
-              if (username) { // Only check username if provided and changed
+              if (username) {
                  usernameExists = drivers.some(d => d.username === username && d.id !== originalLocalUser!.id);
               }
          } catch (checkError) {
@@ -270,38 +252,30 @@ export const Drivers: React.FC = () => {
         try {
             const dataToUpdate: Partial<Omit<DbUser, 'id' | 'passwordHash' | 'lastLogin'>> = {
                 name,
-                username: username || undefined, // Set to undefined if empty string
+                username: username || undefined,
                 email,
                 base: base.toUpperCase(),
-                role: 'driver', // Role is fixed for drivers in this context
+                role: 'driver',
             };
-
-            // // Prevent email change for non-local users directly here - No longer relevant if Firebase is removed
-            // if (originalLocalUser.id.startsWith('local_') === false && email !== originalLocalUser.email) {
-            //      toast({ variant: "destructive", title: "Aviso", description: "Alteração de e-mail para contas online deve ser feita no perfil do motorista." });
-            //      setEmail(originalLocalUser.email); // Revert email change
-            //      setIsSaving(false);
-            //      return;
-            // }
 
             const updatedLocalData: DbUser = {
                 ...originalLocalUser,
                 ...dataToUpdate,
                 lastLogin: new Date().toISOString(),
-                // Password hash is not updated here
+                syncStatus: originalLocalUser.syncStatus === 'synced' ? 'pending' : originalLocalUser.syncStatus, // Mark for sync
             };
 
-            await saveLocalUser(updatedLocalData); // saveLocalUser handles put operation
+            await saveLocalUser(updatedLocalData);
 
-            const updatedDriverUI = { ...updatedLocalData } as Driver; // Cast to UI type
-            delete (updatedDriverUI as any).passwordHash; // Remove hash from UI object
+            const updatedDriverUI = { ...updatedLocalData } as Driver;
+            delete (updatedDriverUI as any).passwordHash;
 
             setDrivers(prevDrivers => prevDrivers.map(d => d.id === currentDriver.id ? updatedDriverUI : d).sort((a,b)=> (a.name || '').localeCompare(b.name || '')));
 
             resetForm();
             setIsEditModalOpen(false);
             setCurrentDriver(null);
-            toast({ title: "Dados do motorista atualizados localmente!" });
+            toast({ title: "Dados do motorista atualizados localmente!", description: "Sincronize para enviar as alterações online." });
 
         } catch (error: any) {
             console.error("[Drivers] Error updating local driver:", error);
@@ -320,12 +294,11 @@ export const Drivers: React.FC = () => {
                  setIsSaving(false);
                  return;
              }
-            // Mark for deletion in local DB
-            await deleteLocalDbUser(driverId); // This function should mark as deleted
+            await deleteLocalDbUser(driverId);
             console.log(`[Drivers] Driver ${driverId} marked for deletion locally.`);
             setDrivers(prevDrivers => prevDrivers.filter(d => d.id !== driverId));
             toast({ title: "Motorista marcado para exclusão.", description: "A exclusão online ocorrerá na próxima sincronização." });
-            if (currentDriver?.id === driverId) { // If editing the driver being deleted
+            if (currentDriver?.id === driverId) {
                  closeEditModal();
             }
         } catch (error: any) {
@@ -342,7 +315,7 @@ export const Drivers: React.FC = () => {
         setUsername(driver.username || '');
         setEmail(driver.email || '');
         setBase(driver.base || '');
-        setPassword(''); // Clear password fields for edit
+        setPassword('');
         setConfirmPassword('');
         setIsEditModalOpen(true);
     };
@@ -372,15 +345,11 @@ export const Drivers: React.FC = () => {
             toast({ variant: 'default', title: 'Nenhum dado', description: 'Não há motoristas para exportar.' });
             return;
         }
-
-        // Define which fields to export. Password is intentionally excluded.
         const fieldsToExport: (keyof Driver)[] = ['name', 'username', 'email', 'base'];
         const headerRow = fieldsToExport.join(',');
-
         const dataToExport = drivers.map(driver => {
             return fieldsToExport.map(field => {
                 let cellValue = driver[field] === null || driver[field] === undefined ? '' : String(driver[field]);
-                // Escape double quotes and handle commas/newlines for CSV
                 cellValue = cellValue.replace(/"/g, '""');
                 if (cellValue.search(/("|,|\n)/g) >= 0) {
                     cellValue = `"${cellValue}"`;
@@ -388,11 +357,9 @@ export const Drivers: React.FC = () => {
                 return cellValue;
             }).join(',');
         });
-
         const csvContent = headerRow + '\n' + dataToExport.join('\n');
         const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
         const link = document.createElement('a');
-
         if (link.download !== undefined) {
             const url = URL.createObjectURL(blob);
             link.setAttribute('href', url);
@@ -418,7 +385,6 @@ export const Drivers: React.FC = () => {
             toast({ variant: 'destructive', title: 'Tipo de arquivo inválido.', description: 'Por favor, selecione um arquivo CSV.' });
             return;
         }
-
         const reader = new FileReader();
         reader.onload = async (e) => {
             const csvString = e.target?.result as string;
@@ -432,7 +398,6 @@ export const Drivers: React.FC = () => {
             toast({ variant: 'destructive', title: 'Erro ao ler arquivo.' });
         };
         reader.readAsText(file);
-        // Reset file input to allow importing the same file again if needed
         if (fileInputRef.current) {
             fileInputRef.current.value = '';
         }
@@ -444,55 +409,45 @@ export const Drivers: React.FC = () => {
             toast({ variant: 'destructive', title: 'Arquivo CSV inválido', description: 'O arquivo deve conter um cabeçalho e pelo menos uma linha de dados.' });
             return;
         }
-
-        const header = lines[0].split(',').map(h => h.trim().toLowerCase()); // Standardize header casing
-        const nameIndex = header.indexOf('nome'); // Match lowercase
-        const usernameIndex = header.indexOf('nome de usuário'); // Match lowercase
-        const emailIndex = header.indexOf('e-mail'); // Match lowercase
-        const baseIndex = header.indexOf('base'); // Match lowercase
-        const tempPasswordIndex = header.indexOf('senhatemporaria'); // Match lowercase and no space
-
+        const header = lines[0].split(',').map(h => h.trim().toLowerCase());
+        const nameIndex = header.indexOf('nome');
+        const usernameIndex = header.indexOf('nome de usuário');
+        const emailIndex = header.indexOf('e-mail');
+        const baseIndex = header.indexOf('base');
+        const tempPasswordIndex = header.indexOf('senhatemporaria');
         if (nameIndex === -1 || emailIndex === -1 || baseIndex === -1) {
             toast({ variant: 'destructive', title: 'Cabeçalho CSV inválido', description: `Esperado: nome, e-mail, base (opcional: nome de usuário, senhatemporaria). Verifique o arquivo de exemplo.` });
             return;
         }
-
         let successCount = 0;
         let errorCount = 0;
         const errors: string[] = [];
-
-        setIsSaving(true); // Set saving state for the entire import process
-
+        setIsSaving(true);
         for (let i = 1; i < lines.length; i++) {
             const values = lines[i].split(',').map(v => v.trim());
             const driverName = values[nameIndex];
-            const driverUsername = usernameIndex !== -1 ? values[usernameIndex] : undefined; // Handle optional username
+            const driverUsername = usernameIndex !== -1 ? values[usernameIndex] : undefined;
             const driverEmail = values[emailIndex];
             const driverBase = values[baseIndex];
-            const driverPassword = tempPasswordIndex !== -1 && values[tempPasswordIndex] ? values[tempPasswordIndex] : "password@123"; // Default password
-
+            const driverPassword = tempPasswordIndex !== -1 && values[tempPasswordIndex] ? values[tempPasswordIndex] : "password@123";
             if (!driverName || !driverEmail || !driverBase) {
                 errors.push(`Linha ${i + 1}: Campos obrigatórios (Nome, E-mail, Base) faltando.`);
                 errorCount++;
                 continue;
             }
-             // Basic email validation
             if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(driverEmail)) {
                 errors.push(`Linha ${i + 1}: Formato de e-mail inválido para ${driverEmail}.`);
                 errorCount++;
                 continue;
             }
-
             const created = await _createNewDriver(driverName, driverUsername, driverEmail, driverBase, driverPassword);
             if (created) {
                 successCount++;
             } else {
                 errorCount++;
-                // _createNewDriver already shows a toast for specific creation errors, so we just count here.
             }
         }
-        setIsSaving(false); // Reset saving state
-
+        setIsSaving(false);
         if (successCount > 0) {
             toast({ title: 'Importação Concluída', description: `${successCount} motorista(s) importado(s) com sucesso.` });
         }
@@ -504,19 +459,22 @@ export const Drivers: React.FC = () => {
                 duration: 10000
             });
         }
-        if (successCount === 0 && errorCount === 0 && lines.length > 1) { // If there were data lines but no success/errors (e.g., all duplicates)
+        if (successCount === 0 && errorCount === 0 && lines.length > 1) {
             toast({ variant: 'default', title: 'Importação', description: 'Nenhum motorista novo para importar ou todos já existem.' });
         }
     };
 
-
     return (
         <div className="space-y-6">
-            <div className="flex justify-between items-center">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                 <h2 className="text-2xl font-semibold">Gerenciar Motoristas</h2>
-                <div className="flex gap-2">
-                    <Button onClick={handleExportToExcel} variant="outline" className="text-primary-foreground bg-primary/90 hover:bg-primary/80" disabled={isSaving}>
-                        <UploadCloud className="mr-2 h-4 w-4" /> Exportar para Excel
+                <div className="flex flex-wrap gap-2">
+                    <Button onClick={handleSyncOnlineDrivers} variant="outline" className="text-primary-foreground bg-blue-600 hover:bg-blue-700" disabled={isSyncingOnline || isSaving}>
+                        {isSyncingOnline ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                        {isSyncingOnline ? 'Sincronizando...' : 'Sincronizar Online'}
+                    </Button>
+                    <Button onClick={handleExportToExcel} variant="outline" className="text-primary-foreground bg-primary/90 hover:bg-primary/80" disabled={isSaving || isSyncingOnline}>
+                        <UploadCloud className="mr-2 h-4 w-4" /> Exportar
                     </Button>
                     <input
                         type="file"
@@ -526,12 +484,12 @@ export const Drivers: React.FC = () => {
                         className="hidden"
                         id="import-csv-input"
                     />
-                    <Button onClick={() => fileInputRef.current?.click()} variant="outline" className="text-primary-foreground bg-green-600 hover:bg-green-700" disabled={isSaving}>
-                        <FileUp className="mr-2 h-4 w-4" /> Importar de Excel
+                    <Button onClick={() => fileInputRef.current?.click()} variant="outline" className="text-primary-foreground bg-green-600 hover:bg-green-700" disabled={isSaving || isSyncingOnline}>
+                        <FileUp className="mr-2 h-4 w-4" /> Importar
                     </Button>
                     <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => !isOpen && closeCreateModal()}>
                         <DialogTrigger asChild>
-                            <Button onClick={() => { resetForm(); setIsCreateModalOpen(true); }} className="bg-primary hover:bg-primary/90 text-primary-foreground" disabled={isSaving}>
+                            <Button onClick={() => { resetForm(); setIsCreateModalOpen(true); }} className="bg-primary hover:bg-primary/90 text-primary-foreground" disabled={isSaving || isSyncingOnline}>
                                 <PlusCircle className="mr-2 h-4 w-4" /> Cadastrar Motorista
                             </Button>
                         </DialogTrigger>
@@ -609,7 +567,7 @@ export const Drivers: React.FC = () => {
                                 <div className="flex gap-1">
                                     <Dialog open={isEditModalOpen && currentDriver?.id === driver.id} onOpenChange={(isOpen) => !isOpen && closeEditModal()}>
                                         <DialogTrigger asChild>
-                                            <Button variant="ghost" size="icon" onClick={() => openEditModal(driver)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving}>
+                                            <Button variant="ghost" size="icon" onClick={() => openEditModal(driver)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving || isSyncingOnline}>
                                                 <Edit className="h-4 w-4" />
                                                 <span className="sr-only">Editar Motorista</span>
                                             </Button>
@@ -630,13 +588,9 @@ export const Drivers: React.FC = () => {
                                                 <div className="space-y-2">
                                                     <Label htmlFor="editEmail">E-mail*</Label>
                                                     <Input id="editEmail" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required
-                                                        disabled={isSaving || (driver && !driver.id.startsWith('local_'))} // Disable email edit for non-local (Firebase) users
-                                                        title={(driver && !driver.id.startsWith('local_')) ? "Alteração de e-mail deve ser feita pelo perfil do motorista." : ""}
-                                                    />                                                    
-                                                     {/* Commenting out Firebase specific message, as it's local only now */}
-                                                     {/* {(driver && !driver.id.startsWith('local_')) && (
-                                                        <p className="text-xs text-muted-foreground">Alteração de e-mail indisponível aqui para contas online.</p>
-                                                      )} */}
+                                                        disabled={isSaving || (driver && !driver.id.startsWith('local_'))}
+                                                        title={(driver && !driver.id.startsWith('local_')) ? "Alteração de e-mail indisponível para contas sincronizadas online." : ""}
+                                                    />
                                                 </div>
                                                  <div className="space-y-2">
                                                     <Label htmlFor="editBase">Base*</Label>
@@ -657,7 +611,7 @@ export const Drivers: React.FC = () => {
 
                                     <AlertDialog>
                                         <AlertDialogTrigger asChild>
-                                            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" disabled={isSaving}>
+                                            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" disabled={isSaving || isSyncingOnline}>
                                                 <Trash2 className="h-4 w-4" />
                                                 <span className="sr-only">Excluir Motorista</span>
                                             </Button>
