@@ -1,13 +1,13 @@
 // src/components/Trips/TripAccordionItem.tsx
 'use client';
 
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { CardTitle, CardDescription } from '@/components/ui/card';
 import { AccordionItem, AccordionHeader, AccordionContent, AccordionTrigger as UiAccordionTrigger } from '../ui/accordion';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Loader2, ChevronDown, TrendingUp, Edit, Trash2, Printer, Share2, MessageCircle } from 'lucide-react'; // Added Printer, Share2, MessageCircle
+import { Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Loader2, ChevronDown, TrendingUp, Edit, Trash2, Printer, Share2, MessageCircle } from 'lucide-react';
 import type { Trip, TripReportData } from './Trips';
 import type { User } from '@/contexts/AuthContext';
 import type { LocalVehicle } from '@/services/localDbService';
@@ -22,14 +22,15 @@ import {
   DialogTitle,
   DialogTrigger,
   DialogFooter,
-  DialogClose
+  DialogClose,
+  DialogDescription,
 } from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
-  AlertDialogDescription,
+  AlertDialogDescription as AlertDialogDesc, // Alias to avoid conflict
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
@@ -38,7 +39,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
 
 
 const VisitsComponent = dynamic(() => import('./Visits').then(mod => mod.Visits), {
@@ -65,18 +66,21 @@ interface TripAccordionItemProps {
   getDriverName: (driverId: string) => string;
   getTripDescription: (trip: Trip) => string;
   openFinishModal: (trip: Trip, event: React.MouseEvent) => void;
-  openEditModal: (trip: Trip, event: React.MouseEvent) => void;
+  
   currentTripForEdit: Trip | null;
   isEditModalOpenForThisTrip: boolean;
+  openEditModalForThisTrip: () => void;
   closeEditModal: () => void;
   handleEditTripSubmit: (e: React.FormEvent) => void;
   selectedVehicleIdForEdit: string;
   setSelectedVehicleIdForEdit: (id: string) => void;
-  openDeleteConfirmation: (trip: Trip, event: React.MouseEvent) => void;
+  
   tripToDelete: Trip | null;
   isDeleteModalOpenForThisTrip: boolean;
-  closeDeleteConfirmation: () => void;
+  openDeleteModalForThisTrip: () => void;
+  closeDeleteModal: () => void;
   confirmDeleteTrip: () => Promise<void>;
+
   isSaving: boolean;
   isDeleting: boolean;
   tripToFinish: Trip | null;
@@ -86,6 +90,11 @@ interface TripAccordionItemProps {
   getTripSummaryKmFunction: (tripId: string) => Promise<{ betweenVisits: number | null; firstToLast: number | null }>;
   loadingVehicles: boolean;
   onGenerateReport: (trip: Trip) => Promise<TripReportData | null>;
+  
+  isShareModalOpenForThisTrip: boolean;
+  openShareModalForThisTrip: () => void;
+  closeShareModal: () => void;
+  detailedSummaryText: string | null;
 }
 
 export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
@@ -99,17 +108,17 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
   getDriverName,
   getTripDescription,
   openFinishModal,
-  openEditModal,
   currentTripForEdit,
   isEditModalOpenForThisTrip,
+  openEditModalForThisTrip,
   closeEditModal,
   handleEditTripSubmit,
   selectedVehicleIdForEdit,
   setSelectedVehicleIdForEdit,
-  openDeleteConfirmation,
   tripToDelete,
   isDeleteModalOpenForThisTrip,
-  closeDeleteConfirmation,
+  openDeleteModalForThisTrip,
+  closeDeleteModal,
   confirmDeleteTrip,
   isSaving,
   isDeleting,
@@ -120,23 +129,24 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
   getTripSummaryKmFunction,
   loadingVehicles,
   onGenerateReport,
+  isShareModalOpenForThisTrip,
+  openShareModalForThisTrip,
+  closeShareModal,
+  detailedSummaryText,
 }) => {
   const [tripKmSummary, setTripKmSummary] = React.useState<{ betweenVisits: number | null, firstToLast: number | null }>({ betweenVisits: null, firstToLast: null });
   const [isGeneratingReport, setIsGeneratingReport] = React.useState(false);
 
 
   React.useEffect(() => {
-    // console.log(`[TripAccordionItem ${trip.localId}] useEffect for isExpanded. isExpanded: ${isExpanded}`);
     if (isExpanded) {
-      // console.log(`[TripAccordionItem ${trip.localId}] Expanded, fetching KM summary...`);
       getTripSummaryKmFunction(trip.localId).then(summary => {
-        // console.log(`[TripAccordionItem ${trip.localId}] KM Summary fetched:`, summary);
         setTripKmSummary(summary);
       }).catch(err => {
-        // console.error(`[TripAccordionItem ${trip.localId}] Error fetching KM summary:`, err);
+        console.error(`[TripAccordionItem ${trip.localId}] Error fetching KM summary:`, err);
       });
     }
-  }, [isExpanded, trip.localId, getTripSummaryKmFunction, trip.status, trip.finalKm, visitCount]); // Dependencies for KM summary
+  }, [isExpanded, trip.localId, getTripSummaryKmFunction, trip.status, trip.finalKm, visitCount]); 
 
   const isPending = trip.syncStatus === 'pending';
   const isError = trip.syncStatus === 'error';
@@ -149,12 +159,11 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
   const formatDateForReport = (dateString: string | undefined) => {
     if (!dateString) return 'N/A';
     try {
-      return format(new Date(dateString), 'dd/MM/yyyy HH:mm');
+      return format(parseISO(dateString), 'dd/MM/yyyy HH:mm');
     } catch {
       return 'Data Inválida';
     }
   };
-
 
   const handlePrintReport = async (event: React.MouseEvent) => {
     event.stopPropagation();
@@ -163,7 +172,6 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
     setIsGeneratingReport(false);
 
     if (!reportData) {
-      // Toast for error is handled in onGenerateReport
       return;
     }
 
@@ -284,16 +292,26 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
       alert("Seu navegador bloqueou a abertura da janela de impressão. Por favor, habilite pop-ups para este site.");
     }
   };
-
+  
 
   return (
-    <AccordionItem key={trip.localId} value={trip.localId} className="border bg-card rounded-lg shadow-sm overflow-hidden group/item data-[state=open]:border-primary/50">
-      <AccordionHeader>
-        <UiAccordionTrigger className={cn(
-          "flex-1 p-4 hover:bg-accent/50 w-full data-[state=open]:border-b cursor-pointer",
-          isPending && "bg-yellow-50 hover:bg-yellow-100/80 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/30",
-          isError && "bg-destructive/10 hover:bg-destructive/20"
-        )}>
+    <AccordionItem key={trip.localId} value={trip.localId} className="border bg-card rounded-lg shadow-md overflow-hidden group/item data-[state=open]:border-primary/50">
+      <AccordionHeader
+         className={cn(
+          "flex items-center justify-between w-full", // Removed p-4, UiAccordionTrigger and button div will handle their own padding
+          "cursor-pointer", // Make the whole bar feel clickable for the trigger
+          isPending && "bg-yellow-100 hover:bg-yellow-200/70 dark:bg-yellow-900/30 dark:hover:bg-yellow-900/50",
+          isError && "bg-destructive/20 hover:bg-destructive/30",
+          !isPending && !isError && "hover:bg-accent/50"
+        )}
+      >
+        <UiAccordionTrigger
+          className={cn(
+            "flex-1 text-left p-4", // Added p-4 here
+            "hover:no-underline",
+            "focus-visible:ring-0 focus-visible:ring-offset-0" 
+          )}
+        >
           <div className="flex-1 mr-4 space-y-1 text-left">
             <div>
               <div className="flex items-center gap-2 flex-wrap">
@@ -320,7 +338,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                 </span>
                 {trip.status === 'Finalizado' && trip.totalDistance != null && (
                   <span className="text-emerald-600 font-medium inline-flex items-center gap-1">
-                    <Milestone className="h-3 w-3" /> {formatKm(trip.totalDistance)} Total Percorrido
+                    <Milestone className="h-3 w-3" /> {formatKm(trip.totalDistance)} Total
                   </span>
                 )}
                 {isExpanded && tripKmSummary.betweenVisits !== null && tripKmSummary.betweenVisits > 0 && (
@@ -330,14 +348,14 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                 )}
               </div>
               <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                <span>Início: {new Date(trip.createdAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
-                <span>Atualizado: {new Date(trip.updatedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' })}</span>
+                <span>Início: {format(parseISO(trip.createdAt), 'dd/MM/yyyy')}</span>
+                <span>Atualizado: {format(parseISO(trip.updatedAt), 'dd/MM/yyyy')}</span>
               </div>
             </div>
           </div>
         </UiAccordionTrigger>
 
-        <div className="flex items-center gap-1 flex-shrink-0 ml-2 pr-4">
+        <div className="flex items-center gap-1 flex-shrink-0 pr-4 py-4"> {/* Added pr-4 and py-4 */}
           {trip.status === 'Andamento' && (isAdmin || trip.userId === user?.id) && (
             <Button
               variant="outline"
@@ -358,14 +376,14 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                 onClick={handlePrintReport}
                 className="text-muted-foreground hover:text-accent-foreground h-8 w-8"
                 disabled={isSaving || isDeleting || isGeneratingReport}
-                title="Gerar Relatório da Viagem (PDF)"
+                title="Gerar Relatório da Viagem"
               >
                 {isGeneratingReport ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
               </Button>
 
-              <Dialog open={isEditModalOpenForThisTrip} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); }}>
+              <Dialog open={isEditModalOpenForThisTrip} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); else openEditModalForThisTrip(); }}>
                 <DialogTrigger asChild>
-                  <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openEditModal(trip, e); }} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving || isDeleting}>
+                  <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openEditModalForThisTrip(); }} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving || isDeleting}>
                     <Edit className="h-4 w-4" />
                   </Button>
                 </DialogTrigger>
@@ -424,21 +442,21 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                 </DialogContent>
               </Dialog>
 
-              <AlertDialog open={isDeleteModalOpenForThisTrip} onOpenChange={(isOpen) => !isOpen && closeDeleteConfirmation()}>
+              <AlertDialog open={isDeleteModalOpenForThisTrip} onOpenChange={(isOpen) => !isOpen && closeDeleteModal()}>
                 <AlertDialogTrigger asChild>
-                  <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openDeleteConfirmation(trip, e); }} className="text-muted-foreground hover:text-destructive h-8 w-8" disabled={isSaving || isDeleting}>
+                  <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openDeleteModalForThisTrip(); }} className="text-muted-foreground hover:text-destructive h-8 w-8" disabled={isSaving || isDeleting}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </AlertDialogTrigger>
                 <AlertDialogContent>
                   <AlertDialogHeader>
                     <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Tem certeza que deseja marcar a viagem "{tripToDelete?.name}" para exclusão? Itens relacionados (visitas, despesas, abastecimentos) também serão marcados. A exclusão definitiva ocorrerá na próxima sincronização ou imediatamente se nunca foi sincronizada.
-                    </AlertDialogDescription>
+                    <AlertDialogDesc>
+                      Tem certeza que deseja marcar a viagem "{tripToDelete?.name}" para exclusão? Itens relacionados (visitas, despesas, abastecimentos) também serão marcados.
+                    </AlertDialogDesc>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
-                    <AlertDialogCancel onClick={closeDeleteConfirmation} disabled={isDeleting}>Cancelar</AlertDialogCancel>
+                    <AlertDialogCancel onClick={closeDeleteModal} disabled={isDeleting}>Cancelar</AlertDialogCancel>
                     <AlertDialogAction
                       onClick={confirmDeleteTrip}
                       className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
@@ -454,21 +472,33 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
           )}
         </div>
       </AccordionHeader>
-      <AccordionContent>
-          <Tabs defaultValue={activeSubTab || "visits"} className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="visits"><MapPin className="mr-1 h-4 w-4 inline-block" />Visitas ({visitCount})</TabsTrigger>
-              <TabsTrigger value="expenses"><Wallet className="mr-1 h-4 w-4 inline-block" />Despesas ({expenseCount})</TabsTrigger>
-              <TabsTrigger value="fuelings"><Fuel className="mr-1 h-4 w-4 inline-block" />Abastecimentos ({fuelingCount})</TabsTrigger>
-            </TabsList>
-            <TabsContent value="visits" className="mt-4">
-              <VisitsComponent tripId={trip.localId} tripName={trip.name} ownerUserId={trip.userId}/>
+      <AccordionContent className="bg-card">
+          <Tabs defaultValue={activeSubTab || "visits"} className="w-full pt-4"> {/* Added pt-4 for spacing above tabs */}
+            <div className="overflow-x-auto border-b bg-card"> {/* Changed to bg-card */}
+               <TabsList className={cn(
+                  "grid w-full rounded-none bg-transparent p-0 sm:w-auto sm:inline-flex",
+                  "grid-cols-3" 
+               )}>
+                   <TabsTrigger value="visits" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
+                     <MapPin className="mr-1 h-4 w-4 inline-block" />Visitas ({visitCount})
+                   </TabsTrigger>
+                   <TabsTrigger value="expenses" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
+                     <Wallet className="mr-1 h-4 w-4 inline-block" />Despesas ({expenseCount})
+                   </TabsTrigger>
+                   <TabsTrigger value="fuelings" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
+                     <Fuel className="mr-1 h-4 w-4 inline-block" />Abastec. ({fuelingCount})
+                   </TabsTrigger>
+               </TabsList>
+            </div>
+            
+            <TabsContent value="visits">
+                <VisitsComponent tripId={trip.localId} ownerUserId={trip.userId}/>
             </TabsContent>
-            <TabsContent value="expenses" className="mt-4">
-              <ExpensesComponent tripId={trip.localId} tripName={trip.name} ownerUserId={trip.userId} />
+            <TabsContent value="expenses">
+              <ExpensesComponent tripId={trip.localId} ownerUserId={trip.userId} />
             </TabsContent>
-            <TabsContent value="fuelings" className="mt-4">
-              <FuelingsComponent tripId={trip.localId} tripName={trip.name} vehicleId={trip.vehicleId} ownerUserId={trip.userId} />
+            <TabsContent value="fuelings">
+              <FuelingsComponent tripId={trip.localId} vehicleId={trip.vehicleId} ownerUserId={trip.userId} />
             </TabsContent>
           </Tabs>
       </AccordionContent>

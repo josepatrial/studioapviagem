@@ -67,24 +67,24 @@ import {
    getLocalExpenses,
    LocalExpense
 } from '@/services/localDbService';
-import { uploadReceipt, deleteReceipt } from '@/services/storageService';
+import { uploadReceipt, deleteReceipt } from '@/services/storageService'; // Assuming these are implemented
 
 export interface Expense extends Omit<LocalExpense, 'localId' | 'tripLocalId'> {
     id: string;
-    tripId: string; // This is actually tripLocalId in this context
-    userId: string; // Added to ensure ownership is tracked
+    tripId: string; 
+    userId: string; 
     syncStatus?: 'pending' | 'synced' | 'error';
 }
 
 const expenseTypes = ['Pedágio', 'Alimentação', 'Hospedagem', 'Combustível', 'Manutenção', 'Outros'];
 
 interface ExpensesProps {
-  tripId: string; // This is tripLocalId
-  tripName?: string;
-  ownerUserId: string; // User ID of the trip's owner
+  tripId: string; 
+  ownerUserId: string; 
 }
 
-export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, tripName, ownerUserId }) => {
+export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUserId }) => {
+    console.log("[ExpensesComponent props] tripId:", tripLocalId, "ownerUserId:", ownerUserId);
     const [expenses, setExpenses] = useState<Expense[]>([]);
     const [loading, setLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
@@ -121,7 +121,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, tripNam
                     ...le,
                     id: le.firebaseId || le.localId,
                     tripId: le.tripLocalId,
-                    userId: le.userId || ownerUserId, // Ensure userId is present
+                    userId: le.userId || ownerUserId, 
                     syncStatus: le.syncStatus
                 }));
                 setExpenses(uiExpenses);
@@ -176,7 +176,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, tripNam
 
 
     const formatCurrency = (amount: number) => amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-    const formatDateDisplay = (dateString: string) => { // Renamed to avoid conflict with date-fns format
+    const formatDateDisplay = (dateString: string) => { 
         try {
              const date = new Date(dateString);
              return format(date, 'dd/MM/yyyy');
@@ -228,6 +228,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, tripNam
 
     const handlePrepareExpenseForConfirmation = async (e: React.FormEvent) => {
         e.preventDefault();
+        console.log("[ExpensesComponent] handlePrepareExpenseForConfirmation called with data:", { description, value, expenseDate, expenseType, attachmentFilename, ownerUserId });
 
         if (!description || value === '' || !expenseDate || !expenseType) {
             toast({ variant: 'destructive', title: 'Erro', description: 'Todos os campos marcados com * são obrigatórios.' });
@@ -241,14 +242,14 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, tripNam
 
         const newExpenseData: Omit<LocalExpense, 'localId' | 'syncStatus' | 'receiptUrl' | 'receiptPath'> = {
             tripLocalId: tripLocalId,
-            userId: ownerUserId, // Associate with the trip owner
+            userId: ownerUserId, 
             description,
             value: valueNumber,
             expenseDate: expenseDate.toISOString(),
             timestamp: new Date().toISOString(),
             expenseType,
             receiptFilename: attachmentFilename || undefined,
-            deleted: false, // Initialize deleted as false
+            deleted: false, 
         };
 
         setExpenseToConfirm({ ...newExpenseData, attachment: attachment });
@@ -258,6 +259,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, tripNam
 
     const confirmAndSaveExpense = async () => {
         if (!expenseToConfirm) return;
+        console.log("[ExpensesComponent] Attempting to save new expense locally:", expenseToConfirm);
 
         setIsSaving(true);
         const { attachment: tempAttachment, ...dataToSaveBase } = expenseToConfirm;
@@ -266,7 +268,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, tripNam
             ...dataToSaveBase,
              userId: ownerUserId,
              receiptUrl: typeof tempAttachment === 'string' ? tempAttachment : undefined,
-             receiptPath: undefined,
+             receiptPath: undefined, 
              receiptFilename: attachmentFilename || undefined,
              deleted: false,
         };
@@ -287,7 +289,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, tripNam
             setExpenseToConfirm(null);
             toast({ title: "Despesa criada localmente!" });
         } catch (error) {
-            console.error("Error adding local expense:", error);
+            console.error("[ExpensesComponent] Error adding local expense:", error);
             toast({ variant: "destructive", title: "Erro Local", description: "Não foi possível salvar a despesa localmente." });
         } finally {
             setIsSaving(false);
@@ -318,7 +320,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, tripNam
         setIsSaving(true);
         const updatedLocalExpenseData: LocalExpense = {
             ...originalLocalExpense,
-            userId: ownerUserId, // Ensure ownerUserId is set
+            userId: ownerUserId, 
             description,
             value: valueNumber,
             expenseDate: expenseDate.toISOString(),
@@ -472,19 +474,17 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, tripNam
 
         <div className="space-y-6">
            <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-xl font-semibold">
-                        {tripName ? `Despesas da Viagem: ${tripName}` : 'Despesas'}
-                    </h3>
+                <h3 className="text-xl font-semibold">Histórico de Despesas</h3>
                     {tripLocalId && (
                         <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
                             <DialogTrigger asChild>
-                                <Button onClick={() => { resetForm(); setExpenseDate(new Date()); setIsCreateModalOpen(true); }} className="bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isSaving}>
+                                <Button onClick={() => { resetForm(); setExpenseDate(new Date()); console.log("[ExpensesComponent] Registrar Despesa button clicked, setting isCreateModalOpen to true."); setIsCreateModalOpen(true); }} className="bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isSaving}>
                                     <PlusCircle className="mr-2 h-4 w-4" /> Registrar Despesa
                                 </Button>
                             </DialogTrigger>
                             <DialogContent className="sm:max-w-lg">
                                 <DialogHeader>
-                                    <DialogTitle>Registrar Nova Despesa{tripName ? ` para ${tripName}` : ''}</DialogTitle>
+                                    <DialogTitle>Registrar Nova Despesa</DialogTitle>
                                 </DialogHeader>
                                 <form onSubmit={handlePrepareExpenseForConfirmation} className="grid gap-4 py-4">
                                     <div className="space-y-2">
@@ -559,7 +559,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, tripNam
                             Por favor, revise os dados abaixo antes de salvar localmente.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
-                    <div className="py-2">
+                    <div className="py-2"> {/* Moved ul outside AlertDialogDescription */}
                         <ul className="list-disc list-inside space-y-1 text-sm text-foreground">
                             <li><strong>Descrição:</strong> {expenseToConfirm?.description}</li>
                             <li><strong>Valor:</strong> {expenseToConfirm ? formatCurrency(expenseToConfirm.value) : 'N/A'}</li>

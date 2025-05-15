@@ -31,29 +31,29 @@ import {
     getLocalFuelings,
     LocalFueling
 } from '@/services/localDbService';
-import { uploadReceipt, deleteReceipt } from '@/services/storageService';
+import { uploadReceipt, deleteReceipt } from '@/services/storageService'; // Assuming these are implemented
 import { cn } from '@/lib/utils';
 import { formatKm } from '@/lib/utils';
 
 export interface Fueling extends Omit<LocalFueling, 'localId' | 'tripLocalId'> {
   id: string;
-  tripId: string; // This is actually tripLocalId in this context
-  userId: string; // Added to ensure ownership is tracked
+  tripId: string; 
+  userId: string; 
   syncStatus?: 'pending' | 'synced' | 'error';
   odometerKm: number;
   fuelType: string;
 }
 
 interface FuelingsProps {
-  tripId: string; // This is tripLocalId
-  tripName?: string;
+  tripId: string; 
   vehicleId: string;
-  ownerUserId: string; // User ID of the trip's owner
+  ownerUserId: string; 
 }
 
 const fuelTypes = ['Gasolina Comum', 'Gasolina Aditivada', 'Etanol', 'Diesel Comum', 'Diesel S10', 'GNV'];
 
-export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripName, vehicleId: tripVehicleId, ownerUserId }) => {
+export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicleId: tripVehicleId, ownerUserId }) => {
+  console.log("[FuelingsComponent props] tripId:", tripLocalId, "vehicleId:", tripVehicleId, "ownerUserId:", ownerUserId);
   const [fuelings, setFuelings] = useState<Fueling[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -90,7 +90,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
                 ...lf,
                 id: lf.firebaseId || lf.localId,
                 tripId: lf.tripLocalId,
-                userId: lf.userId || ownerUserId, // Ensure userId is present
+                userId: lf.userId || ownerUserId, 
                 syncStatus: lf.syncStatus,
                 odometerKm: lf.odometerKm,
                 fuelType: lf.fuelType
@@ -145,7 +145,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
     }, [isCameraOpen, toast]);
 
   const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-   const formatDateDisplay = (dateString: string) => { // Renamed
+   const formatDateDisplay = (dateString: string) => { 
        try {
             return new Date(dateString).toLocaleDateString('pt-BR');
        } catch {
@@ -196,6 +196,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
 
   const handleCreateFueling = async (e: React.FormEvent) => {
     e.preventDefault();
+    console.log("[FuelingsComponent] handleCreateFueling called with data:", { date, liters, pricePerLiter, location, odometerKm, fuelType, comments, attachmentFilename, tripVehicleId, ownerUserId });
     if (!tripVehicleId) {
         toast({ variant: 'destructive', title: 'Erro', description: 'ID do Veículo não encontrado para este abastecimento.' });
         return;
@@ -216,7 +217,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
      setIsSaving(true);
      const newFuelingData: Omit<LocalFueling, 'localId' | 'syncStatus' | 'receiptUrl' | 'receiptPath'> = {
        tripLocalId: tripLocalId,
-       userId: ownerUserId, // Associate with the trip owner
+       userId: ownerUserId, 
        vehicleId: tripVehicleId,
        date: new Date(date).toISOString(),
        liters: litersNum,
@@ -228,8 +229,9 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
        fuelType,
        receiptFilename: attachmentFilename || undefined,
        receiptUrl: typeof attachment === 'string' ? attachment : undefined,
-       deleted: false, // Initialize deleted as false
+       deleted: false, 
      };
+     console.log("[FuelingsComponent] Attempting to save new fueling locally:", newFuelingData);
 
      try {
          const localId = await addLocalFueling(newFuelingData);
@@ -246,7 +248,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
          setIsCreateModalOpen(false);
          toast({ title: 'Abastecimento criado localmente!' });
      } catch (error) {
-         console.error("Error adding local fueling:", error);
+         console.error("[FuelingsComponent] Error adding local fueling:", error);
          toast({ variant: "destructive", title: "Erro Local", description: "Não foi possível salvar o abastecimento localmente." });
      } finally {
          setIsSaving(false);
@@ -283,7 +285,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
      setIsSaving(true);
      const updatedLocalFuelingData: LocalFueling = {
         ...originalLocalFueling,
-        userId: ownerUserId, // Ensure ownerUserId is set
+        userId: ownerUserId, 
         date: new Date(date).toISOString(),
         liters: litersNum,
         pricePerLiter: priceNum,
@@ -444,19 +446,17 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
 
     <div className="space-y-6">
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-xl font-semibold">
-          {tripName ? `Abastecimentos da Viagem: ${tripName}` : 'Abastecimentos'}
-        </h3>
+        <h3 className="text-xl font-semibold">Histórico de Abastecimentos</h3>
         {tripLocalId && (
           <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
             <DialogTrigger asChild>
-              <Button onClick={() => { resetForm(); setDate(new Date().toISOString().split('T')[0]); setIsCreateModalOpen(true); }} className="bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isSaving}>
+              <Button onClick={() => { resetForm(); setDate(new Date().toISOString().split('T')[0]); console.log("[FuelingsComponent] Registrar Abastecimento button clicked, setting isCreateModalOpen to true."); setIsCreateModalOpen(true); }} className="bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isSaving}>
                 <PlusCircle className="mr-2 h-4 w-4" /> Registrar Abastecimento
               </Button>
             </DialogTrigger>
             <DialogContent className="sm:max-w-lg">
               <DialogHeader>
-                <DialogTitle>Registrar Novo Abastecimento{tripName ? ` para ${tripName}` : ''}</DialogTitle>
+                <DialogTitle>Registrar Novo Abastecimento</DialogTitle>
               </DialogHeader>
               <form onSubmit={handleCreateFueling} className="grid gap-4 py-4">
                 <div className="space-y-2">

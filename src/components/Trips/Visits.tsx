@@ -21,20 +21,20 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 export interface Visit extends Omit<LocalVisit, 'localId' | 'tripLocalId'> {
   id: string;
   tripId: string; // This is actually tripLocalId in this context
-  userId: string; // Added to ensure ownership is tracked
+  userId: string; 
   syncStatus?: 'pending' | 'synced' | 'error';
   visitType?: string;
 }
 
 interface VisitsProps {
   tripId: string; // This is tripLocalId
-  tripName?: string;
-  ownerUserId: string; // User ID of the trip's owner
+  ownerUserId: string; 
 }
 
 const visitTypes = ['Entrega', 'Coleta', 'Reunião', 'Manutenção', 'Visita Técnica', 'Outro'];
 
-export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName, ownerUserId }) => {
+export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId }) => {
+  console.log("[VisitsComponent props] tripId:", tripLocalId, "ownerUserId:", ownerUserId);
   const [visits, setVisits] = useState<Visit[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -66,7 +66,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName, o
             ...lv,
             id: lv.firebaseId || lv.localId,
             tripId: lv.tripLocalId,
-            userId: lv.userId || ownerUserId, // Ensure userId is present
+            userId: lv.userId || ownerUserId, 
             syncStatus: lv.syncStatus,
             visitType: lv.visitType,
         })).sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
@@ -84,7 +84,10 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName, o
 
   const getLastVisitKm = (): number | null => {
       if (visits.length === 0) return null;
-      return visits[0].initialKm;
+      // Assuming visits are sorted descending by timestamp, the first one is the latest.
+      // To get the one before the *new* one, we need the current latest.
+      const sortedChronologically = [...visits].sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+      return sortedChronologically.length > 0 ? sortedChronologically[sortedChronologically.length - 1].initialKm : null;
   };
 
   const handleGetLocation = async () => {
@@ -109,6 +112,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName, o
 
   const handlePrepareVisitForConfirmation = (e: React.FormEvent) => {
     e.preventDefault();
+    console.log("[VisitsComponent] handlePrepareVisitForConfirmation called with data:", { clientName, location, initialKm, reason, visitType, ownerUserId });
 
     if (!clientName || !location || initialKm === '' || !reason || !visitType) {
         toast({ variant: "destructive", title: "Erro", description: "Todos os campos marcados com * são obrigatórios." });
@@ -133,7 +137,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName, o
 
     const newVisitData: Omit<LocalVisit, 'localId' | 'syncStatus'> = {
       tripLocalId: tripLocalId,
-      userId: ownerUserId, // Associate with the trip owner
+      userId: ownerUserId, 
       clientName,
       location,
       latitude,
@@ -142,7 +146,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName, o
       reason,
       timestamp: new Date().toISOString(),
       visitType,
-      deleted: false, // Initialize deleted as false
+      deleted: false, 
     };
 
     setVisitToConfirm(newVisitData);
@@ -152,6 +156,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName, o
 
   const confirmAndSaveVisit = async () => {
       if (!visitToConfirm) return;
+      console.log("[VisitsComponent] Attempting to save new visit locally:", visitToConfirm);
       setIsSaving(true);
       try {
           const localId = await addLocalVisit(visitToConfirm);
@@ -170,7 +175,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName, o
           setVisitToConfirm(null);
           toast({ title: "Visita criada localmente!" });
       } catch (error) {
-            console.error("Error adding local visit:", error);
+            console.error("[VisitsComponent] Error adding local visit:", error);
             toast({ variant: "destructive", title: "Erro Local", description: "Não foi possível salvar a visita localmente." });
       } finally {
             setIsSaving(false);
@@ -199,7 +204,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName, o
 
       const updatedLocalVisitData: LocalVisit = {
             ...originalLocalVisit,
-            userId: ownerUserId, // Ensure ownerUserId is set
+            userId: ownerUserId, 
             clientName,
             location,
             latitude,
@@ -309,19 +314,17 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName, o
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-xl font-semibold">
-          {tripName ? `Visitas da Viagem: ${tripName}` : 'Visitas'}
-        </h3>
+        <h3 className="text-xl font-semibold">Histórico de Visitas</h3>
         {tripLocalId && (
             <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
                 <DialogTrigger asChild>
-                <Button onClick={() => {resetForm(); setIsCreateModalOpen(true);}} className="bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isSaving}>
+                <Button onClick={() => { resetForm(); console.log("[VisitsComponent] Registrar Visita button clicked, setting isCreateModalOpen to true."); setIsCreateModalOpen(true);}} className="bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isSaving}>
                     <PlusCircle className="mr-2 h-4 w-4" /> Registrar Visita
                 </Button>
                 </DialogTrigger>
                 <DialogContent className="sm:max-w-lg">
                 <DialogHeader>
-                    <DialogTitle>Registrar Nova Visita{tripName ? ` para ${tripName}` : ''}</DialogTitle>
+                    <DialogTitle>Registrar Nova Visita</DialogTitle>
                 </DialogHeader>
                 <form onSubmit={handlePrepareVisitForConfirmation} className="grid gap-4 py-4">
                     <div className="space-y-2">
@@ -390,7 +393,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName, o
                     Por favor, revise os dados abaixo, especialmente a <strong>Quilometragem Inicial</strong>. Esta ação não pode ser facilmente desfeita.
                 </AlertDialogDescription>
             </AlertDialogHeader>
-            <div className="py-2">
+            <div className="py-2"> {/* Moved ul outside AlertDialogDescription */}
                 <ul className="mt-3 list-disc list-inside space-y-1 text-sm text-foreground">
                     <li><strong>Cliente:</strong> {visitToConfirm?.clientName}</li>
                     <li><strong>Tipo de Visita:</strong> {visitToConfirm?.visitType}</li>
@@ -564,14 +567,13 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName, o
                                 </form>
                             </DialogContent>
                         </Dialog>
-                         <AlertDialog>
+                        <AlertDialog>
                             <AlertDialogTrigger asChild>
                                 <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => openDeleteConfirmation(visit)} disabled={isSaving}>
                                 <Trash2 className="h-4 w-4" />
                                 <span className="sr-only">Excluir</span>
                                 </Button>
                             </AlertDialogTrigger>
-                            {/* AlertDialogContent for delete is defined once globally with isDeleteModalOpen and visitToDelete */}
                         </AlertDialog>
                         </div>
                     </div>
