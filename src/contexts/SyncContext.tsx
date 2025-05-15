@@ -100,7 +100,18 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
     ): Promise<boolean> => {
         const { localId, firebaseId, deleted, syncStatus: itemSyncStatus, ...dataToSyncBase } = item;
         const logPrefix = `[SyncContext syncItem - ${storeName} ${localId}]`;
-        console.log(`${logPrefix} Starting sync. Deleted: ${deleted}, FirebaseID: ${firebaseId || 'N/A'}`);
+        console.log(`${logPrefix} Starting sync. User State:`, user); // Log user state
+        console.log(`${logPrefix} Item Details - Deleted: ${deleted}, FirebaseID: ${firebaseId || 'N/A'}`);
+
+
+        if (!user && !deleted) { // If trying to add/update but no user, this is an issue. Deletes can proceed.
+            console.error(`${logPrefix} No authenticated user found for an add/update operation. Skipping Firestore operation.`);
+            toast({ variant: 'destructive', title: `Erro de Autenticação na Sincronização`, description: `Não foi possível sincronizar ${storeName} ID: ${localId} por falta de usuário autenticado.`, duration: 7000 });
+            // We don't mark as error here, as it's an auth issue, not an item sync issue.
+            // It will remain 'pending' for a future sync attempt when user is available.
+            return false; // Indicate sync for this item was skipped/failed due to auth
+        }
+
 
         if (deleted) {
             try {
@@ -214,7 +225,7 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
 
     const startSync = useCallback(async () => {
         const syncStartTime = performance.now();
-        console.log(`[SyncContext startSync ${syncStartTime}] Initiating sync... DB: ${db?.databaseId}`);
+        console.log(`[SyncContext startSync ${syncStartTime}] Initiating sync...`);
         if (syncStatus === 'syncing') {
             toast({ title: "Sincronização já em andamento." }); return;
         }
@@ -222,7 +233,9 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
             toast({ variant: 'destructive', title: "Offline", description: "Conecte-se à internet para sincronizar." }); return;
         }
         if (!user) {
-             toast({ variant: 'destructive', title: "Erro", description: "Usuário não autenticado." }); return;
+             toast({ variant: 'destructive', title: "Erro de Autenticação", description: "Usuário não autenticado. Faça login para sincronizar." });
+             setSyncStatus('error'); // Set to error because sync cannot proceed
+             return;
         }
 
         setSyncStatus('syncing');
@@ -393,3 +406,4 @@ export const useSync = (): SyncContextType => {
     }
     return context;
 };
+
