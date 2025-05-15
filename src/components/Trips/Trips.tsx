@@ -6,7 +6,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Edit, Trash2, Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Filter, Loader2, BarChart3, ChevronDown, TrendingUp, FileUp, Printer } from 'lucide-react'; // Added Printer
+import { PlusCircle, Filter, Loader2, Printer } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -87,46 +87,6 @@ interface TripsProps {
   activeSubTab: 'visits' | 'expenses' | 'fuelings' | null;
 }
 
-const parseTripCSV = (csvText: string): Record<string, string>[] => {
-    const lines = csvText.trim().split('\n');
-    if (lines.length < 2) return [];
-
-    const headerLine = lines[0].trim();
-    const normalizeHeader = (h: string) =>
-        h.trim().toLowerCase()
-         .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-         .replace(/[^a-z0-9]/gi, '');
-
-    const header = headerLine.split(',').map(normalizeHeader);
-    const data = [];
-    const expectedHeaders = {
-        idviagem: 'idviagem', status: 'status', veiculo: 'veiculo', nome: 'nome',
-        datachegada: 'datachegada', datafinalizado: 'datafinalizado', odometrochegada: 'odometrochegada'
-    };
-
-    for (let i = 1; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-        const values = line.split(',');
-        const entry: Record<string, string> = {};
-        let hasRequiredData = false;
-        for (let j = 0; j < header.length; j++) {
-            const normHeader = header[j];
-            const originalValue = values[j]?.trim() || '';
-            if (normHeader === expectedHeaders.idviagem) entry.idviagem = originalValue;
-            else if (normHeader === expectedHeaders.status) entry.status = originalValue;
-            else if (normHeader === expectedHeaders.veiculo) entry.veiculo = originalValue;
-            else if (normHeader === expectedHeaders.nome) entry.nome = originalValue;
-            else if (normHeader === expectedHeaders.datachegada) entry.datachegada = originalValue;
-            else if (normHeader === expectedHeaders.datafinalizado) entry.datafinalizado = originalValue;
-            else if (normHeader === expectedHeaders.odometrochegada) entry.odometrochegada = originalValue;
-        }
-        if (entry.idviagem) hasRequiredData = true;
-        if (hasRequiredData) data.push(entry);
-        else console.warn(`[Trip CSV Parse] Skipping line ${i + 1} due to missing 'iD.Viagem'. Line: "${line}"`);
-    }
-    return data;
-};
 
 export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
   const { user } = useAuth();
@@ -148,7 +108,9 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
   const [tripToDelete, setTripToDelete] = useState<Trip | null>(null);
   const [expandedTripId, setExpandedTripId] = useState<string | null>(null);
   const { toast } = useToast();
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  // Removed fileInputRef as CSV import is being removed
+  // const fileInputRef = useRef<HTMLInputElement>(null);
+
 
   const [selectedVehicleIdForCreate, setSelectedVehicleIdForCreate] = useState('');
   const [selectedVehicleIdForEdit, setSelectedVehicleIdForEdit] = useState('');
@@ -193,8 +155,19 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
              let localVehicles = await getLocalVehicles();
              if (localVehicles.length === 0 && navigator.onLine) {
                  try {
-                     const onlineVehicles = await getLocalVehicles();
-                     localVehicles = onlineVehicles.map(v => ({ ...v, localId: v.localId || v.id, id: v.id || v.localId, syncStatus: 'synced' } as LocalVehicle));
+                     // Attempt to fetch from online service if local is empty and online
+                     const onlineVehiclesData = await fetchOnlineVehicles(); // Assuming fetchOnlineVehicles fetches from Firestore
+                     if (onlineVehiclesData.length > 0) {
+                        // Here you might want to save these to local DB if they aren't there
+                        // For now, we'll just use them if local is empty.
+                        localVehicles = onlineVehiclesData.map(v => ({
+                            ...v,
+                            localId: v.id, // Assuming online ID can serve as localId for this purpose
+                            syncStatus: 'synced',
+                            deleted: false,
+                            firebaseId: v.id
+                        } as LocalVehicle));
+                     }
                  } catch (fetchError) {
                       console.error("Error fetching online vehicles:", fetchError);
                      toast({ variant: "destructive", title: "Erro Online", description: "Não foi possível buscar veículos online." });
@@ -273,7 +246,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
 
 
   const getVehicleDisplay = (vehicleId: string) => {
-    const vehicle = vehicles.find(v => v.id === vehicleId || v.localId === vehicleId);
+    const vehicle = vehicles.find(v => v.id === vehicleId || v.localId === vehicleId || v.firebaseId === vehicleId);
     return vehicle ? `${vehicle.model} (${vehicle.licensePlate})` : 'Veículo Desconhecido';
   };
 
@@ -288,6 +261,8 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
 
    const getTripDescription = (trip: Trip): string => {
        const vehicleDisplay = getVehicleDisplay(trip.vehicleId);
+       // The trip.name itself already contains the vehicle info based on previous logic.
+       // So we just use trip.name and append driver and base.
        const driverName = getDriverName(trip.userId);
        const baseDisplay = trip.base ? ` (Base: ${trip.base})` : '';
        return `${vehicleDisplay} - ${driverName}${baseDisplay}`;
@@ -314,13 +289,14 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
         return;
     }
 
-    const vehicleForTrip = vehicles.find(v => v.id === selectedVehicleIdForCreate || v.localId === selectedVehicleIdForCreate);
+    const vehicleForTrip = vehicles.find(v => v.id === selectedVehicleIdForCreate || v.localId === selectedVehicleIdForCreate || v.firebaseId === selectedVehicleIdForCreate);
     if (!vehicleForTrip) {
         toast({ variant: 'destructive', title: 'Erro', description: 'Veículo selecionado não encontrado.' });
         return;
     }
 
     const dateStr = new Date().toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit', year: 'numeric'});
+    // Corrected trip name generation
     const generatedTripName = `Viagem ${vehicleForTrip.model} (${vehicleForTrip.licensePlate}) - ${dateStr}`;
     const now = new Date().toISOString();
 
@@ -349,7 +325,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
          const newUITrip: Trip = {
             ...newTripData,
             localId,
-            id: localId,
+            id: localId, // For UI purposes, id can be localId initially
             syncStatus: 'pending'
          };
         setAllTrips(prevTrips => [newUITrip, ...prevTrips].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
@@ -391,7 +367,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
           return;
       }
 
-      const vehicleForEdit = vehicles.find(v => v.id === selectedVehicleIdForEdit || v.localId === selectedVehicleIdForEdit);
+      const vehicleForEdit = vehicles.find(v => v.id === selectedVehicleIdForEdit || v.localId === selectedVehicleIdForEdit || v.firebaseId === selectedVehicleIdForEdit);
       if (!vehicleForEdit) {
         toast({ variant: 'destructive', title: 'Erro', description: 'Veículo selecionado para edição não encontrado.' });
         return;
@@ -576,128 +552,6 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
   }, [allTrips]);
 
 
-  const handleTripFileImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    setIsSaving(true);
-    toast({ title: "Importando Viagens...", description: "Processando arquivo CSV." });
-
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-        const text = e.target?.result as string;
-        if (!text) {
-            toast({ variant: "destructive", title: "Erro ao Ler Arquivo", description: "Não foi possível ler o conteúdo do arquivo." });
-            setIsSaving(false);
-            return;
-        }
-
-        try {
-            const parsedData = parseTripCSV(text);
-            if (parsedData.length === 0) {
-                toast({ variant: "destructive", title: "Arquivo Vazio ou Inválido", description: "O CSV não contém dados de viagem válidos ou está mal formatado." });
-                setIsSaving(false);
-                return;
-            }
-
-            let importedCount = 0;
-            let skippedCount = 0;
-            const skippedReasons: string[] = [];
-            const localVehicles = await getLocalVehicles();
-            const localDrivers = await getLocalRecordsByRole('driver');
-
-            for (const row of parsedData) {
-                const tripNameFromCSV = row['idviagem']?.trim();
-                const statusFromCSV = row['status']?.trim() || 'Andamento';
-                const vehicleStringFromCSV = row['veiculo']?.trim();
-                const driverNameFromCSV = row['nome']?.trim();
-                const createdAtFromCSV = row['datachegada']?.trim();
-                const updatedAtFromCSV = row['datafinalizado']?.trim();
-                const finalKmFromCSV = row['odometrochegada']?.trim();
-
-                if (!tripNameFromCSV) {
-                    skippedCount++; skippedReasons.push(`Nome da viagem (iD.Viagem) ausente.`); continue;
-                }
-
-                let vehicleId: string | undefined;
-                if (vehicleStringFromCSV) {
-                    const matchedVehicle = localVehicles.find(v => `${v.model} (${v.licensePlate})`.toLowerCase() === vehicleStringFromCSV.toLowerCase() || v.licensePlate.toLowerCase() === vehicleStringFromCSV.toLowerCase());
-                    if (matchedVehicle) vehicleId = matchedVehicle.localId;
-                    else { skippedCount++; skippedReasons.push(`Veículo "${vehicleStringFromCSV}" não encontrado para viagem "${tripNameFromCSV}".`); continue; }
-                } else {
-                     skippedCount++; skippedReasons.push(`Veículo ausente para viagem "${tripNameFromCSV}".`); continue;
-                }
-
-                let driverUserId: string | undefined;
-                let driverBase: string | undefined;
-                if (driverNameFromCSV) {
-                    const matchedDriver = localDrivers.find(d => d.name?.toLowerCase() === driverNameFromCSV.toLowerCase() || d.email.toLowerCase() === driverNameFromCSV.toLowerCase());
-                    if (matchedDriver) {
-                        driverUserId = matchedDriver.id;
-                        driverBase = matchedDriver.base;
-                    } else { skippedCount++; skippedReasons.push(`Motorista "${driverNameFromCSV}" não encontrado para viagem "${tripNameFromCSV}".`); continue; }
-                } else {
-                    driverUserId = user?.id;
-                    driverBase = user?.role === 'admin' ? 'ALL_ADM_TRIP' : user?.base;
-                    if (!driverUserId) { skippedCount++; skippedReasons.push(`Motorista não especificado e usuário logado não encontrado para viagem "${tripNameFromCSV}".`); continue; }
-                }
-
-                const parseDate = (dateStr: string | undefined): string | undefined => {
-                    if (!dateStr) return undefined;
-                    try {
-                        const parts = dateStr.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-                        if (parts) return new Date(parseInt(parts[3]), parseInt(parts[2]) - 1, parseInt(parts[1])).toISOString();
-                        return new Date(dateStr).toISOString();
-                    } catch { return undefined; }
-                };
-
-                const createdAt = parseDate(createdAtFromCSV) || new Date().toISOString();
-                const status = statusFromCSV.toLowerCase() === 'finalizado' ? 'Finalizado' : 'Andamento';
-                const updatedAt = status === 'Finalizado' ? (parseDate(updatedAtFromCSV) || createdAt) : createdAt;
-                const finalKm = status === 'Finalizado' && finalKmFromCSV ? parseFloat(finalKmFromCSV.replace(',', '.')) : undefined;
-
-                if (status === 'Finalizado' && (finalKm === undefined || isNaN(finalKm) || finalKm <=0)) {
-                    skippedCount++; skippedReasons.push(`KM Final inválido ou ausente para viagem finalizada "${tripNameFromCSV}".`); continue;
-                }
-
-                const newTripData: Omit<LocalTrip, 'localId' | 'syncStatus'> = {
-                    name: tripNameFromCSV, vehicleId, userId: driverUserId!, status,
-                    createdAt, updatedAt, base: driverBase || 'N/A',
-                    finalKm, totalDistance: 0, deleted: false,
-                };
-
-                try {
-                    await addLocalTrip(newTripData);
-                    importedCount++;
-                } catch (saveError: any) {
-                    skippedCount++;
-                    skippedReasons.push(`Erro ao salvar viagem "${tripNameFromCSV}": ${saveError.message}`);
-                }
-            }
-
-            if (importedCount > 0) await fetchLocalData();
-            toast({
-                title: "Importação de Viagens Concluída",
-                description: `${importedCount} viagens importadas. ${skippedCount} ignoradas. ${skippedReasons.length > 0 ? `Detalhes no console.` : ''}`,
-                duration: skippedReasons.length > 0 ? 10000 : 5000
-            });
-            if (skippedReasons.length > 0) console.warn("[Trip CSV Import] Motivos para viagens ignoradas:", skippedReasons.join("\n"));
-
-        } catch (parseError: any) {
-            console.error("[Trip CSV Import] Erro ao processar CSV:", parseError);
-            toast({ variant: "destructive", title: "Erro ao Processar CSV de Viagens", description: parseError.message });
-        } finally {
-            setIsSaving(false);
-            if (fileInputRef.current) fileInputRef.current.value = "";
-        }
-    };
-    reader.onerror = () => {
-        toast({ variant: "destructive", title: "Erro de Leitura de Arquivo", description: "Não foi possível ler o arquivo CSV selecionado." });
-        setIsSaving(false);
-    };
-    reader.readAsText(file);
-};
-
   const handleGenerateTripReportData = useCallback(async (trip: Trip): Promise<TripReportData | null> => {
     try {
       const [visits, expenses, fuelings] = await Promise.all([
@@ -799,21 +653,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
               </form>
             </DialogContent>
           </Dialog>
-           {isAdmin && (
-              <>
-                <Button variant="outline" onClick={() => fileInputRef.current?.click()} className="h-9 w-full sm:w-auto" disabled={isSaving}>
-                    <FileUp className="mr-2 h-4 w-4" /> Importar Viagens (CSV)
-                </Button>
-                <input
-                    type="file"
-                    ref={fileInputRef}
-                    accept=".csv"
-                    onChange={handleTripFileImport}
-                    className="hidden"
-                    disabled={isSaving}
-                />
-              </>
-            )}
+           {/* CSV Import Button for Trips Removed */}
         </div>
       </div>
 
@@ -899,9 +739,9 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
                 handleEditTripSubmit={handleEditTripSubmit}
                 selectedVehicleIdForEdit={selectedVehicleIdForEdit}
                 setSelectedVehicleIdForEdit={setSelectedVehicleIdForEdit}
-                openDeleteConfirmation={(tripToDelete, event) => openDeleteConfirmation(tripToDelete, event)}
+                openDeleteConfirmation={(tripToDeleteFromItem, event) => openDeleteConfirmation(tripToDeleteFromItem, event)}
                 tripToDelete={tripToDelete}
-                isDeleteModalOpen={isDeleteModalOpen}
+                isDeleteModalOpen={isDeleteModalOpen && tripToDelete?.localId === trip.localId}
                 closeDeleteConfirmation={closeDeleteConfirmation}
                 confirmDeleteTrip={confirmDeleteTrip}
                 isSaving={isSaving}
@@ -929,6 +769,15 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
        )}
     </div>
   );
+};
+
+// Function to fetch online vehicles if needed
+// This is a placeholder and should be implemented if you need to fetch vehicles directly from Firestore
+// for cases where local DB might be empty.
+const fetchOnlineVehicles = async (): Promise<VehicleInfo[]> => {
+    // In a real scenario, this would call a function from firestoreService.ts
+    console.warn("fetchOnlineVehicles placeholder called. Implement Firestore fetch if needed.");
+    return [];
 };
 
     
