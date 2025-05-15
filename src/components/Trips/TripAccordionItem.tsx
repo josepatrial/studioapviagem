@@ -7,7 +7,7 @@ import { CardTitle, CardDescription } from '@/components/ui/card';
 import { AccordionItem, AccordionHeader, AccordionContent, AccordionTrigger as UiAccordionTrigger } from '../ui/accordion';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Loader2, ChevronDown, TrendingUp, Edit, Trash2, Printer } from 'lucide-react';
+import { Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Loader2, ChevronDown, TrendingUp, Edit, Trash2, Printer, Share2 } from 'lucide-react';
 import type { Trip, TripReportData } from './Trips';
 import type { User } from '@/contexts/AuthContext';
 import type { LocalVehicle } from '@/services/localDbService';
@@ -20,7 +20,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription as DialogDesc, // Alias for clarity
+  DialogDescription as DialogDesc,
   DialogTrigger,
   DialogFooter,
   DialogClose,
@@ -30,7 +30,7 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
-  AlertDialogDescription as AlertDialogDescUi, // Alias to avoid conflict
+  AlertDialogDescription as AlertDialogDescUi,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
@@ -40,6 +40,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { format, parseISO } from 'date-fns';
+import { Textarea } from '../ui/textarea';
 
 
 const VisitsComponent = dynamic(() => import('./Visits').then(mod => mod.Visits), {
@@ -90,6 +91,11 @@ interface TripAccordionItemProps {
   getTripSummaryKmFunction: (tripId: string) => Promise<{ betweenVisits: number | null; firstToLast: number | null }>;
   loadingVehicles: boolean;
   onGenerateReport: (trip: Trip) => Promise<TripReportData | null>;
+
+  isShareModalOpenForThisTrip: boolean;
+  openShareModalForThisTrip: () => void;
+  closeShareModal: () => void;
+  detailedSummaryText: string | null;
 }
 
 export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
@@ -124,6 +130,10 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
   getTripSummaryKmFunction,
   loadingVehicles,
   onGenerateReport,
+  isShareModalOpenForThisTrip,
+  openShareModalForThisTrip,
+  closeShareModal,
+  detailedSummaryText,
 }) => {
   const [tripKmSummary, setTripKmSummary] = React.useState<{ betweenVisits: number | null, firstToLast: number | null }>({ betweenVisits: null, firstToLast: null });
   const [isGeneratingReport, setIsGeneratingReport] = React.useState(false);
@@ -142,20 +152,6 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
   const isPending = trip.syncStatus === 'pending';
   const isError = trip.syncStatus === 'error';
 
-  const formatCurrencyForReport = (value: number | undefined) => {
-    if (value === undefined) return 'N/A';
-    return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-  };
-
-  const formatDateForReport = (dateString: string | undefined) => {
-    if (!dateString) return 'N/A';
-    try {
-      return format(parseISO(dateString), 'dd/MM/yyyy HH:mm');
-    } catch {
-      return 'Data Inválida';
-    }
-  };
-
   const handlePrintReport = async (event: React.MouseEvent) => {
     event.stopPropagation();
     setIsGeneratingReport(true);
@@ -165,6 +161,21 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
     if (!reportData) {
       return;
     }
+    
+    const formatCurrencyForReport = (value: number | undefined) => {
+        if (value === undefined || value === null) return 'N/A';
+        return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    };
+    
+    const formatDateForReport = (dateString: string | undefined | null, includeTime = true) => {
+        if (!dateString) return 'N/A';
+        try {
+            const formatString = includeTime ? 'dd/MM/yyyy HH:mm' : 'dd/MM/yyyy';
+            return format(parseISO(dateString), formatString);
+        } catch {
+            return 'Data Inválida';
+        }
+    };
 
     let reportHtml = `
       <html>
@@ -173,29 +184,39 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
           <style>
             body { font-family: Arial, sans-serif; margin: 20px; font-size: 10pt; }
             h1, h2, h3 { color: #333; }
-            h1 { font-size: 18pt; margin-bottom: 5px; }
-            h2 { font-size: 14pt; margin-top: 20px; margin-bottom: 10px; border-bottom: 1px solid #ccc; padding-bottom: 5px;}
-            h3 { font-size: 12pt; margin-top: 15px; margin-bottom: 5px; }
-            table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
-            th, td { border: 1px solid #ddd; padding: 6px; text-align: left; }
+            h1 { font-size: 16pt; margin-bottom: 5px; text-align: center; }
+            h2 { font-size: 13pt; margin-top: 15px; margin-bottom: 8px; border-bottom: 1px solid #ccc; padding-bottom: 4px;}
+            h3 { font-size: 11pt; margin-top: 12px; margin-bottom: 4px; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 12px; page-break-inside: auto; }
+            tr { page-break-inside: avoid; page-break-after: auto; }
+            th, td { border: 1px solid #ddd; padding: 5px; text-align: left; word-wrap: break-word; }
             th { background-color: #f2f2f2; font-weight: bold; }
-            .trip-summary p { margin: 3px 0; }
-            .section-empty { color: #777; font-style: italic; }
+            .trip-summary p { margin: 2px 0; font-size: 9pt;}
+            .section-empty { color: #777; font-style: italic; padding: 10px 0; }
+            .logo-header { text-align: center; margin-bottom: 15px; }
+            .logo-header img { max-height: 60px; }
+            .footer { text-align: center; font-size: 8pt; color: #777; margin-top: 20px; position: fixed; bottom: 10px; width: 100%; }
             @media print {
-              body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+              body { -webkit-print-color-adjust: exact; print-color-adjust: exact; margin: 15mm; }
               .no-print { display: none; }
+              table { font-size: 9pt; }
+              th, td { padding: 4px; }
             }
           </style>
         </head>
         <body>
-          <h1>Relatório da Viagem: ${reportData.name}</h1>
+          <div class="logo-header">
+            <img src="https://placehold.co/200x60.png?text=Grupo+2+Irmaos" alt="Logo Grupo 2 Irmãos" data-ai-hint="company logo"/>
+          </div>
+          <h1>Relatório da Viagem</h1>
           <div class="trip-summary">
+            <p><strong>Nome da Viagem:</strong> ${reportData.name}</p>
             <p><strong>Status:</strong> ${reportData.status}</p>
             <p><strong>Motorista:</strong> ${reportData.driverName}</p>
             <p><strong>Veículo:</strong> ${reportData.vehicleDisplay}</p>
             <p><strong>Base:</strong> ${reportData.base || 'N/A'}</p>
-            <p><strong>Criada em:</strong> ${formatDateForReport(reportData.createdAt)}</p>
-            <p><strong>Atualizada em:</strong> ${formatDateForReport(reportData.updatedAt)}</p>
+            <p><strong>Criada em:</strong> ${formatDateForReport(reportData.createdAt, false)}</p>
+            <p><strong>Atualizada em:</strong> ${formatDateForReport(reportData.updatedAt, false)}</p>
             ${reportData.status === 'Finalizado' ? `<p><strong>KM Final:</strong> ${formatKm(reportData.finalKm)}</p>` : ''}
             ${reportData.status === 'Finalizado' && reportData.totalDistance != null ? `<p><strong>Distância Total:</strong> ${formatKm(reportData.totalDistance)}</p>` : ''}
           </div>
@@ -205,7 +226,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
     if (reportData.visits.length > 0) {
       reportHtml += `
           <table>
-            <thead><tr><th>Cliente</th><th>Tipo</th><th>Local (Cidade)</th><th>KM Inicial</th><th>Motivo</th><th>Data/Hora</th></tr></thead>
+            <thead><tr><th>Cliente</th><th>Tipo</th><th>Local (Cidade)</th><th>KM Visita</th><th>Motivo</th><th>Data/Hora</th></tr></thead>
             <tbody>`;
       reportData.visits.forEach(v => {
         reportHtml += `<tr>
@@ -233,7 +254,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                         <td>${e.description}</td>
                         <td>${e.expenseType}</td>
                         <td>${formatCurrencyForReport(e.value)}</td>
-                        <td>${formatDateForReport(e.expenseDate)}</td>
+                        <td>${formatDateForReport(e.expenseDate, false)}</td>
                         <td>${e.receiptFilename || 'Nenhum'}</td>
                        </tr>`;
       });
@@ -250,7 +271,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
             <tbody>`;
       reportData.fuelings.forEach(f => {
         reportHtml += `<tr>
-                        <td>${formatDateForReport(f.date)}</td>
+                        <td>${formatDateForReport(f.date, false)}</td>
                         <td>${f.liters.toFixed(2)} L</td>
                         <td>${formatCurrencyForReport(f.pricePerLiter)}</td>
                         <td>${formatCurrencyForReport(f.totalCost)}</td>
@@ -266,7 +287,10 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
     }
 
     reportHtml += `
-          <div class="no-print" style="margin-top: 20px; text-align: center;">
+          <div class="footer">
+            Relatório gerado em ${formatDateForReport(new Date().toISOString())}
+          </div>
+          <div class="no-print" style="margin-top: 30px; text-align: center; padding-bottom: 20px;">
             <button onclick="window.print()">Imprimir Relatório</button>
             <button onclick="window.close()">Fechar</button>
           </div>
@@ -274,7 +298,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
       </html>
     `;
 
-    const printWindow = window.open('', '_blank', 'width=800,height=600');
+    const printWindow = window.open('', '_blank', 'width=1000,height=700,scrollbars=yes,resizable=yes');
     if (printWindow) {
       printWindow.document.write(reportHtml);
       printWindow.document.close();
@@ -287,17 +311,16 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
 
   return (
     <AccordionItem key={trip.localId} value={trip.localId} className="border bg-card rounded-lg shadow-lg overflow-hidden group/item data-[state=open]:border-primary/50">
-      <AccordionHeader> {/* This renders the h3 */}
-        <div // This div will now handle the background color and full-width click for trigger section
+       <AccordionHeader className="flex">
+        <div
           className={cn(
-            "flex justify-between items-center w-full cursor-pointer",
-            "data-[state=open]:border-b", // Added for consistency if needed for open state styling
+            "flex justify-between items-center w-full",
             isPending && "bg-yellow-100 hover:bg-yellow-200/70 dark:bg-yellow-900/30 dark:hover:bg-yellow-900/50",
             isError && "bg-destructive/20 hover:bg-destructive/30",
             !isPending && !isError && "hover:bg-accent/50"
           )}
         >
-          <UiAccordionTrigger className="flex-1 text-left p-4 focus-visible:ring-0 focus-visible:ring-offset-0 hover:no-underline">
+          <UiAccordionTrigger className="flex-1 p-4 hover:no-underline focus-visible:ring-0 focus-visible:ring-offset-0">
             <div className="flex-1 mr-4 space-y-1 text-left">
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
@@ -309,10 +332,10 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                   {isPending && <Badge variant="outline" className="h-5 px-2 text-xs whitespace-nowrap border-yellow-500 text-yellow-700 dark:text-yellow-400">Pendente</Badge>}
                   {isError && <Badge variant="destructive" className="h-5 px-2 text-xs whitespace-nowrap">Erro Sinc</Badge>}
                 </div>
-                <CardDescription className="text-sm flex items-center gap-1">
+                <CardDescription className="text-sm flex items-center gap-1 mt-1">
                   <Car className="h-4 w-4 text-muted-foreground" /> {getTripDescription(trip)}
                 </CardDescription>
-                <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground mt-1">
                   <span className="inline-flex items-center gap-1">
                     <MapPin className="h-3 w-3" /> {visitCount} {visitCount === 1 ? 'Visita' : 'Visitas'}
                   </span>
@@ -333,22 +356,21 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                     </span>
                   )}
                 </div>
-                <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground mt-1">
                   <span>Início: {format(parseISO(trip.createdAt), 'dd/MM/yyyy')}</span>
                   <span>Atualizado: {format(parseISO(trip.updatedAt), 'dd/MM/yyyy')}</span>
                 </div>
               </div>
             </div>
-            {/* ChevronDown is part of UiAccordionTrigger by default */}
           </UiAccordionTrigger>
 
-          <div className="flex items-center gap-1 flex-shrink-0 pr-4 py-4"> {/* Action buttons container */}
+          <div className="flex items-center gap-1 flex-shrink-0 pr-4 py-4">
             {trip.status === 'Andamento' && (isAdmin || trip.userId === user?.id) && (
               <Button
                 variant="outline"
                 size="sm"
                 onClick={(e) => { e.stopPropagation(); openFinishModal(trip, e); }}
-                className="h-8 px-2 sm:px-3 text-emerald-600 border-emerald-600/50 hover:bg-emerald-50 hover:text-emerald-700"
+                className="h-8 px-2 sm:px-3 text-emerald-600 border-emerald-600/50 hover:bg-emerald-50 hover:text-emerald-700 dark:text-emerald-400 dark:border-emerald-400/50 dark:hover:bg-emerald-900/30"
                 disabled={isSaving || isDeleting}
               >
                 {isSaving && tripToFinish?.localId === trip.localId ? <Loader2 className="h-4 w-4 animate-spin sm:mr-1" /> : <CheckCircle2 className="h-4 w-4 sm:mr-1" />}
@@ -357,7 +379,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
             )}
             {(isAdmin || trip.userId === user?.id) && (
               <>
-                <Button
+                 <Button
                   variant="ghost"
                   size="icon"
                   onClick={handlePrintReport}
@@ -368,7 +390,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                   {isGeneratingReport ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
                 </Button>
 
-                <Dialog open={isEditModalOpenForThisTrip} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); else openEditModalForThisTrip(); }}>
+                <Dialog open={isEditModalOpenForThisTrip} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); }}>
                   <DialogTrigger asChild>
                     <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openEditModalForThisTrip(); }} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving || isDeleting}>
                       <Edit className="h-4 w-4" />
@@ -429,7 +451,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                   </DialogContent>
                 </Dialog>
 
-                <AlertDialog open={isDeleteModalOpenForThisTrip} onOpenChange={(isOpen) => !isOpen && closeDeleteModal()}>
+                <AlertDialog open={isDeleteModalOpenForThisTrip} onOpenChange={(isOpen) => { if (!isOpen) closeDeleteModal(); }}>
                   <AlertDialogTrigger asChild>
                     <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openDeleteModalForThisTrip(trip, e); }} className="text-muted-foreground hover:text-destructive h-8 w-8" disabled={isSaving || isDeleting}>
                       <Trash2 className="h-4 w-4" />
@@ -460,7 +482,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
           </div>
         </div>
       </AccordionHeader>
-      <AccordionContent className="bg-card p-6"> {/* Increased padding here */}
+      <AccordionContent className="bg-card p-6">
           <Tabs defaultValue={activeSubTab || "visits"} className="w-full pt-4">
             <div className="overflow-x-auto border-b bg-card">
                <TabsList className={cn(
@@ -479,15 +501,19 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                </TabsList>
             </div>
             
-            <TabsContent value="visits">
-                <VisitsComponent tripId={trip.localId} ownerUserId={trip.userId}/>
-            </TabsContent>
-            <TabsContent value="expenses">
-              <ExpensesComponent tripId={trip.localId} ownerUserId={trip.userId} />
-            </TabsContent>
-            <TabsContent value="fuelings">
-              <FuelingsComponent tripId={trip.localId} vehicleId={trip.vehicleId} ownerUserId={trip.userId} />
-            </TabsContent>
+            {isExpanded && ( // Render content only when expanded
+                <>
+                    <TabsContent value="visits">
+                        <VisitsComponent tripId={trip.localId} ownerUserId={trip.userId}/>
+                    </TabsContent>
+                    <TabsContent value="expenses">
+                        <ExpensesComponent tripId={trip.localId} ownerUserId={trip.userId} />
+                    </TabsContent>
+                    <TabsContent value="fuelings">
+                        <FuelingsComponent tripId={trip.localId} vehicleId={trip.vehicleId} ownerUserId={trip.userId} />
+                    </TabsContent>
+                </>
+            )}
           </Tabs>
       </AccordionContent>
     </AccordionItem>
