@@ -2,7 +2,7 @@
 // src/components/Trips/TripAccordionItem.tsx
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { Button } from '@/components/ui/button';
 import { CardTitle, CardDescription } from '@/components/ui/card';
 import { AccordionItem, AccordionHeader, AccordionContent, AccordionTrigger as UiAccordionTrigger } from '../ui/accordion';
@@ -34,6 +34,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -86,6 +87,11 @@ interface TripAccordionItemProps {
   vehicles: LocalVehicle[];
   getTripSummaryKmFunction: (tripId: string) => Promise<{ betweenVisits: number | null; firstToLast: number | null }>;
   loadingVehicles: boolean;
+  isShareDialogOpen: boolean;
+  setIsShareDialogOpen: (open: boolean) => void;
+  detailedSummaryText: string | null;
+  setDetailedSummaryText: (text: string | null) => void;
+  generateTripSummary: (detailed: boolean) => string;
 }
 
 export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
@@ -119,13 +125,16 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
   vehicles,
   getTripSummaryKmFunction,
   loadingVehicles,
+  isShareDialogOpen,
+  setIsShareDialogOpen,
+  detailedSummaryText,
+  setDetailedSummaryText,
+  generateTripSummary,
 }) => {
-  const [tripKmSummary, setTripKmSummary] = useState<{ betweenVisits: number | null, firstToLast: number | null }>({ betweenVisits: null, firstToLast: null });
-  const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
-  const [detailedSummaryText, setDetailedSummaryText] = useState<string | null>(null);
+  const [tripKmSummary, setTripKmSummary] = React.useState<{ betweenVisits: number | null, firstToLast: number | null }>({ betweenVisits: null, firstToLast: null });
 
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (isExpanded) {
       getTripSummaryKmFunction(trip.localId).then(summary => setTripKmSummary(summary));
     }
@@ -134,40 +143,6 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
   const isPending = trip.syncStatus === 'pending';
   const isError = trip.syncStatus === 'error';
 
-  const generateTripSummary = (detailed: boolean): string => {
-    let summary = `Resumo da Viagem: ${trip.name}\n`;
-    summary += `Status: ${trip.status}\n`;
-    summary += `Veículo: ${getVehicleDisplay(trip.vehicleId)}\n`;
-    summary += `Motorista: ${getDriverName(trip.userId)}\n`;
-    summary += `Data de Criação: ${new Date(trip.createdAt).toLocaleDateString('pt-BR')}\n`;
-    if (trip.status === 'Finalizado' && trip.updatedAt !== trip.createdAt) {
-        summary += `Data de Finalização: ${new Date(trip.updatedAt).toLocaleDateString('pt-BR')}\n`;
-    } else if (trip.updatedAt !== trip.createdAt) {
-        summary += `Última Atualização: ${new Date(trip.updatedAt).toLocaleDateString('pt-BR')}\n`;
-    }
-
-    if (detailed) {
-        summary += `\n--- Detalhes ---\n`;
-        summary += `Total de Visitas: ${visitCount}\n`;
-        summary += `Total de Despesas Registradas: ${expenseCount}\n`; // You might want to sum values here
-        summary += `Total de Abastecimentos Registrados: ${fuelingCount}\n`; // You might want to sum values here
-        if (trip.status === 'Finalizado' && trip.totalDistance != null) {
-            summary += `Distância Total Percorrida (Viagem): ${formatKm(trip.totalDistance)}\n`;
-        }
-        if (tripKmSummary.betweenVisits !== null && tripKmSummary.betweenVisits > 0) {
-            summary += `Distância Percorrida (Entre Visitas): ${formatKm(tripKmSummary.betweenVisits)}\n`;
-        }
-        if (trip.finalKm != null) {
-            summary += `KM Final Registrado na Viagem: ${formatKm(trip.finalKm)}\n`;
-        }
-    } else { // Concise for WhatsApp
-        summary += `Visitas: ${visitCount}, Despesas: ${expenseCount}, Abastec.: ${fuelingCount}\n`;
-        if (trip.status === 'Finalizado' && trip.totalDistance != null) {
-            summary += `Dist. Total: ${formatKm(trip.totalDistance)}\n`;
-        }
-    }
-    return summary;
-  };
 
   const handleShareWhatsApp = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -186,17 +161,13 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
 
   return (
     <AccordionItem key={trip.localId} value={trip.localId} className="border bg-card rounded-lg shadow-sm overflow-hidden group/item data-[state=open]:border-primary/50">
-      <AccordionHeader className={cn(
-        "flex justify-between items-center hover:bg-accent/50 w-full data-[state=open]:border-b",
-        isPending && "bg-yellow-50 hover:bg-yellow-100/80 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/30",
-        isError && "bg-destructive/10 hover:bg-destructive/20"
-      )}>
+      <AccordionHeader className="flex justify-between items-center hover:bg-accent/50 data-[state=open]:border-b">
         <UiAccordionTrigger className={cn(
-          "flex-1 text-left px-4 hover:no-underline [&_svg]:transition-transform [&_svg]:duration-200 [&[data-state=open]>svg]:rotate-180",
-          isPending && "bg-transparent",
-          isError && "bg-transparent"
+          "flex-1 p-4 cursor-pointer", // Removed p-0, py-4 is in base component now
+          isPending && "bg-yellow-50 hover:bg-yellow-100/80 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/30",
+          isError && "bg-destructive/10 hover:bg-destructive/20"
         )}>
-          <div className="flex-1 mr-4 space-y-1">
+          <div className="flex-1 mr-4 space-y-1 text-left"> {/* Added text-left */}
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <CardTitle className="text-lg">{trip.name}</CardTitle>
@@ -315,9 +286,9 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                 </DialogContent>
               </Dialog>
 
-              <Dialog open={isShareDialogOpen} onOpenChange={(isOpen) => { if(!isOpen) { setIsShareDialogOpen(false); setDetailedSummaryText(null); } else { setIsShareDialogOpen(true); } }}>
+              <Dialog open={isShareDialogOpen && currentTripForEdit?.localId === trip.localId} onOpenChange={(isOpen) => { if(!isOpen) { setIsShareDialogOpen(false); setDetailedSummaryText(null); } else { openEditModal(trip, new MouseEvent('click')); setIsShareDialogOpen(true); setDetailedSummaryText(null); } }}>
                 <DialogTrigger asChild>
-                    <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); setIsShareDialogOpen(true); setDetailedSummaryText(null); }} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving || isDeleting}>
+                    <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openEditModal(trip, e); setIsShareDialogOpen(true); setDetailedSummaryText(null); }} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving || isDeleting}>
                         <Share2 className="h-4 w-4" />
                     </Button>
                 </DialogTrigger>
@@ -349,7 +320,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                     </div>
                     <DialogFooter>
                         <DialogClose asChild>
-                           <Button type="button" variant="outline" onClick={() => {setIsShareDialogOpen(false); setDetailedSummaryText(null);}}>Fechar</Button>
+                           <Button type="button" variant="outline" onClick={() => {setIsShareDialogOpen(false); setDetailedSummaryText(null); closeEditModal();}}>Fechar</Button>
                         </DialogClose>
                     </DialogFooter>
                 </DialogContent>
@@ -395,7 +366,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
               <TabsTrigger value="fuelings"><Fuel className="mr-1 h-4 w-4 inline-block" />Abastecimentos ({fuelingCount})</TabsTrigger>
             </TabsList>
             <TabsContent value="visits" className="mt-4">
-              <VisitsComponent tripId={trip.localId} tripName={trip.name} ownerUserId={trip.userId} />
+              <VisitsComponent tripId={trip.localId} tripName={trip.name} ownerUserId={trip.userId}/>
             </TabsContent>
             <TabsContent value="expenses" className="mt-4">
               <ExpensesComponent tripId={trip.localId} tripName={trip.name} ownerUserId={trip.userId} />
@@ -409,3 +380,4 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
     </AccordionItem>
   );
 };
+
