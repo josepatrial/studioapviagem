@@ -8,7 +8,7 @@ import { CardTitle, CardDescription } from '@/components/ui/card';
 import { AccordionItem, AccordionHeader, AccordionContent, AccordionTrigger as UiAccordionTrigger } from '../ui/accordion';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Loader2, ChevronDown, TrendingUp, Edit, Trash2, Share2 } from 'lucide-react'; // Added Share2
+import { Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Loader2, ChevronDown, TrendingUp, Edit, Trash2, Share2 } from 'lucide-react';
 import type { Trip } from './Trips';
 import type { User } from '@/contexts/AuthContext';
 import type { LocalVehicle } from '@/services/localDbService';
@@ -39,8 +39,8 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea'; // Import Textarea for summary display
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'; // Import Alert for summary display
+import { Textarea } from '@/components/ui/textarea';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 
 const VisitsComponent = dynamic(() => import('./Visits').then(mod => mod.Visits), {
@@ -87,8 +87,10 @@ interface TripAccordionItemProps {
   vehicles: LocalVehicle[];
   getTripSummaryKmFunction: (tripId: string) => Promise<{ betweenVisits: number | null; firstToLast: number | null }>;
   loadingVehicles: boolean;
-  isShareDialogOpen: boolean;
-  setIsShareDialogOpen: (open: boolean) => void;
+  // Props for share dialog, specific to this item
+  isShareModalOpenForThisTrip: boolean;
+  openShareModalForThisTrip: () => void;
+  closeShareModal: () => void;
   detailedSummaryText: string | null;
   setDetailedSummaryText: (text: string | null) => void;
   generateTripSummary: (detailed: boolean) => string;
@@ -125,8 +127,9 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
   vehicles,
   getTripSummaryKmFunction,
   loadingVehicles,
-  isShareDialogOpen,
-  setIsShareDialogOpen,
+  isShareModalOpenForThisTrip,
+  openShareModalForThisTrip,
+  closeShareModal,
   detailedSummaryText,
   setDetailedSummaryText,
   generateTripSummary,
@@ -149,7 +152,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
     const summary = generateTripSummary(false); // false for concise summary
     const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(summary)}`;
     window.open(whatsappUrl, '_blank');
-    setIsShareDialogOpen(false);
+    closeShareModal();
   };
 
   const handleViewDetailedSummary = (e: React.MouseEvent) => {
@@ -163,11 +166,11 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
     <AccordionItem key={trip.localId} value={trip.localId} className="border bg-card rounded-lg shadow-sm overflow-hidden group/item data-[state=open]:border-primary/50">
       <AccordionHeader className="flex justify-between items-center hover:bg-accent/50 data-[state=open]:border-b">
         <UiAccordionTrigger className={cn(
-          "flex-1 p-4 cursor-pointer", // Removed p-0, py-4 is in base component now
+          "flex-1 justify-between items-center hover:bg-accent/50 w-full data-[state=open]:border-b cursor-pointer",
           isPending && "bg-yellow-50 hover:bg-yellow-100/80 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/30",
           isError && "bg-destructive/10 hover:bg-destructive/20"
         )}>
-          <div className="flex-1 mr-4 space-y-1 text-left"> {/* Added text-left */}
+          <div className="flex-1 mr-4 space-y-1 text-left">
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <CardTitle className="text-lg">{trip.name}</CardTitle>
@@ -248,7 +251,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                         </SelectTrigger>
                         <SelectContent>
                           {loadingVehicles ? (
-                            <SelectItem value="loading_vehicles_edit" disabled>
+                            <SelectItem value="loading_vehicles_edit_trip" disabled>
                               <div className="flex items-center justify-center py-2">
                                 <LoadingSpinner className="h-4 w-4" />
                               </div>
@@ -286,9 +289,25 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                 </DialogContent>
               </Dialog>
 
-              <Dialog open={isShareDialogOpen && currentTripForEdit?.localId === trip.localId} onOpenChange={(isOpen) => { if(!isOpen) { setIsShareDialogOpen(false); setDetailedSummaryText(null); } else { openEditModal(trip, new MouseEvent('click')); setIsShareDialogOpen(true); setDetailedSummaryText(null); } }}>
+              <Dialog
+                open={isShareModalOpenForThisTrip}
+                onOpenChange={(open) => {
+                  if (!open) {
+                    closeShareModal();
+                  }
+                }}
+              >
                 <DialogTrigger asChild>
-                    <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openEditModal(trip, e); setIsShareDialogOpen(true); setDetailedSummaryText(null); }} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving || isDeleting}>
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            openShareModalForThisTrip();
+                        }}
+                        className="text-muted-foreground hover:text-accent-foreground h-8 w-8"
+                        disabled={isSaving || isDeleting}
+                    >
                         <Share2 className="h-4 w-4" />
                     </Button>
                 </DialogTrigger>
@@ -320,7 +339,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                     </div>
                     <DialogFooter>
                         <DialogClose asChild>
-                           <Button type="button" variant="outline" onClick={() => {setIsShareDialogOpen(false); setDetailedSummaryText(null); closeEditModal();}}>Fechar</Button>
+                           <Button type="button" variant="outline" onClick={closeShareModal}>Fechar</Button>
                         </DialogClose>
                     </DialogFooter>
                 </DialogContent>
@@ -380,4 +399,3 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
     </AccordionItem>
   );
 };
-
