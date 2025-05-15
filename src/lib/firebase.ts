@@ -1,7 +1,7 @@
 // src/lib/firebase.ts
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
-import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
+import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore'; // Keep enableIndexedDbPersistence
 import { getStorage } from 'firebase/storage';
 
 // Ensure environment variables are correctly prefixed with NEXT_PUBLIC_
@@ -18,23 +18,21 @@ const firebaseConfig = {
 // Initialize Firebase App
 let app: FirebaseApp | null = null;
 let auth: Auth | null = null;
-let db: ReturnType<typeof getFirestore>;
-let storage: ReturnType<typeof getStorage>;
-// Define persistenceEnabledPromise here
+let db: ReturnType<typeof getFirestore> | null = null; // Ensure db can be null initially
+let storage: ReturnType<typeof getStorage> | null = null;
 let persistenceEnabledPromise: Promise<void> | null = null;
 
+const DATABASE_ID = "rotacerta2"; // Specify the database ID from the screenshot
 
 try {
   // Basic validation (optional, but helpful for debugging)
   if (!firebaseConfig.apiKey || firebaseConfig.apiKey === "YOUR_API_KEY" || firebaseConfig.apiKey.includes("placeholder")) {
       console.warn("Firebase API Key is missing or is still the placeholder value. Please check your .env file and ensure NEXT_PUBLIC_FIREBASE_API_KEY is set correctly. App might not function correctly with Firebase services.");
-      // throw new Error("Firebase API Key is missing or invalid. Application cannot start.");
   }
 
   // Check if Firebase app is already initialized
   if (getApps().length === 0) {
       console.log("Initializing new Firebase app...");
-      // Only initialize if config is valid
       app = initializeApp(firebaseConfig);
       console.log("Firebase initialized successfully with Project ID:", firebaseConfig.projectId);
   } else {
@@ -45,35 +43,31 @@ try {
 
 
   // Initialize Firebase services only after successful app initialization/retrieval
-  console.log("Initializing Firebase services (Auth, Firestore, Storage)...");
+  console.log(`Initializing Firebase services (Auth, Firestore [DB: ${DATABASE_ID}], Storage)...`);
   auth = getAuth(app);
-  db = getFirestore(app);
+  db = getFirestore(app, DATABASE_ID); // Use the specific database ID
   storage = getStorage(app);
-  console.log("Firebase services initialized.");
+  console.log(`Firebase services initialized. Firestore connected to database: ${DATABASE_ID}`);
 
   // Enable offline persistence only after db is initialized
   if (db) {
     persistenceEnabledPromise = enableIndexedDbPersistence(db)
- .then(() => {
-        console.log("Firebase Firestore persistence enabled successfully.");
+      .then(() => {
+        console.log(`Firebase Firestore persistence enabled successfully for database: ${DATABASE_ID}.`);
       })
       .catch((err) => {
         if (err.code === 'failed-precondition') {
-          console.warn("Firestore persistence failed (multiple tabs open or other issue).");
+          console.warn(`Firestore persistence failed for database ${DATABASE_ID} (multiple tabs open or other issue).`);
         } else if (err.code === 'unimplemented') {
-          console.warn("Firestore persistence is not available in this browser.");
+          console.warn(`Firestore persistence is not available in this browser for database ${DATABASE_ID}.`);
         } else {
-          console.error("Error enabling Firestore persistence:", err);
+          console.error(`Error enabling Firestore persistence for database ${DATABASE_ID}:`, err);
         }
-        // Even if persistence fails, we might want the app to continue, so we don't re-throw here
-        // or we could set persistenceEnabledPromise to a rejected promise if that's preferred.
-        // For now, just log and let it be null or the original promise.
       });
   } else {
-    console.error("Firestore DB instance is null, cannot enable persistence.");
-    persistenceEnabledPromise = Promise.reject(new Error("Firestore DB instance is null"));
+    console.error(`Firestore DB instance for ${DATABASE_ID} is null, cannot enable persistence.`);
+    persistenceEnabledPromise = Promise.reject(new Error(`Firestore DB instance for ${DATABASE_ID} is null`));
   }
-
 
 } catch (error) {
   console.error("CRITICAL: Firebase initialization failed:", error instanceof Error ? error.message : error);
@@ -83,32 +77,7 @@ try {
   auth = null;
   db = null;
   storage = null;
-  persistenceEnabledPromise = Promise.reject(new Error(detailedError)); // Assign a rejected promise
-  // throw new Error(detailedError); // Re-throw to make it clear
+  persistenceEnabledPromise = Promise.reject(new Error(detailedError));
 }
 
-
-interface TripData {
-  name: string;
-  startDate: Date;
-  endDate: Date;
-  // Adicione outros campos relevantes para a viagem aqui
-}
-
-// Função para adicionar uma nova viagem
-async function addTrip(tripData: TripData) {
-  if (!db) {
-    console.error("Firestore DB instance is not available.");
-    throw new Error("Firestore DB not initialized.");
-  }
-  try {
-    const docRef = await addDoc(collection(db, "viagens"), tripData);
-    console.log("Documento de viagem escrito com ID: ", docRef.id);
-    return docRef.id; // Retorna o ID do documento adicionado
-  } catch (e) {
-    console.error("Erro ao adicionar documento de viagem: ", e);
-    throw e; // Re-lança o erro para ser tratado por quem chamou
-  }
-}
-
-export { app, auth, db, storage, persistenceEnabledPromise, addTrip };
+export { app, auth, db, storage, persistenceEnabledPromise };
