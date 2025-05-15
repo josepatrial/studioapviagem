@@ -8,9 +8,9 @@ import { PlusCircle, Edit, Trash2, User, Mail, Hash, Lock, Building, Loader2, Up
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"; // Removed AlertDialogTrigger
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { setUserData as setFirestoreUserData } from '@/services/firestoreService';
+import { setUserData as setFirestoreUserData, getDrivers as fetchFirestoreDrivers } from '@/services/firestoreService';
 import {
     getLocalUser,
     saveLocalUser,
@@ -425,6 +425,59 @@ export const Drivers: React.FC = () => {
         reader.readAsText(file);
     };
 
+     const handleSyncOnlineDrivers = useCallback(async () => {
+        console.log("[Drivers Sync] Initiating online driver sync...");
+        setIsSaving(true);
+        toast({ title: "Sincronizando Online...", description: "Buscando e atualizando motoristas do servidor." });
+        try {
+            const onlineDriversData: DriverInfo[] = await fetchFirestoreDrivers();
+            console.log(`[Drivers Sync] Fetched ${onlineDriversData.length} drivers from Firestore.`);
+            let newDriversAdded = 0;
+            let existingDriversUpdated = 0;
+
+            for (const onlineDriver of onlineDriversData) {
+                if (!onlineDriver.id) {
+                    console.warn("[Drivers Sync] Skipping online driver due to missing ID:", onlineDriver);
+                    continue;
+                }
+                const existingLocalDriver = await getLocalUser(onlineDriver.id);
+                const driverDataForSave: DbUser = {
+                    id: onlineDriver.id, // Firebase UID is the primary ID
+                    firebaseId: onlineDriver.id,
+                    name: onlineDriver.name || onlineDriver.email || `Motorista ${onlineDriver.id.substring(0,6)}`,
+                    email: onlineDriver.email,
+                    username: onlineDriver.username || onlineDriver.email.split('@')[0] || `user_${onlineDriver.id.substring(0,6)}`,
+                    role: 'driver', // Explicitly set role
+                    base: onlineDriver.base || 'N/A',
+                    lastLogin: existingLocalDriver?.lastLogin || new Date().toISOString(),
+                    passwordHash: existingLocalDriver?.passwordHash || '', // Preserve local password hash if exists
+                    syncStatus: 'synced',
+                    deleted: false,
+                };
+
+                try {
+                    await saveLocalUser(driverDataForSave);
+                    if (existingLocalDriver) {
+                        existingDriversUpdated++;
+                    } else {
+                        newDriversAdded++;
+                    }
+                } catch (saveError: any) {
+                    console.error(`[Drivers Sync] Error saving/updating driver ${onlineDriver.id} locally:`, saveError);
+                    toast({ variant: "destructive", title: "Erro ao Salvar Local", description: `Motorista: ${onlineDriver.name}. Erro: ${saveError.message}` });
+                }
+            }
+            console.log(`[Drivers Sync] Sync complete. New: ${newDriversAdded}, Updated: ${existingDriversUpdated}`);
+            toast({ title: "Sincronização Concluída!", description: `${newDriversAdded} novos motoristas adicionados, ${existingDriversUpdated} atualizados.` });
+            await fetchLocalDriversData(); // Refresh the list from local DB
+        } catch (error: any) {
+            console.error("[Drivers Sync] Error during online sync:", error);
+            toast({ variant: "destructive", title: "Erro na Sincronização Online", description: error.message });
+        } finally {
+            setIsSaving(false);
+        }
+    }, [toast, fetchLocalDriversData]);
+
 
     const openEditModal = (driver: Driver) => {
         setCurrentDriver(driver);
@@ -475,55 +528,9 @@ export const Drivers: React.FC = () => {
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                 <h2 className="text-2xl font-semibold">Gerenciar Motoristas</h2>
-                <div className="flex flex-wrap gap-2">
-                     <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
-                        <DialogTrigger asChild>
-                            <Button className="bg-primary hover:bg-primary/90 text-primary-foreground" disabled={isSaving}>
-                                <PlusCircle className="mr-2 h-4 w-4" /> Cadastrar Motorista
-                            </Button>
-                        </DialogTrigger>
-                        <DialogContent className="sm:max-w-lg">
-                            <DialogHeader>
-                                <DialogTitle>Cadastrar Novo Motorista</DialogTitle>
-                            </DialogHeader>
-                            <form onSubmit={handleAddDriver} className="grid gap-4 py-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="createName">Nome Completo*</Label>
-                                    <Input id="createName" value={createName} onChange={(e) => setCreateName(e.target.value)} required disabled={isSaving} />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="createEmail">E-mail*</Label>
-                                    <Input id="createEmail" type="email" value={createEmail} onChange={(e) => setCreateEmail(e.target.value)} required disabled={isSaving} />
-                                </div>
-                                 <div className="space-y-2">
-                                    <Label htmlFor="createBase">Base*</Label>
-                                    <Input id="createBase" value={createBase} onChange={(e) => setCreateBase(e.target.value.toUpperCase())} required placeholder="Ex: SP, PR" disabled={isSaving} />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="createPassword">Senha*</Label>
-                                    <Input id="createPassword" type="password" value={createPassword} onChange={(e) => setCreatePassword(e.target.value)} required disabled={isSaving} />
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="createConfirmPassword">Confirmar Senha*</Label>
-                                    <Input id="createConfirmPassword" type="password" value={createConfirmPassword} onChange={(e) => setCreateConfirmPassword(e.target.value)} required disabled={isSaving} />
-                                </div>
-                                <DialogFooter>
-                                    <DialogClose asChild>
-                                        <Button type="button" variant="outline" onClick={closeCreateModal} disabled={isSaving}>Cancelar</Button>
-                                    </DialogClose>
-                                    <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isSaving}>
-                                        {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                        {isSaving ? 'Salvando...' : 'Salvar Motorista Local'}
-                                    </Button>
-                                </DialogFooter>
-                            </form>
-                        </DialogContent>
-                    </Dialog>
-                    <input type="file" accept=".csv" ref={fileInputRef} onChange={handleFileImport} style={{ display: 'none' }} />
-                    <Button onClick={() => fileInputRef.current?.click()} variant="outline" disabled={isSaving}>
-                        <FileUp className="mr-2 h-4 w-4" /> Importar Motoristas (CSV)
-                    </Button>
-                </div>
+                 <Button onClick={handleSyncOnlineDrivers} variant="outline" disabled={isSaving || loadingDrivers}>
+                    <RefreshCw className="mr-2 h-4 w-4" /> Sincronizar Online
+                </Button>
             </div>
 
             {loadingDrivers ? (
@@ -538,7 +545,7 @@ export const Drivers: React.FC = () => {
                     <CardContent>
                         <p className="text-muted-foreground">
                             Nenhum motorista cadastrado localmente.
-                            Clique em "Cadastrar Motorista" para adicionar manualmente, ou "Importar Motoristas (CSV)".
+                            Clique em "Sincronizar Online" para buscar motoristas do servidor. Se o problema persistir, verifique se há motoristas com a função 'driver' no Firestore.
                         </p>
                     </CardContent>
                 </Card>
@@ -685,3 +692,4 @@ export const Drivers: React.FC = () => {
         </div>
     );
 };
+
