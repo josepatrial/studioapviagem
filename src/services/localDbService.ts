@@ -89,6 +89,7 @@ const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin' | 'deleted'> 
     role: 'driver',
     base: 'SP', // Default base for new image users
     password: 'password1',
+    deleted: false,
   },
   {
     id: 'fernandobatista@gmail.com',
@@ -98,6 +99,7 @@ const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin' | 'deleted'> 
     role: 'driver',
     base: 'SP',
     password: 'password1234',
+    deleted: false,
   },
   {
     id: 'compras@grupo2irmaos.com.br',
@@ -107,6 +109,7 @@ const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin' | 'deleted'> 
     role: 'driver',
     base: 'SP',
     password: 'password1',
+    deleted: false,
   },
   {
     id: 'otavio.medina@grupo2irmaos.com.br', // Corrected email for Otavio
@@ -116,6 +119,7 @@ const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin' | 'deleted'> 
     role: 'driver',
     base: 'SP',
     password: 'password1',
+    deleted: false,
   },
   {
     id: 'adao.timoteo@grupo2irmaos.com.br',
@@ -125,6 +129,7 @@ const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin' | 'deleted'> 
     role: 'driver',
     base: 'SP',
     password: 'password1',
+    deleted: false,
   },
   {
     id: 'luan.menon@grupo2irmaos.com.br',
@@ -134,6 +139,7 @@ const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin' | 'deleted'> 
     role: 'driver',
     base: 'SP',
     password: 'password1',
+    deleted: false,
   },
   {
     id: 'alessandro.neves@grupo2irmaos.com.br',
@@ -143,6 +149,7 @@ const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin' | 'deleted'> 
     role: 'driver',
     base: 'SP',
     password: 'password1',
+    deleted: false,
   },
   {
     id: 'aguinaldo@grupo2irmaos.com.br',
@@ -152,6 +159,7 @@ const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin' | 'deleted'> 
     role: 'driver',
     base: 'SP',
     password: 'password1',
+    deleted: false,
   },
   {
     id: 'bruno@grupo2irmaos.com.br',
@@ -161,6 +169,7 @@ const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin' | 'deleted'> 
     role: 'driver',
     base: 'SP',
     password: 'password1',
+    deleted: false,
   },
   {
     id: 'nelson.lopes@grupo2irmaos.com.br',
@@ -170,6 +179,7 @@ const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin' | 'deleted'> 
     role: 'driver',
     base: 'SP',
     password: 'password1',
+    deleted: false,
   },
 ];
 
@@ -883,7 +893,7 @@ export const addLocalVisit = (visit: Omit<LocalVisit, 'localId' | 'syncStatus' |
         localId,
         id: localId,
         syncStatus: 'pending',
-        deleted: false,
+        deleted: false, // Ensure deleted is set to false
     };
      console.log(`[addLocalVisit] Preparing to add visit with localId: ${localId}`);
     return addLocalRecord<LocalVisit>(STORE_VISITS, newLocalVisit);
@@ -954,7 +964,7 @@ export const addLocalExpense = (expense: Omit<LocalExpense, 'localId' | 'syncSta
          localId,
          id: localId,
          syncStatus: 'pending',
-         deleted: false,
+         deleted: false, // Ensure deleted is set to false
      };
       console.log(`[addLocalExpense] Preparing to add expense with localId: ${localId}`);
      return addLocalRecord<LocalExpense>(STORE_EXPENSES, newLocalExpense);
@@ -1033,7 +1043,7 @@ export const addLocalFueling = (fueling: Omit<LocalFueling, 'localId' | 'syncSta
           localId,
           id: localId,
           syncStatus: 'pending',
-          deleted: false,
+          deleted: false, // Ensure deleted is set to false
       };
        console.log(`[addLocalFueling] Preparing to add fueling with localId: ${localId}`);
       return addLocalRecord<LocalFueling>(STORE_FUELINGS, newLocalFueling);
@@ -1139,7 +1149,9 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
                      return;
                  }
                 const index = store.index('deleted');
-                let cursorReq = index.openCursor(IDBKeyRange.only(true)); // Query for boolean true
+                // Open a cursor on the index without a specific key.
+                // We will iterate and check the 'deleted' property.
+                let cursorReq = index.openCursor();
 
                 const transaction = store.transaction;
                 transaction.oncomplete = () => {
@@ -1154,8 +1166,9 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
                     const cursor = (event.target as IDBRequest).result;
                     if (cursor) {
                          try {
-                              if (cursor.value.syncStatus === 'synced' && cursor.value.deleted === true) {
-                                  console.log(`[Cleanup] Deleting record ${cursor.primaryKey} from ${storeName}`);
+                              // Explicitly check if the 'deleted' property of the record is true
+                              if (cursor.value && cursor.value.deleted === true && cursor.value.syncStatus === 'synced') {
+                                  console.log(`[Cleanup] Deleting record ${cursor.primaryKey} from ${storeName} (deleted: true, syncStatus: synced)`);
                                   const deleteReq = cursor.delete();
                                   deleteReq.onerror = (errEvent) => {
                                       console.error(`[Cleanup] Error deleting record ${cursor.primaryKey} from ${storeName}:`, (errEvent.target as IDBRequest).error);
@@ -1272,4 +1285,5 @@ export const seedInitialUsers = async () => {
 
 // Initial call to open the DB and seed users when the service loads
 openDB().then(() => seedInitialUsers()).catch(error => console.error("Failed to initialize/seed IndexedDB on load:", error));
+
 
