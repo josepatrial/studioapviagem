@@ -39,15 +39,16 @@ export type LocalVisit = Omit<BaseVisit, 'id'> & LocalRecord & { localId: string
 export type LocalExpense = Omit<Expense, 'id'> & LocalRecord & { localId: string; tripLocalId: string; id?: string };
 // Update LocalFueling to include odometerKm and fuelType
 export type LocalFueling = Omit<BaseFueling, 'id'> & LocalRecord & { localId: string; tripLocalId: string; odometerKm: number; fuelType: string; id?: string };
-export type LocalUser = User & { lastLogin?: string; passwordHash?: string; username?: string; deleted?: boolean; }; // Added username and deleted to LocalUser
+export type LocalUser = User & { lastLogin?: string; passwordHash?: string; username?: string; deleted?: boolean; firebaseId?: string }; // Added firebaseId here too for consistency
 
-const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin' | 'deleted'> & {password: string})[] = [
+
+const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin' | 'deleted' | 'firebaseId'> & {password: string})[] = [
   // Admin users
   {
     id: 'admin@grupo2irmaos.com.br',
     email: 'admin@grupo2irmaos.com.br',
     name: 'Admin Grupo 2 Irmãos',
-    username: 'admin_g2i', // Ensure admin has a username
+    username: 'admin_g2i',
     role: 'admin',
     base: 'ALL',
     password: 'admin123',
@@ -89,7 +90,6 @@ const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin' | 'deleted'> 
     role: 'driver',
     base: 'SP', // Default base for new image users
     password: 'password1',
-    deleted: false,
   },
   {
     id: 'fernandobatista@gmail.com',
@@ -99,7 +99,6 @@ const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin' | 'deleted'> 
     role: 'driver',
     base: 'SP',
     password: 'password1234',
-    deleted: false,
   },
   {
     id: 'compras@grupo2irmaos.com.br',
@@ -109,7 +108,6 @@ const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin' | 'deleted'> 
     role: 'driver',
     base: 'SP',
     password: 'password1',
-    deleted: false,
   },
   {
     id: 'otavio.medina@grupo2irmaos.com.br', // Corrected email for Otavio
@@ -119,7 +117,6 @@ const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin' | 'deleted'> 
     role: 'driver',
     base: 'SP',
     password: 'password1',
-    deleted: false,
   },
   {
     id: 'adao.timoteo@grupo2irmaos.com.br',
@@ -129,7 +126,6 @@ const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin' | 'deleted'> 
     role: 'driver',
     base: 'SP',
     password: 'password1',
-    deleted: false,
   },
   {
     id: 'luan.menon@grupo2irmaos.com.br',
@@ -139,7 +135,6 @@ const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin' | 'deleted'> 
     role: 'driver',
     base: 'SP',
     password: 'password1',
-    deleted: false,
   },
   {
     id: 'alessandro.neves@grupo2irmaos.com.br',
@@ -149,7 +144,6 @@ const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin' | 'deleted'> 
     role: 'driver',
     base: 'SP',
     password: 'password1',
-    deleted: false,
   },
   {
     id: 'aguinaldo@grupo2irmaos.com.br',
@@ -159,7 +153,6 @@ const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin' | 'deleted'> 
     role: 'driver',
     base: 'SP',
     password: 'password1',
-    deleted: false,
   },
   {
     id: 'bruno@grupo2irmaos.com.br',
@@ -169,7 +162,6 @@ const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin' | 'deleted'> 
     role: 'driver',
     base: 'SP',
     password: 'password1',
-    deleted: false,
   },
   {
     id: 'nelson.lopes@grupo2irmaos.com.br',
@@ -179,7 +171,6 @@ const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin' | 'deleted'> 
     role: 'driver',
     base: 'SP',
     password: 'password1',
-    deleted: false,
   },
 ];
 
@@ -708,8 +699,8 @@ export const addLocalTrip = (trip: Omit<LocalTrip, 'localId' | 'syncStatus' | 'i
       ...trip,
       localId,
       id: localId,
+      deleted: false, // Ensure deleted is set to false
       syncStatus: 'pending',
-      deleted: false,
     };
     console.log(`[addLocalTrip] Preparing to add trip with localId: ${localId}`);
     return addLocalRecord<LocalTrip>(STORE_TRIPS, newLocalTrip);
@@ -892,8 +883,8 @@ export const addLocalVisit = (visit: Omit<LocalVisit, 'localId' | 'syncStatus' |
         ...visit,
         localId,
         id: localId,
-        syncStatus: 'pending',
         deleted: false, // Ensure deleted is set to false
+        syncStatus: 'pending',
     };
      console.log(`[addLocalVisit] Preparing to add visit with localId: ${localId}`);
     return addLocalRecord<LocalVisit>(STORE_VISITS, newLocalVisit);
@@ -963,8 +954,8 @@ export const addLocalExpense = (expense: Omit<LocalExpense, 'localId' | 'syncSta
          ...expense,
          localId,
          id: localId,
-         syncStatus: 'pending',
          deleted: false, // Ensure deleted is set to false
+         syncStatus: 'pending',
      };
       console.log(`[addLocalExpense] Preparing to add expense with localId: ${localId}`);
      return addLocalRecord<LocalExpense>(STORE_EXPENSES, newLocalExpense);
@@ -1042,8 +1033,8 @@ export const addLocalFueling = (fueling: Omit<LocalFueling, 'localId' | 'syncSta
           ...fueling,
           localId,
           id: localId,
-          syncStatus: 'pending',
           deleted: false, // Ensure deleted is set to false
+          syncStatus: 'pending',
       };
        console.log(`[addLocalFueling] Preparing to add fueling with localId: ${localId}`);
       return addLocalRecord<LocalFueling>(STORE_FUELINGS, newLocalFueling);
@@ -1149,9 +1140,7 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
                      return;
                  }
                 const index = store.index('deleted');
-                // Open a cursor on the index without a specific key.
-                // We will iterate and check the 'deleted' property.
-                let cursorReq = index.openCursor();
+                let cursorReq = index.openCursor(); // Iterate all records in the 'deleted' index
 
                 const transaction = store.transaction;
                 transaction.oncomplete = () => {
@@ -1166,7 +1155,7 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
                     const cursor = (event.target as IDBRequest).result;
                     if (cursor) {
                          try {
-                              // Explicitly check if the 'deleted' property of the record is true
+                              // Explicitly check if the 'deleted' property of the record is true and syncStatus is 'synced'
                               if (cursor.value && cursor.value.deleted === true && cursor.value.syncStatus === 'synced') {
                                   console.log(`[Cleanup] Deleting record ${cursor.primaryKey} from ${storeName} (deleted: true, syncStatus: synced)`);
                                   const deleteReq = cursor.delete();
@@ -1205,18 +1194,22 @@ export const seedInitialUsers = async () => {
     const dbInstance = await openDB();
     const transaction = dbInstance.transaction(STORE_USERS, 'readwrite');
     const store = transaction.objectStore(STORE_USERS);
+    let seedCompleted = false;
 
-    const transactionCompletePromise = new Promise<void>((resolveTx, rejectTx) => {
+    const transactionPromise = new Promise<void>((resolveTx, rejectTx) => {
         transaction.oncomplete = () => {
             console.log("[seedInitialUsers] Transaction completed.");
+            seedCompleted = true;
             resolveTx();
         };
         transaction.onerror = (event) => {
             console.error("[seedInitialUsers] Transaction error:", (event.target as IDBTransaction).error);
+            seedCompleted = true;
             rejectTx((event.target as IDBTransaction).error);
         };
         transaction.onabort = (event) => {
             console.warn("[seedInitialUsers] Transaction aborted:", (event.target as IDBTransaction).error);
+            seedCompleted = true;
             rejectTx((event.target as IDBTransaction).error || new Error("Seed transaction aborted"));
         };
     });
@@ -1235,55 +1228,63 @@ export const seedInitialUsers = async () => {
                 const { password, ...userData } = user;
                 const finalUserData: LocalUser = {
                     ...userData,
-                    id: user.id || user.email,
+                    id: user.id || user.email, // Ensure ID is set
                     username: user.username || user.email.split('@')[0],
                     passwordHash: hash,
                     lastLogin: new Date().toISOString(),
                     role: user.role || 'driver',
                     base: user.role === 'admin' ? 'ALL' : (user.base || 'N/A'),
-                    deleted: false, // Ensure deleted is set for seeded users
+                    deleted: false,
+                    firebaseId: user.id || user.email, // Simulate firebaseId being same as local id for seeded users
+                    syncStatus: 'synced', // Assume seeded users are "synced"
                 };
                 return finalUserData;
             });
             const usersToSeed = await Promise.all(hashPromises);
 
-            usersToSeed.forEach(user => {
-                const addReq = store.add(user);
-                addReq.onerror = () => {
-                    console.warn(`[seedInitialUsers] Error adding user ${user.email} (ID: ${user.id}), attempting update... Error:`, addReq.error);
-                    const updateReq = store.put(user); // Attempt to update if add failed (e.g., user already exists from a partial seed)
-                    updateReq.onerror = () => {
-                         console.error(`[seedInitialUsers] Error updating user ${user.email} (ID: ${user.id}) after add failed:`, updateReq.error);
+            const addUserPromises: Promise<void>[] = usersToSeed.map(user => {
+                return new Promise<void>((resolveAdd, rejectAdd) => {
+                    const addReq = store.add(user);
+                    addReq.onerror = () => {
+                        console.warn(`[seedInitialUsers] Error adding user ${user.email} (ID: ${user.id}), attempting update... Error:`, addReq.error);
+                        const updateReq = store.put(user);
+                        updateReq.onerror = () => {
+                             console.error(`[seedInitialUsers] Error updating user ${user.email} (ID: ${user.id}) after add failed:`, updateReq.error);
+                             rejectAdd(updateReq.error);
+                        };
+                        updateReq.onsuccess = () => {
+                             console.log(`[seedInitialUsers] User ${user.email} (ID: ${user.id}) updated successfully after initial add failed.`);
+                             resolveAdd();
+                        };
                     };
-                    updateReq.onsuccess = () => {
-                         console.log(`[seedInitialUsers] User ${user.email} (ID: ${user.id}) updated successfully after initial add failed.`);
+                    addReq.onsuccess = () => {
+                        console.log(`[seedInitialUsers] User ${user.email} (ID: ${user.id}) added to store.`);
+                        resolveAdd();
                     };
-                };
-                addReq.onsuccess = () => {
-                    console.log(`[seedInitialUsers] User ${user.email} (ID: ${user.id}) added to store.`);
-                };
+                });
             });
-            console.log("[seedInitialUsers] All add/update requests issued within transaction.");
+            
+            await Promise.all(addUserPromises);
+            console.log("[seedInitialUsers] All individual user add/update operations completed.");
+
         } else {
             console.log("[seedInitialUsers] User store not empty, skipping seed.");
         }
-        // Wait for the transaction to complete
-        await transactionCompletePromise;
-        console.log("[seedInitialUsers] Seeding process/check finished.");
+        
+        // The transaction will auto-complete if no errors.
+        // If there were errors in addUserPromises, the transaction might abort via its own onerror.
 
     } catch (error) {
-        console.error("[seedInitialUsers] Error during seeding process:", error);
-        // Ensure transaction is aborted if an error occurs outside the transaction's own error/abort handlers
-        if (transaction && transaction.abort && transaction.readyState !== 'done') { // Check readyState
-            console.warn("[seedInitialUsers] Aborting transaction due to error.");
+        console.error("[seedInitialUsers] Error during seeding logic:", error);
+        if (!seedCompleted && transaction && transaction.abort && transaction.readyState !== 'done') {
+            console.warn("[seedInitialUsers] Aborting transaction due to error in main try-catch.");
             transaction.abort();
         }
-        throw error; // Re-throw the error to be caught by the caller if necessary
+        throw error; 
     }
+    return transactionPromise; // Return the promise that resolves/rejects with the transaction outcome.
 };
 
 
 // Initial call to open the DB and seed users when the service loads
 openDB().then(() => seedInitialUsers()).catch(error => console.error("Failed to initialize/seed IndexedDB on load:", error));
-
-
