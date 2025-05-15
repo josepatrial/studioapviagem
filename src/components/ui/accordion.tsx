@@ -24,14 +24,17 @@ AccordionItem.displayName = "AccordionItem"
 const AccordionHeader = React.forwardRef<
   React.ElementRef<typeof AccordionPrimitive.Header>,
   React.ComponentPropsWithoutRef<typeof AccordionPrimitive.Header>
->(({ className, ...props }, ref) => (
+>(({ className, children, ...props }, ref) => (
   <AccordionPrimitive.Header
     ref={ref}
-    className={cn("flex", className)} // Mantém o flex, mas não precisa ser o único elemento no AccordionItem header
+    className={cn("flex", className)}
     {...props}
-  />
+  >
+    {children}
+  </AccordionPrimitive.Header>
 ));
-AccordionHeader.displayName = AccordionPrimitive.Header.displayName
+AccordionHeader.displayName = AccordionPrimitive.Header.displayName;
+
 
 const AccordionTrigger = React.forwardRef<
   React.ElementRef<typeof AccordionPrimitive.Trigger>,
@@ -57,9 +60,14 @@ const AccordionContent = React.forwardRef<
 >(({ className, children, ...props }, ref) => (
   <AccordionPrimitive.Content
     ref={ref}
-    className="overflow-hidden text-sm transition-all data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down"
+    className={cn(
+      "overflow-hidden text-sm transition-all", // Removido: data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down
+      "data-[state=closed]:hidden data-[state=open]:block", // Adicionado para teste
+      className // Este className é para o AccordionPrimitive.Content, não para o div interno
+    )}
     {...props}
   >
+    {/* O className passado para AccordionContent (se houver) é aplicado ao div interno */}
     <div className={cn("pb-4 pt-0", className)}>{children}</div>
   </AccordionPrimitive.Content>
 ))
