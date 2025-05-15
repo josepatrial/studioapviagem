@@ -10,7 +10,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { AlertDialogTrigger } from "@radix-ui/react-alert-dialog"; // Correct import
 import { useToast } from "@/hooks/use-toast";
 import {
     addLocalDbVehicle,
@@ -156,7 +157,7 @@ export const Vehicle: React.FC = () => {
         }
         const assignedLocalId = await addLocalDbVehicle(vehicleDataForAdd);
         const createdVehicleUI: VehicleInfo = {
-             id: assignedLocalId, // localId is the primary ID for newly created local vehicles
+             id: assignedLocalId, 
              model: vehicleDataForAdd.model,
              year: vehicleDataForAdd.year,
              licensePlate: vehicleDataForAdd.licensePlate,
@@ -288,28 +289,32 @@ export const Vehicle: React.FC = () => {
     setIsDetailsModalOpen(true);
     setLoadingDetails(true);
     try {
-        const vehicleIdToFetch = vehicle.id; 
-        const [fuelings, allTrips] = await Promise.all([
-            getLocalFuelings(vehicleIdToFetch, 'vehicleId'),
-            getLocalTrips() 
-        ]);
-
-        const vehicleTrips = allTrips.filter(t => t.vehicleId === vehicleIdToFetch);
-
-        // Performance Calculations
-        let totalKm = 0;
-        vehicleTrips.forEach(trip => {
-            if (trip.status === 'Finalizado' && trip.totalDistance != null) {
-                totalKm += trip.totalDistance;
-            }
+        const vehicleIdToFetch = vehicle.id;
+        const vehicleFuelings = await getLocalFuelings(vehicleIdToFetch, 'vehicleId');
+        vehicleFuelings.sort((a, b) => { // Sort by date, then by odometer
+            const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
+            if (dateDiff !== 0) return dateDiff;
+            return (a.odometerKm || 0) - (b.odometerKm || 0);
         });
 
-        const totalLiters = fuelings.reduce((sum, f) => sum + f.liters, 0);
-        const totalFuelCost = fuelings.reduce((sum, f) => sum + f.totalCost, 0);
-        const avgKmPerLiter = totalLiters > 0 && totalKm > 0 ? totalKm / totalLiters : 0;
-        const avgCostPerKm = totalKm > 0 ? totalFuelCost / totalKm : 0;
+        const allTrips = await getLocalTrips();
+        const vehicleTrips = allTrips.filter(t => t.vehicleId === vehicleIdToFetch);
 
-        // Drivers
+        let totalKmDrivenFromFuelings = 0;
+        if (vehicleFuelings.length > 1) {
+            const firstOdometer = vehicleFuelings[0].odometerKm;
+            const lastOdometer = vehicleFuelings[vehicleFuelings.length - 1].odometerKm;
+            if (typeof firstOdometer === 'number' && typeof lastOdometer === 'number' && lastOdometer > firstOdometer) {
+                 totalKmDrivenFromFuelings = lastOdometer - firstOdometer;
+            }
+        }
+
+        const totalLiters = vehicleFuelings.reduce((sum, f) => sum + f.liters, 0);
+        const totalFuelCost = vehicleFuelings.reduce((sum, f) => sum + f.totalCost, 0);
+        
+        const avgKmPerLiter = totalLiters > 0 && totalKmDrivenFromFuelings > 0 ? totalKmDrivenFromFuelings / totalLiters : 0;
+        const avgCostPerKm = totalKmDrivenFromFuelings > 0 ? totalFuelCost / totalKmDrivenFromFuelings : 0;
+
         const driverIds = new Set<string>();
         vehicleTrips.forEach(trip => {
             if(trip.userId) driverIds.add(trip.userId);
@@ -318,8 +323,14 @@ export const Vehicle: React.FC = () => {
         const uniqueDrivers = allDrivers.filter(driver => driverIds.has(driver.id));
 
         setVehicleDetails({
-            fuelings: fuelings.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()),
-            performance: { totalKm, totalLiters, totalFuelCost, avgKmPerLiter, avgCostPerKm },
+            fuelings: vehicleFuelings,
+            performance: { 
+                totalKm: totalKmDrivenFromFuelings,
+                totalLiters, 
+                totalFuelCost, 
+                avgKmPerLiter, 
+                avgCostPerKm 
+            },
             drivers: uniqueDrivers
         });
     } catch (error) {
@@ -528,7 +539,7 @@ export const Vehicle: React.FC = () => {
                             <Card>
                                 <CardHeader><CardTitle>Resumo de Performance</CardTitle></CardHeader>
                                 <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                                    <div><span className="font-medium">KM Total Percorrido:</span> {formatKm(vehicleDetails.performance.totalKm)}</div>
+                                    <div><span className="font-medium">KM Total Percorrido (Base Abastec.):</span> {formatKm(vehicleDetails.performance.totalKm)}</div>
                                     <div><span className="font-medium">Total de Litros Consumidos:</span> {vehicleDetails.performance.totalLiters.toFixed(2)} L</div>
                                     <div><span className="font-medium">Custo Total com Combustível:</span> {formatCurrency(vehicleDetails.performance.totalFuelCost)}</div>
                                     <div><span className="font-medium">Média KM/Litro:</span> {vehicleDetails.performance.avgKmPerLiter.toFixed(2)} Km/L</div>

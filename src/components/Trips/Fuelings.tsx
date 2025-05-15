@@ -31,7 +31,7 @@ import {
     getLocalFuelings,
     LocalFueling
 } from '@/services/localDbService';
-import { uploadReceipt, deleteReceipt } from '@/services/storageService'; // Assuming these are implemented
+import { uploadReceipt, deleteReceipt } from '@/services/storageService'; 
 import { cn } from '@/lib/utils';
 import { formatKm } from '@/lib/utils';
 
@@ -51,6 +51,34 @@ interface FuelingsProps {
 }
 
 const fuelTypes = ['Gasolina Comum', 'Gasolina Aditivada', 'Etanol', 'Diesel Comum', 'Diesel S10', 'GNV'];
+
+// Helper function to get the last odometer reading for a vehicle
+const getLastOdometerReading = async (vehicleId: string, excludeFuelingId?: string): Promise<number | null> => {
+    if (!vehicleId) return null;
+    try {
+        let allVehicleFuelings = await getLocalFuelings(vehicleId, 'vehicleId');
+        if (excludeFuelingId) {
+            // Ensure comparison is robust for both firebaseId and localId scenarios
+            allVehicleFuelings = allVehicleFuelings.filter(f => {
+                const idToCheck = f.firebaseId || f.localId;
+                return idToCheck !== excludeFuelingId;
+            });
+        }
+        if (allVehicleFuelings.length === 0) return null;
+
+        allVehicleFuelings.sort((a, b) => {
+            const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
+            if (dateDiff !== 0) return dateDiff;
+            return (a.odometerKm || 0) - (b.odometerKm || 0);
+        });
+        const lastFueling = allVehicleFuelings[allVehicleFuelings.length - 1];
+        return lastFueling.odometerKm; // OdometerKM is not optional in LocalFueling
+    } catch (error) {
+        console.error("Error fetching last odometer reading for vehicle " + vehicleId + ":", error);
+        return null; 
+    }
+};
+
 
 export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicleId: tripVehicleId, ownerUserId }) => {
   console.log("[FuelingsComponent props] tripId:", tripLocalId, "vehicleId:", tripVehicleId, "ownerUserId:", ownerUserId);
@@ -82,14 +110,17 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
 
    useEffect(() => {
     const fetchFuelingsData = async () => {
-        if (!tripLocalId) return;
+        if (!tripLocalId && !tripVehicleId) return; 
         setLoading(true);
         try {
-            const localFuelings = await getLocalFuelings(tripLocalId);
+            const filterKey = tripLocalId ? tripLocalId : tripVehicleId;
+            const filterType = tripLocalId ? 'tripLocalId' : 'vehicleId';
+            
+            const localFuelings = await getLocalFuelings(filterKey, filterType);
             const uiFuelings = localFuelings.map(lf => ({
                 ...lf,
                 id: lf.firebaseId || lf.localId,
-                tripId: lf.tripLocalId,
+                tripId: lf.tripLocalId, 
                 userId: lf.userId || ownerUserId, 
                 syncStatus: lf.syncStatus,
                 odometerKm: lf.odometerKm,
@@ -97,14 +128,14 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
             })).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
             setFuelings(uiFuelings);
         } catch (error) {
-            console.error(`Error fetching local fuelings for trip ${tripLocalId}:`, error);
+            console.error(`Error fetching local fuelings for ${tripLocalId || tripVehicleId}:`, error);
             toast({ variant: "destructive", title: "Erro Local", description: "Não foi possível carregar os abastecimentos locais." });
         } finally {
             setLoading(false);
         }
     };
     fetchFuelingsData();
-  }, [tripLocalId, ownerUserId, toast]);
+  }, [tripLocalId, tripVehicleId, ownerUserId, toast]);
 
     useEffect(() => {
         if (!isCameraOpen) {
@@ -214,6 +245,17 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
         return;
      }
 
+    const lastVehicleOdometer = await getLastOdometerReading(tripVehicleId);
+    if (lastVehicleOdometer !== null && odometerNum <= lastVehicleOdometer) {
+        toast({
+            variant: 'destructive',
+            title: 'Erro de Odômetro',
+            description: `KM do odômetro (${formatKm(odometerNum)}) deve ser maior que o último abastecimento registrado para este veículo (${formatKm(lastVehicleOdometer)}).`,
+            duration: 7000,
+        });
+        return;
+    }
+
      setIsSaving(true);
      const newFuelingData: Omit<LocalFueling, 'localId' | 'syncStatus' | 'receiptUrl' | 'receiptPath'> = {
        tripLocalId: tripLocalId,
@@ -259,7 +301,8 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
     e.preventDefault();
     if (!currentFueling) return;
     
-    if (!tripVehicleId) {
+    const vehicleIdForEdit = currentFueling.vehicleId || tripVehicleId; 
+    if (!vehicleIdForEdit) {
         toast({ variant: 'destructive', title: 'Erro', description: 'ID do Veículo não encontrado para este abastecimento.' });
         return;
     }
@@ -270,13 +313,24 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
     }
      const litersNum = Number(liters);
      const priceNum = Number(pricePerLiter);
-     const odometerNum = Number(odometerKm);
-      if (litersNum <= 0 || priceNum <= 0 || odometerNum <= 0) {
+     const odometerNumEdit = Number(odometerKm);
+      if (litersNum <= 0 || priceNum <= 0 || odometerNumEdit <= 0) {
          toast({ variant: 'destructive', title: 'Erro', description: 'Litros, Preço/Litro e KM do odômetro devem ser maiores que zero.' });
          return;
       }
+    
+    const lastVehicleOdometerEdit = await getLastOdometerReading(vehicleIdForEdit, currentFueling.id);
+    if (lastVehicleOdometerEdit !== null && odometerNumEdit <= lastVehicleOdometerEdit) {
+         toast({
+             variant: 'destructive',
+             title: 'Erro de Odômetro',
+             description: `KM do odômetro (${formatKm(odometerNumEdit)}) deve ser maior que o abastecimento registrado anteriormente (${formatKm(lastVehicleOdometerEdit)}).`,
+             duration: 7000,
+         });
+         return;
+    }
 
-       const originalLocalFueling = await getLocalFuelings(tripLocalId).then(fuelings => fuelings.find(f => f.localId === currentFueling.id || f.firebaseId === currentFueling.id));
+       const originalLocalFueling = await getLocalFuelings(tripLocalId, 'tripLocalId').then(fuelings => fuelings.find(f => f.localId === currentFueling.id || f.firebaseId === currentFueling.id));
         if (!originalLocalFueling) {
              toast({ variant: "destructive", title: "Erro", description: "Abastecimento original não encontrado localmente." });
              return;
@@ -292,9 +346,9 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
         totalCost: litersNum * priceNum,
         location,
         comments,
-        odometerKm: odometerNum,
+        odometerKm: odometerNumEdit,
         fuelType,
-        vehicleId: tripVehicleId,
+        vehicleId: vehicleIdForEdit,
         receiptUrl: typeof attachment === 'string' ? attachment : (attachment === null ? undefined : originalLocalFueling.receiptUrl),
         receiptFilename: attachmentFilename || (attachment === null ? undefined : originalLocalFueling.receiptFilename),
         syncStatus: originalLocalFueling.syncStatus === 'synced' ? 'pending' : originalLocalFueling.syncStatus,
@@ -338,7 +392,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
      const localIdToDelete = fuelingToDelete.id;
     setIsSaving(true);
     try {
-        const fuelingsInDb = await getLocalFuelings(tripLocalId);
+        const fuelingsInDb = await getLocalFuelings(tripLocalId, 'tripLocalId');
         const fuelingRecordToDelete = fuelingsInDb.find(f => f.localId === localIdToDelete || f.firebaseId === localIdToDelete);
          if (!fuelingRecordToDelete) {
              throw new Error("Registro local do abastecimento não encontrado para exclusão.");
@@ -447,7 +501,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
     <div className="space-y-6">
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-xl font-semibold">Histórico de Abastecimentos</h3>
-        {tripLocalId && (
+        {tripLocalId && ( // Only show add button if in context of a trip
           <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
             <DialogTrigger asChild>
               <Button onClick={() => { resetForm(); setDate(new Date().toISOString().split('T')[0]); console.log("[FuelingsComponent] Registrar Abastecimento button clicked, setting isCreateModalOpen to true."); setIsCreateModalOpen(true); }} className="bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isSaving}>
@@ -582,8 +636,8 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
        ) : fuelings.length === 0 ? (
         <Card className="text-center py-10 bg-card border border-border shadow-sm rounded-lg">
           <CardContent>
-            <p className="text-muted-foreground">Nenhum abastecimento registrado localmente para esta viagem.</p>
-            {tripLocalId && (
+            <p className="text-muted-foreground">Nenhum abastecimento registrado localmente {tripLocalId ? "para esta viagem" : "para este veículo"}.</p>
+            {tripLocalId && ( // Only show add button if in context of a trip
               <Button variant="link" onClick={() => { resetForm(); setDate(new Date().toISOString().split('T')[0]); setIsCreateModalOpen(true); }} className="mt-2 text-primary">
                 Registrar o primeiro abastecimento
               </Button>
@@ -604,122 +658,124 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
                         {fueling.syncStatus === 'error' && <span className="ml-2 text-xs text-destructive">(Erro Sinc)</span>}
                     </CardDescription>
                   </div>
-                  <div className="flex gap-1">
-                    <Dialog>
-                       <DialogTrigger asChild>
-                           <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary h-8 w-8">
-                               <Eye className="h-4 w-4" />
-                               <span className="sr-only">Visualizar Detalhes</span>
-                           </Button>
-                       </DialogTrigger>
-                       <DialogContent>
-                           <DialogHeader>
-                               <DialogTitle>Detalhes do Abastecimento</DialogTitle>
-                           </DialogHeader>
-                           <div className="py-4 space-y-3">
-                               <p><strong>Data:</strong> {formatDateDisplay(fueling.date)}</p>
-                               <p><strong>Local:</strong> {fueling.location}</p>
-                               <p><strong>Tipo de Combustível:</strong> {fueling.fuelType}</p>
-                               <p><strong>KM no Odômetro:</strong> {formatKm(fueling.odometerKm)}</p>
-                               <p><strong>Litros:</strong> {fueling.liters.toFixed(2)} L</p>
-                               <p><strong>Preço/Litro:</strong> {formatCurrency(fueling.pricePerLiter)}</p>
-                               <p><strong>Valor Total:</strong> {formatCurrency(fueling.totalCost)}</p>
-                               <p><strong>Observações:</strong> {fueling.comments || 'Nenhuma'}</p>
-                               <p><strong>Anexo:</strong> {fueling.receiptFilename ? (
-                                   <a href={fueling.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center gap-1">
-                                       {fueling.receiptUrl?.startsWith('data:image') ? <img src={fueling.receiptUrl} alt="Preview" className="h-6 w-6 object-cover rounded"/> : <Paperclip className="h-4 w-4"/>}
-                                       {fueling.receiptFilename}
-                                   </a>
-                                   ) : 'Nenhum'}
-                               </p>
-                               <p className="text-xs text-muted-foreground">Status Sinc: {fueling.syncStatus || 'N/A'}</p>
-                           </div>
-                           <DialogFooter>
-                               <DialogClose asChild>
-                                   <Button variant="outline">Fechar</Button>
-                               </DialogClose>
-                           </DialogFooter>
-                       </DialogContent>
-                   </Dialog>
-                    <Dialog open={isEditModalOpen && currentFueling?.id === fueling.id} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); else openEditModal(fueling); }}>
-                      <DialogTrigger asChild>
-                        <Button variant="ghost" size="icon" onClick={() => openEditModal(fueling)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving}>
-                          <Edit className="h-4 w-4" />
-                          <span className="sr-only">Editar</span>
-                        </Button>
-                      </DialogTrigger>
-                      <DialogContent className="sm:max-w-lg">
-                        <DialogHeader>
-                          <DialogTitle>Editar Abastecimento</DialogTitle>
-                        </DialogHeader>
-                        <form onSubmit={handleEditFueling} className="grid gap-4 py-4">
-                          <div className="space-y-2">
-                            <Label htmlFor="editDate">Data do Abastecimento*</Label>
-                            <Input id="editDate" type="date" value={date} onChange={(e) => setDate(e.target.value)} required disabled={isSaving}/>
-                          </div>
-                            <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                    <Label htmlFor="editLiters">Litros*</Label>
-                                    <Input id="editLiters" type="number" value={liters} onChange={(e) => setLiters(Number(e.target.value) >= 0 ? Number(e.target.value) : '')} required placeholder="Litros" min="0" step="0.01" disabled={isSaving}/>
-                                </div>
-                                <div className="space-y-2">
-                                    <Label htmlFor="editPricePerLiter">Preço/Litro (R$)*</Label>
-                                    <Input id="editPricePerLiter" type="number" value={pricePerLiter} onChange={(e) => setPricePerLiter(Number(e.target.value) >= 0 ? Number(e.target.value) : '')} required placeholder="Preço/L" min="0" step="0.01" disabled={isSaving}/>
-                                </div>
+                  {tripLocalId && // Only show edit/delete buttons if in context of a trip where actions are appropriate
+                    <div className="flex gap-1">
+                      <Dialog>
+                         <DialogTrigger asChild>
+                             <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary h-8 w-8">
+                                 <Eye className="h-4 w-4" />
+                                 <span className="sr-only">Visualizar Detalhes</span>
+                             </Button>
+                         </DialogTrigger>
+                         <DialogContent>
+                             <DialogHeader>
+                                 <DialogTitle>Detalhes do Abastecimento</DialogTitle>
+                             </DialogHeader>
+                             <div className="py-4 space-y-3">
+                                 <p><strong>Data:</strong> {formatDateDisplay(fueling.date)}</p>
+                                 <p><strong>Local:</strong> {fueling.location}</p>
+                                 <p><strong>Tipo de Combustível:</strong> {fueling.fuelType}</p>
+                                 <p><strong>KM no Odômetro:</strong> {formatKm(fueling.odometerKm)}</p>
+                                 <p><strong>Litros:</strong> {fueling.liters.toFixed(2)} L</p>
+                                 <p><strong>Preço/Litro:</strong> {formatCurrency(fueling.pricePerLiter)}</p>
+                                 <p><strong>Valor Total:</strong> {formatCurrency(fueling.totalCost)}</p>
+                                 <p><strong>Observações:</strong> {fueling.comments || 'Nenhuma'}</p>
+                                 <p><strong>Anexo:</strong> {fueling.receiptFilename ? (
+                                     <a href={fueling.receiptUrl} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline flex items-center gap-1">
+                                         {fueling.receiptUrl?.startsWith('data:image') ? <img src={fueling.receiptUrl} alt="Preview" className="h-6 w-6 object-cover rounded"/> : <Paperclip className="h-4 w-4"/>}
+                                         {fueling.receiptFilename}
+                                     </a>
+                                     ) : 'Nenhum'}
+                                 </p>
+                                 <p className="text-xs text-muted-foreground">Status Sinc: {fueling.syncStatus || 'N/A'}</p>
+                             </div>
+                             <DialogFooter>
+                                 <DialogClose asChild>
+                                     <Button variant="outline">Fechar</Button>
+                                 </DialogClose>
+                             </DialogFooter>
+                         </DialogContent>
+                     </Dialog>
+                      <Dialog open={isEditModalOpen && currentFueling?.id === fueling.id} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); else openEditModal(fueling); }}>
+                        <DialogTrigger asChild>
+                          <Button variant="ghost" size="icon" onClick={() => openEditModal(fueling)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving}>
+                            <Edit className="h-4 w-4" />
+                            <span className="sr-only">Editar</span>
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-lg">
+                          <DialogHeader>
+                            <DialogTitle>Editar Abastecimento</DialogTitle>
+                          </DialogHeader>
+                          <form onSubmit={handleEditFueling} className="grid gap-4 py-4">
+                            <div className="space-y-2">
+                              <Label htmlFor="editDate">Data do Abastecimento*</Label>
+                              <Input id="editDate" type="date" value={date} onChange={(e) => setDate(e.target.value)} required disabled={isSaving}/>
+                            </div>
+                              <div className="grid grid-cols-2 gap-4">
+                                  <div className="space-y-2">
+                                      <Label htmlFor="editLiters">Litros*</Label>
+                                      <Input id="editLiters" type="number" value={liters} onChange={(e) => setLiters(Number(e.target.value) >= 0 ? Number(e.target.value) : '')} required placeholder="Litros" min="0" step="0.01" disabled={isSaving}/>
+                                  </div>
+                                  <div className="space-y-2">
+                                      <Label htmlFor="editPricePerLiter">Preço/Litro (R$)*</Label>
+                                      <Input id="editPricePerLiter" type="number" value={pricePerLiter} onChange={(e) => setPricePerLiter(Number(e.target.value) >= 0 ? Number(e.target.value) : '')} required placeholder="Preço/L" min="0" step="0.01" disabled={isSaving}/>
+                                  </div>
+                              </div>
+                              <div className="space-y-2">
+                                  <Label htmlFor="editFuelType">Tipo de Combustível*</Label>
+                                  <Select onValueChange={setFuelType} value={fuelType} required disabled={isSaving}>
+                                      <SelectTrigger id="editFuelType">
+                                          <SelectValue placeholder="Selecione o tipo" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                          {fuelTypes.map((type) => (
+                                              <SelectItem key={type} value={type}>{type}</SelectItem>
+                                          ))}
+                                      </SelectContent>
+                                  </Select>
+                              </div>
+                               <div className="space-y-2">
+                                  <Label htmlFor="editOdometerKm">KM no Odômetro*</Label>
+                                  <Input id="editOdometerKm" type="number" value={odometerKm} onChange={(e) => setOdometerKm(Number(e.target.value) >=0 ? Number(e.target.value) : '')} required placeholder="KM do veículo" min="0" disabled={isSaving}/>
+                               </div>
+                               <div className="space-y-1">
+                                  <Label>Valor Total</Label>
+                                  <p className="text-sm h-10 flex items-center px-3 py-2 rounded-md border border-input bg-muted">
+                                    {liters !== '' && pricePerLiter !== '' ? formatCurrency(Number(liters) * Number(pricePerLiter)) : 'R$ 0,00'}
+                                  </p>
+                               </div>
+                            <div className="space-y-2">
+                              <Label htmlFor="editLocation">Local*</Label>
+                              <Input id="editLocation" value={location} onChange={(e) => setLocation(e.target.value)} required placeholder="Nome ou Endereço do Posto" disabled={isSaving}/>
                             </div>
                             <div className="space-y-2">
-                                <Label htmlFor="editFuelType">Tipo de Combustível*</Label>
-                                <Select onValueChange={setFuelType} value={fuelType} required disabled={isSaving}>
-                                    <SelectTrigger id="editFuelType">
-                                        <SelectValue placeholder="Selecione o tipo" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {fuelTypes.map((type) => (
-                                            <SelectItem key={type} value={type}>{type}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
+                              <Label htmlFor="editComments">Observações</Label>
+                              <Textarea id="editComments" value={comments} onChange={(e) => setComments(e.target.value)} placeholder="Detalhes adicionais" disabled={isSaving}/>
                             </div>
-                             <div className="space-y-2">
-                                <Label htmlFor="editOdometerKm">KM no Odômetro*</Label>
-                                <Input id="editOdometerKm" type="number" value={odometerKm} onChange={(e) => setOdometerKm(Number(e.target.value) >=0 ? Number(e.target.value) : '')} required placeholder="KM do veículo" min="0" disabled={isSaving}/>
-                             </div>
-                             <div className="space-y-1">
-                                <Label>Valor Total</Label>
-                                <p className="text-sm h-10 flex items-center px-3 py-2 rounded-md border border-input bg-muted">
-                                  {liters !== '' && pricePerLiter !== '' ? formatCurrency(Number(liters) * Number(pricePerLiter)) : 'R$ 0,00'}
-                                </p>
-                             </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="editLocation">Local*</Label>
-                            <Input id="editLocation" value={location} onChange={(e) => setLocation(e.target.value)} required placeholder="Nome ou Endereço do Posto" disabled={isSaving}/>
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="editComments">Observações</Label>
-                            <Textarea id="editComments" value={comments} onChange={(e) => setComments(e.target.value)} placeholder="Detalhes adicionais" disabled={isSaving}/>
-                          </div>
-                          {renderAttachmentInput('edit')}
-                          <DialogFooter>
-                            <DialogClose asChild>
-                              <Button type="button" variant="outline" onClick={closeEditModal} disabled={isSaving}>Cancelar</Button>
-                            </DialogClose>
-                            <Button type="submit" disabled={isSaving} className="bg-primary hover:bg-primary/90">
-                               {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
-                               {isSaving ? 'Salvando...' : 'Salvar Alterações Locais'}
+                            {renderAttachmentInput('edit')}
+                            <DialogFooter>
+                              <DialogClose asChild>
+                                <Button type="button" variant="outline" onClick={closeEditModal} disabled={isSaving}>Cancelar</Button>
+                              </DialogClose>
+                              <Button type="submit" disabled={isSaving} className="bg-primary hover:bg-primary/90">
+                                 {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                                 {isSaving ? 'Salvando...' : 'Salvar Alterações Locais'}
+                              </Button>
+                            </DialogFooter>
+                          </form>
+                        </DialogContent>
+                      </Dialog>
+                       <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => openDeleteConfirmation(fueling)} disabled={isSaving}>
+                              <Trash2 className="h-4 w-4" />
+                              <span className="sr-only">Excluir</span>
                             </Button>
-                          </DialogFooter>
-                        </form>
-                      </DialogContent>
-                    </Dialog>
-                     <AlertDialog>
-                        <AlertDialogTrigger asChild>
-                          <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => openDeleteConfirmation(fueling)} disabled={isSaving}>
-                            <Trash2 className="h-4 w-4" />
-                            <span className="sr-only">Excluir</span>
-                          </Button>
-                        </AlertDialogTrigger>
-                      </AlertDialog>
-                  </div>
+                          </AlertDialogTrigger>
+                        </AlertDialog>
+                    </div>
+                  }
                 </div>
               </CardHeader>
               <CardContent className="space-y-2 text-sm">
