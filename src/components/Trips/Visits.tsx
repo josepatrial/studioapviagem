@@ -4,7 +4,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Eye, Edit, Trash2, MapPin, Milestone, Info, LocateFixed, AlertTriangle, Loader2, TrendingUp, Briefcase } from 'lucide-react'; // Added Briefcase for visit type
+import { PlusCircle, Eye, Edit, Trash2, MapPin, Milestone, Info, LocateFixed, AlertTriangle, Loader2, TrendingUp, Briefcase } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -15,24 +15,26 @@ import { useToast } from "@/hooks/use-toast";
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { addLocalVisit, updateLocalVisit, deleteLocalVisit, getLocalVisits, LocalVisit } from '@/services/localDbService';
 import { cn } from '@/lib/utils';
-import { formatKm } from '@/lib/utils'; // Import centralized formatKm
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"; // Import Select
+import { formatKm } from '@/lib/utils';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export interface Visit extends Omit<LocalVisit, 'localId' | 'tripLocalId'> {
   id: string;
-  tripId: string;
+  tripId: string; // This is actually tripLocalId in this context
+  userId: string; // Added to ensure ownership is tracked
   syncStatus?: 'pending' | 'synced' | 'error';
-  visitType?: string; // Added visitType
+  visitType?: string;
 }
 
 interface VisitsProps {
-  tripId: string;
+  tripId: string; // This is tripLocalId
   tripName?: string;
+  ownerUserId: string; // User ID of the trip's owner
 }
 
 const visitTypes = ['Entrega', 'Coleta', 'Reunião', 'Manutenção', 'Visita Técnica', 'Outro'];
 
-export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName }) => {
+export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName, ownerUserId }) => {
   const [visits, setVisits] = useState<Visit[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -52,7 +54,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
   const [longitude, setLongitude] = useState<number | undefined>(undefined);
   const [initialKm, setInitialKm] = useState<number | ''>('');
   const [reason, setReason] = useState('');
-  const [visitType, setVisitType] = useState(''); // Added state for visitType
+  const [visitType, setVisitType] = useState('');
 
    useEffect(() => {
     const fetchVisitsData = async () => {
@@ -64,9 +66,10 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
             ...lv,
             id: lv.firebaseId || lv.localId,
             tripId: lv.tripLocalId,
+            userId: lv.userId || ownerUserId, // Ensure userId is present
             syncStatus: lv.syncStatus,
-            visitType: lv.visitType, // Map visitType
-        })).sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()); // Ensure sorted latest first
+            visitType: lv.visitType,
+        })).sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
         setVisits(uiVisits);
       } catch (error) {
         console.error(`Error fetching local visits for trip ${tripLocalId}:`, error);
@@ -76,30 +79,27 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
       }
     };
     fetchVisitsData();
-  }, [tripLocalId, toast]);
+  }, [tripLocalId, ownerUserId, toast]);
 
 
   const getLastVisitKm = (): number | null => {
       if (visits.length === 0) return null;
-      // Assuming visits are sorted latest first (descending timestamp)
       return visits[0].initialKm;
   };
 
   const handleGetLocation = async () => {
     setIsFetchingLocation(true);
     try {
-      // First, get precise coordinates
       const coords: Coordinate = await getCurrentLocation();
       setLatitude(coords.latitude);
       setLongitude(coords.longitude);
-      // Then, get city name
       const city = await getCurrentCity();
       setLocation(city);
       toast({ title: "Localização capturada!", description: `Cidade: ${city}. Coordenadas salvas.` });
     } catch (error) {
       console.error("Error getting location:", error);
       toast({ variant: "destructive", title: "Erro ao buscar localização", description: (error as Error).message || "Tente novamente ou digite manualmente." });
-      setLocation(''); // Clear location field on error
+      setLocation('');
       setLatitude(undefined);
       setLongitude(undefined);
     } finally {
@@ -110,7 +110,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
   const handlePrepareVisitForConfirmation = (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!clientName || !location || initialKm === '' || !reason || !visitType) { // Added visitType validation
+    if (!clientName || !location || initialKm === '' || !reason || !visitType) {
         toast({ variant: "destructive", title: "Erro", description: "Todos os campos marcados com * são obrigatórios." });
         return;
     }
@@ -133,14 +133,16 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
 
     const newVisitData: Omit<LocalVisit, 'localId' | 'syncStatus'> = {
       tripLocalId: tripLocalId,
+      userId: ownerUserId, // Associate with the trip owner
       clientName,
-      location, // This will now store the city name
-      latitude, // Still store precise coordinates if available
-      longitude, // Still store precise coordinates if available
+      location,
+      latitude,
+      longitude,
       initialKm: kmValue,
       reason,
       timestamp: new Date().toISOString(),
-      visitType, // Include visitType
+      visitType,
+      deleted: false, // Initialize deleted as false
     };
 
     setVisitToConfirm(newVisitData);
@@ -150,24 +152,19 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
 
   const confirmAndSaveVisit = async () => {
       if (!visitToConfirm) return;
-
       setIsSaving(true);
-
       try {
           const localId = await addLocalVisit(visitToConfirm);
-          console.log(`[Visits] Visit added locally with localId: ${localId}`);
-
           const newUIVisit: Visit = {
              ...visitToConfirm,
              localId: localId,
              id: localId,
              tripId: tripLocalId,
-             visitType: visitToConfirm.visitType, // Ensure visitType is in UI object
+             userId: ownerUserId,
+             visitType: visitToConfirm.visitType,
              syncStatus: 'pending'
           };
-
           setVisits(prevVisits => [newUIVisit, ...prevVisits].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
-
           resetForm();
           setIsConfirmModalOpen(false);
           setVisitToConfirm(null);
@@ -185,7 +182,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
       if (!currentVisit) return;
        const kmValue = Number(initialKm);
 
-       if (!clientName || !location || initialKm === '' || !reason || !visitType) { // Added visitType validation
+       if (!clientName || !location || initialKm === '' || !reason || !visitType) {
            toast({ variant: "destructive", title: "Erro", description: "Todos os campos marcados com * são obrigatórios." });
            return;
        }
@@ -195,38 +192,36 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
        }
 
        const originalLocalVisit = await getLocalVisits(tripLocalId).then(visits => visits.find(v => v.localId === currentVisit.id || v.firebaseId === currentVisit.id));
-
         if (!originalLocalVisit) {
              toast({ variant: "destructive", title: "Erro", description: "Visita original não encontrada localmente." });
              return;
          }
 
-
       const updatedLocalVisitData: LocalVisit = {
             ...originalLocalVisit,
+            userId: ownerUserId, // Ensure ownerUserId is set
             clientName,
-            location, // City name
-            latitude, // Coordinates
-            longitude, // Coordinates
+            location,
+            latitude,
+            longitude,
             initialKm: kmValue,
             reason,
-            visitType, // Include visitType
+            visitType,
             syncStatus: originalLocalVisit.syncStatus === 'synced' ? 'pending' : originalLocalVisit.syncStatus,
+            deleted: originalLocalVisit.deleted || false,
       };
 
       setIsSaving(true);
       try {
           await updateLocalVisit(updatedLocalVisitData);
-          console.log(`[Visits] Visit updated locally: ${originalLocalVisit.localId}`);
-
            const updatedUIVisit: Visit = {
                 ...updatedLocalVisitData,
                 id: updatedLocalVisitData.firebaseId || updatedLocalVisitData.localId,
                 tripId: tripLocalId,
-                visitType: updatedLocalVisitData.visitType, // Ensure visitType
+                userId: ownerUserId,
+                visitType: updatedLocalVisitData.visitType,
                 syncStatus: updatedLocalVisitData.syncStatus
             };
-
           setVisits(prevVisits => prevVisits.map(v => v.id === currentVisit.id ? updatedUIVisit : v)
                                         .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
           resetForm();
@@ -253,23 +248,16 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
 
   const confirmDeleteVisit = async () => {
     if (!visitToDelete) return;
-
      const localIdToDelete = visitToDelete.id;
-
     setIsSaving(true);
     try {
         const visitsInDb = await getLocalVisits(tripLocalId);
         const visitRecordToDelete = visitsInDb.find(v => v.localId === localIdToDelete || v.firebaseId === localIdToDelete);
-
         if (!visitRecordToDelete) {
              throw new Error("Registro local da visita não encontrado para exclusão.");
         }
-
         await deleteLocalVisit(visitRecordToDelete.localId);
-        console.log(`[Visits] Visit marked for deletion locally: ${visitRecordToDelete.localId}`);
-
         setVisits(visits.filter(v => v.id !== visitToDelete.id));
-
         toast({ title: "Visita marcada para exclusão na próxima sincronização." });
         closeDeleteConfirmation();
     } catch (error) {
@@ -283,12 +271,12 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
   const openEditModal = (visit: Visit) => {
     setCurrentVisit(visit);
     setClientName(visit.clientName);
-    setLocation(visit.location); // This will be the city name if already geocoded
+    setLocation(visit.location);
     setLatitude(visit.latitude);
     setLongitude(visit.longitude);
     setInitialKm(visit.initialKm);
     setReason(visit.reason);
-    setVisitType(visit.visitType || ''); // Set visitType
+    setVisitType(visit.visitType || '');
     setIsEditModalOpen(true);
   };
 
@@ -299,7 +287,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
     setLongitude(undefined);
     setInitialKm('');
     setReason('');
-    setVisitType(''); // Reset visitType
+    setVisitType('');
   };
 
    const closeCreateModal = () => {
@@ -324,7 +312,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
         <h3 className="text-xl font-semibold">
           {tripName ? `Visitas da Viagem: ${tripName}` : 'Visitas'}
         </h3>
-        {tripLocalId && ( // Only show button if a trip context is provided
+        {tripLocalId && (
             <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
                 <DialogTrigger asChild>
                 <Button onClick={() => {resetForm(); setIsCreateModalOpen(true);}} className="bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isSaving}>
@@ -398,12 +386,12 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
               <AlertDialogTitle className="flex items-center gap-2">
                  <AlertTriangle className="h-5 w-5 text-yellow-500" /> Confirmar Dados da Visita
               </AlertDialogTitle>
-              <AlertDialogDescription>
-                Por favor, revise os dados abaixo, especialmente a <strong>Quilometragem Inicial</strong>. Esta ação não pode ser facilmente desfeita.
-              </AlertDialogDescription>
+                <AlertDialogDescription>
+                    Por favor, revise os dados abaixo, especialmente a <strong>Quilometragem Inicial</strong>. Esta ação não pode ser facilmente desfeita.
+                </AlertDialogDescription>
             </AlertDialogHeader>
-            <div className="py-2"> {/* Moved list here and adjusted padding */}
-                <ul className="list-disc list-inside space-y-1 text-sm text-foreground">
+            <div className="py-2">
+                <ul className="mt-3 list-disc list-inside space-y-1 text-sm text-foreground">
                     <li><strong>Cliente:</strong> {visitToConfirm?.clientName}</li>
                     <li><strong>Tipo de Visita:</strong> {visitToConfirm?.visitType}</li>
                     <li><strong>Localização (Cidade):</strong> {visitToConfirm?.location}</li>
@@ -462,7 +450,6 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
         <div className="grid gap-4">
           {visits.map((visit, index) => {
             let distanceTraveled = null;
-            // Sort visits by timestamp ascending to calculate distance correctly
             const sortedVisits = [...visits].sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
             const currentVisitIndexInSorted = sortedVisits.findIndex(v => v.id === visit.id);
 
@@ -584,7 +571,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
                                 <span className="sr-only">Excluir</span>
                                 </Button>
                             </AlertDialogTrigger>
-                            {/* AlertDialogContent for delete is defined once globally */}
+                            {/* AlertDialogContent for delete is defined once globally with isDeleteModalOpen and visitToDelete */}
                         </AlertDialog>
                         </div>
                     </div>

@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Edit, Trash2, Droplet, Paperclip, Camera, Upload, Check, X, Eye, Loader2, TrendingUp, Car } from 'lucide-react'; // Added Car icon
+import { PlusCircle, Edit, Trash2, Droplet, Paperclip, Camera, Upload, Check, X, Eye, Loader2, TrendingUp, Car } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -21,7 +21,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"; // Import Select
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from '@/hooks/use-toast';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import {
@@ -37,21 +37,23 @@ import { formatKm } from '@/lib/utils';
 
 export interface Fueling extends Omit<LocalFueling, 'localId' | 'tripLocalId'> {
   id: string;
-  tripId: string;
+  tripId: string; // This is actually tripLocalId in this context
+  userId: string; // Added to ensure ownership is tracked
   syncStatus?: 'pending' | 'synced' | 'error';
   odometerKm: number;
-  fuelType: string; // Added fuelType
+  fuelType: string;
 }
 
 interface FuelingsProps {
   tripId: string; // This is tripLocalId
   tripName?: string;
-  vehicleId: string; // VehicleId associated with the trip
+  vehicleId: string;
+  ownerUserId: string; // User ID of the trip's owner
 }
 
 const fuelTypes = ['Gasolina Comum', 'Gasolina Aditivada', 'Etanol', 'Diesel Comum', 'Diesel S10', 'GNV'];
 
-export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripName, vehicleId: tripVehicleId }) => {
+export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripName, vehicleId: tripVehicleId, ownerUserId }) => {
   const [fuelings, setFuelings] = useState<Fueling[]>([]);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -70,7 +72,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
   const [location, setLocation] = useState('');
   const [comments, setComments] = useState('');
   const [odometerKm, setOdometerKm] = useState<number | ''>('');
-  const [fuelType, setFuelType] = useState(''); // Added fuelType state
+  const [fuelType, setFuelType] = useState('');
 
   const [attachment, setAttachment] = useState<File | string | null>(null);
   const [attachmentFilename, setAttachmentFilename] = useState<string | null>(null);
@@ -88,9 +90,10 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
                 ...lf,
                 id: lf.firebaseId || lf.localId,
                 tripId: lf.tripLocalId,
+                userId: lf.userId || ownerUserId, // Ensure userId is present
                 syncStatus: lf.syncStatus,
                 odometerKm: lf.odometerKm,
-                fuelType: lf.fuelType // Ensure fuelType is mapped
+                fuelType: lf.fuelType
             })).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
             setFuelings(uiFuelings);
         } catch (error) {
@@ -101,7 +104,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
         }
     };
     fetchFuelingsData();
-  }, [tripLocalId, toast]);
+  }, [tripLocalId, ownerUserId, toast]);
 
     useEffect(() => {
         if (!isCameraOpen) {
@@ -142,7 +145,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
     }, [isCameraOpen, toast]);
 
   const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-   const formatDate = (dateString: string) => {
+   const formatDateDisplay = (dateString: string) => { // Renamed
        try {
             return new Date(dateString).toLocaleDateString('pt-BR');
        } catch {
@@ -198,7 +201,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
         return;
     }
 
-    if (!date || liters === '' || pricePerLiter === '' || !location || odometerKm === '' || !fuelType) { // Added fuelType validation
+    if (!date || liters === '' || pricePerLiter === '' || !location || odometerKm === '' || !fuelType) {
       toast({ variant: 'destructive', title: 'Erro', description: 'Data, litros, preço/L, tipo de combustível, local e KM do odômetro são obrigatórios.' });
       return;
     }
@@ -211,9 +214,9 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
      }
 
      setIsSaving(true);
-
      const newFuelingData: Omit<LocalFueling, 'localId' | 'syncStatus' | 'receiptUrl' | 'receiptPath'> = {
        tripLocalId: tripLocalId,
+       userId: ownerUserId, // Associate with the trip owner
        vehicleId: tripVehicleId,
        date: new Date(date).toISOString(),
        liters: litersNum,
@@ -222,23 +225,22 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
        location,
        comments,
        odometerKm: odometerNum,
-       fuelType, // Save fuelType
+       fuelType,
        receiptFilename: attachmentFilename || undefined,
        receiptUrl: typeof attachment === 'string' ? attachment : undefined,
+       deleted: false, // Initialize deleted as false
      };
 
      try {
          const localId = await addLocalFueling(newFuelingData);
-         console.log(`[Fuelings] Fueling added locally with localId: ${localId}`);
-
           const newUIFueling: Fueling = {
              ...newFuelingData,
              localId: localId,
              id: localId,
              tripId: tripLocalId,
+             userId: ownerUserId,
              syncStatus: 'pending'
           };
-
          setFuelings(prevFuelings => [newUIFueling, ...prevFuelings].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
          resetForm();
          setIsCreateModalOpen(false);
@@ -260,7 +262,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
         return;
     }
 
-    if (!date || liters === '' || pricePerLiter === '' || !location || odometerKm === '' || !fuelType) { // Added fuelType validation
+    if (!date || liters === '' || pricePerLiter === '' || !location || odometerKm === '' || !fuelType) {
       toast({ variant: 'destructive', title: 'Erro', description: 'Data, litros, preço/L, tipo de combustível, local e KM do odômetro são obrigatórios.' });
       return;
     }
@@ -273,16 +275,15 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
       }
 
        const originalLocalFueling = await getLocalFuelings(tripLocalId).then(fuelings => fuelings.find(f => f.localId === currentFueling.id || f.firebaseId === currentFueling.id));
-
         if (!originalLocalFueling) {
              toast({ variant: "destructive", title: "Erro", description: "Abastecimento original não encontrado localmente." });
              return;
          }
 
      setIsSaving(true);
-
      const updatedLocalFuelingData: LocalFueling = {
         ...originalLocalFueling,
+        userId: ownerUserId, // Ensure ownerUserId is set
         date: new Date(date).toISOString(),
         liters: litersNum,
         pricePerLiter: priceNum,
@@ -290,26 +291,24 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
         location,
         comments,
         odometerKm: odometerNum,
-        fuelType, // Save fuelType
+        fuelType,
         vehicleId: tripVehicleId,
         receiptUrl: typeof attachment === 'string' ? attachment : (attachment === null ? undefined : originalLocalFueling.receiptUrl),
         receiptFilename: attachmentFilename || (attachment === null ? undefined : originalLocalFueling.receiptFilename),
         syncStatus: originalLocalFueling.syncStatus === 'synced' ? 'pending' : originalLocalFueling.syncStatus,
+        deleted: originalLocalFueling.deleted || false,
      };
 
     try {
         await updateLocalFueling(updatedLocalFuelingData);
-         console.log(`[Fuelings] Fueling updated locally: ${originalLocalFueling.localId}`);
-
         const updatedUIFueling: Fueling = {
              ...updatedLocalFuelingData,
              id: updatedLocalFuelingData.firebaseId || updatedLocalFuelingData.localId,
              tripId: tripLocalId,
+             userId: ownerUserId,
              syncStatus: updatedLocalFuelingData.syncStatus
         };
-
         setFuelings(prevFuelings => prevFuelings.map(f => f.id === currentFueling.id ? updatedUIFueling : f).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
-
         resetForm();
         setIsEditModalOpen(false);
         setCurrentFueling(null);
@@ -334,24 +333,16 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
 
   const confirmDeleteFueling = async () => {
      if (!fuelingToDelete) return;
-
      const localIdToDelete = fuelingToDelete.id;
-
     setIsSaving(true);
-
     try {
         const fuelingsInDb = await getLocalFuelings(tripLocalId);
         const fuelingRecordToDelete = fuelingsInDb.find(f => f.localId === localIdToDelete || f.firebaseId === localIdToDelete);
-
          if (!fuelingRecordToDelete) {
              throw new Error("Registro local do abastecimento não encontrado para exclusão.");
          }
-
         await deleteLocalFueling(fuelingRecordToDelete.localId);
-         console.log(`[Fuelings] Fueling marked for deletion locally: ${fuelingRecordToDelete.localId}`);
-
         setFuelings(fuelings.filter(f => f.id !== fuelingToDelete.id));
-
         toast({ title: 'Abastecimento marcado para exclusão na próxima sincronização.' });
         closeDeleteConfirmation();
     } catch (error) {
@@ -370,7 +361,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
     setLocation(fueling.location);
     setComments(fueling.comments || '');
     setOdometerKm(fueling.odometerKm);
-    setFuelType(fueling.fuelType || ''); // Set fuelType
+    setFuelType(fueling.fuelType || '');
 
     if (fueling.receiptUrl) {
         setAttachment(fueling.receiptUrl);
@@ -390,7 +381,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
     setLocation('');
     setComments('');
     setOdometerKm('');
-    setFuelType(''); // Reset fuelType
+    setFuelType('');
     clearAttachment();
   };
 
@@ -570,7 +561,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
                 <AlertDialogHeader>
                     <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
                     <AlertDialogDescription>
-                        Tem certeza que deseja marcar este abastecimento de {fuelingToDelete ? formatDate(fuelingToDelete.date) : 'N/A'} para exclusão? A exclusão definitiva ocorrerá na próxima sincronização.
+                        Tem certeza que deseja marcar este abastecimento de {fuelingToDelete ? formatDateDisplay(fuelingToDelete.date) : 'N/A'} para exclusão? A exclusão definitiva ocorrerá na próxima sincronização.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -606,7 +597,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
               <CardHeader>
                 <div className="flex justify-between items-start">
                   <div>
-                    <CardTitle>Abastecimento - {formatDate(fueling.date)}</CardTitle>
+                    <CardTitle>Abastecimento - {formatDateDisplay(fueling.date)}</CardTitle>
                     <CardDescription>
                       {fueling.location} - {formatKm(fueling.odometerKm)}
                         {fueling.syncStatus === 'pending' && <span className="ml-2 text-xs text-yellow-600">(Pendente)</span>}
@@ -626,7 +617,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
                                <DialogTitle>Detalhes do Abastecimento</DialogTitle>
                            </DialogHeader>
                            <div className="py-4 space-y-3">
-                               <p><strong>Data:</strong> {formatDate(fueling.date)}</p>
+                               <p><strong>Data:</strong> {formatDateDisplay(fueling.date)}</p>
                                <p><strong>Local:</strong> {fueling.location}</p>
                                <p><strong>Tipo de Combustível:</strong> {fueling.fuelType}</p>
                                <p><strong>KM no Odômetro:</strong> {formatKm(fueling.odometerKm)}</p>
@@ -727,7 +718,6 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
                             <span className="sr-only">Excluir</span>
                           </Button>
                         </AlertDialogTrigger>
-                        {/* AlertDialogContent moved to a single instance */}
                       </AlertDialog>
                   </div>
                 </div>
@@ -767,4 +757,3 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, tripNam
   );
 };
 export default Fuelings;
-

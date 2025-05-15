@@ -4,14 +4,12 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { CardTitle, CardDescription } from '@/components/ui/card';
-import { AccordionItem, AccordionHeader, AccordionContent, AccordionTrigger as UiAccordionTrigger } from '@/components/ui/accordion';
+import { AccordionItem, AccordionHeader, AccordionContent, AccordionTrigger as UiAccordionTrigger } from '../ui/accordion'; // Changed to relative path
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Loader2, ChevronDown, TrendingUp, Edit, Trash2 } from 'lucide-react';
 import type { Trip } from './Trips';
-import type { Visit } from './Visits';
-import type { Expense } from './Expenses';
-import type { Fueling } from './Fuelings';
+// Remove direct import of Visit, Expense, Fueling types if not strictly needed here
 import type { User } from '@/contexts/AuthContext';
 import type { LocalVehicle } from '@/services/localDbService';
 import { cn } from '@/lib/utils';
@@ -45,12 +43,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 
 const VisitsComponent = dynamic(() => import('./Visits').then(mod => mod.Visits), {
   loading: () => <LoadingSpinner className="h-5 w-5" />,
+  ssr: false,
 });
 const ExpensesComponent = dynamic(() => import('./Expenses').then(mod => mod.Expenses), {
     loading: () => <LoadingSpinner className="h-5 w-5" />,
+    ssr: false,
 });
 const FuelingsComponent = dynamic(() => import('./Fuelings').then(mod => mod.Fuelings), {
     loading: () => <LoadingSpinner className="h-5 w-5" />,
+    ssr: false,
 });
 
 interface TripAccordionItemProps {
@@ -124,19 +125,19 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
     if (isExpanded) {
       getTripSummaryKmFunction(trip.localId).then(summary => setTripKmSummary(summary));
     }
-  }, [isExpanded, trip.localId, getTripSummaryKmFunction, trip.status, trip.finalKm]);
+  }, [isExpanded, trip.localId, getTripSummaryKmFunction, trip.status, trip.finalKm, visitCount]); // Added visitCount as a dependency
 
   const isPending = trip.syncStatus === 'pending';
   const isError = trip.syncStatus === 'error';
 
   return (
     <AccordionItem key={trip.localId} value={trip.localId} className="border bg-card rounded-lg shadow-sm overflow-hidden group/item data-[state=open]:border-primary/50">
-      <UiAccordionTrigger asChild className={cn(
-         "flex justify-between items-center p-4 hover:bg-accent/50 w-full data-[state=open]:border-b cursor-pointer",
-         isPending && "bg-yellow-50 hover:bg-yellow-100/80 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/30",
-         isError && "bg-destructive/10 hover:bg-destructive/20"
-      )}>
-        <div className="flex justify-between items-center w-full"> {/* Added this wrapper div */}
+      <AccordionHeader>
+        <UiAccordionTrigger className={cn(
+          "flex justify-between items-center p-4 hover:bg-accent/50 w-full data-[state=open]:border-b cursor-pointer",
+          isPending && "bg-yellow-50 hover:bg-yellow-100/80 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/30",
+          isError && "bg-destructive/10 hover:bg-destructive/20"
+        )}>
             <div className="flex-1 mr-4 space-y-1 text-left">
             <div>
                 <div className="flex items-center gap-2 flex-wrap">
@@ -161,12 +162,12 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                 <span className="inline-flex items-center gap-1">
                     <Fuel className="h-3 w-3" /> {fuelingCount} {fuelingCount === 1 ? 'Abastec.' : 'Abastec.'}
                 </span>
-                {trip.status === 'Finalizado' && tripKmSummary.firstToLast !== null && (
+                {trip.status === 'Finalizado' && trip.totalDistance != null && ( // Changed to use trip.totalDistance
                     <span className="text-emerald-600 font-medium inline-flex items-center gap-1">
-                    <Milestone className="h-3 w-3" /> {formatKm(tripKmSummary.firstToLast)} Total Percorrido
+                    <Milestone className="h-3 w-3" /> {formatKm(trip.totalDistance)} Total Percorrido
                     </span>
                 )}
-                {tripKmSummary.betweenVisits !== null && tripKmSummary.betweenVisits > 0 && (
+                {isExpanded && tripKmSummary.betweenVisits !== null && tripKmSummary.betweenVisits > 0 && (
                     <span className="text-blue-600 font-medium inline-flex items-center gap-1">
                     <TrendingUp className="h-3 w-3" /> {formatKm(tripKmSummary.betweenVisits)} Entre Visitas
                     </span>
@@ -264,10 +265,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                     <AlertDialogHeader>
                         <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
                         <AlertDialogDescription>
-                        Tem certeza que deseja marcar a viagem "{tripToDelete?.name}" para exclusão? Itens relacionados (visitas, despesas, abastecimentos) também serão marcados. A exclusão definitiva ocorrerá na próxima sincronização.
-                        {(visitCount > 0 || expenseCount > 0 || fuelingCount > 0) ?
-                            <strong className="text-destructive block mt-2"> Atenção: Esta viagem possui itens relacionados localmente. Eles também serão marcados para exclusão.</strong>
-                            : ''}
+                        Tem certeza que deseja marcar a viagem "{tripToDelete?.name}" para exclusão? Itens relacionados (visitas, despesas, abastecimentos) também serão marcados. A exclusão definitiva ocorrerá na próxima sincronização ou imediatamente se nunca foi sincronizada.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -285,10 +283,9 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                 </AlertDialog>
                 </>
             )}
-            <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200 group-data-[state=open]/item:rotate-180" />
             </div>
-        </div>
-      </UiAccordionTrigger>
+        </UiAccordionTrigger>
+      </AccordionHeader>
       <AccordionContent className="p-4 pt-0 bg-secondary/30">
         {isExpanded && (
           <Tabs defaultValue={activeSubTab || "visits"} className="w-full">
@@ -298,13 +295,13 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
               <TabsTrigger value="fuelings"><Fuel className="mr-1 h-4 w-4 inline-block" />Abastecimentos ({fuelingCount})</TabsTrigger>
             </TabsList>
             <TabsContent value="visits" className="mt-4">
-              <VisitsComponent tripId={trip.localId} tripName={trip.name} />
+              <VisitsComponent tripId={trip.localId} tripName={trip.name} ownerUserId={trip.userId} />
             </TabsContent>
             <TabsContent value="expenses" className="mt-4">
-              <ExpensesComponent tripId={trip.localId} tripName={trip.name} />
+              <ExpensesComponent tripId={trip.localId} tripName={trip.name} ownerUserId={trip.userId} />
             </TabsContent>
             <TabsContent value="fuelings" className="mt-4">
-              <FuelingsComponent tripId={trip.localId} tripName={trip.name} vehicleId={trip.vehicleId} />
+              <FuelingsComponent tripId={trip.localId} tripName={trip.name} vehicleId={trip.vehicleId} ownerUserId={trip.userId} />
             </TabsContent>
           </Tabs>
         )}
