@@ -8,8 +8,8 @@ import { CardTitle, CardDescription } from '@/components/ui/card';
 import { AccordionItem, AccordionHeader, AccordionContent, AccordionTrigger as UiAccordionTrigger } from '../ui/accordion';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Loader2, ChevronDown, TrendingUp, Edit, Trash2, Share2 } from 'lucide-react';
-import type { Trip } from './Trips';
+import { Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Loader2, ChevronDown, TrendingUp, Edit, Trash2, Printer } from 'lucide-react'; // Added Printer
+import type { Trip, TripReportData } from './Trips';
 import type { User } from '@/contexts/AuthContext';
 import type { LocalVehicle } from '@/services/localDbService';
 import { cn } from '@/lib/utils';
@@ -39,8 +39,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { format } from 'date-fns';
 
 
 const VisitsComponent = dynamic(() => import('./Visits').then(mod => mod.Visits), {
@@ -87,13 +86,7 @@ interface TripAccordionItemProps {
   vehicles: LocalVehicle[];
   getTripSummaryKmFunction: (tripId: string) => Promise<{ betweenVisits: number | null; firstToLast: number | null }>;
   loadingVehicles: boolean;
-  // Props for share dialog, specific to this item
-  isShareModalOpenForThisTrip: boolean;
-  openShareModalForThisTrip: () => void;
-  closeShareModal: () => void;
-  detailedSummaryText: string | null;
-  setDetailedSummaryText: (text: string | null) => void;
-  generateTripSummary: (detailed: boolean) => string;
+  onGenerateReport: (trip: Trip) => Promise<TripReportData | null>;
 }
 
 export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
@@ -127,14 +120,10 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
   vehicles,
   getTripSummaryKmFunction,
   loadingVehicles,
-  isShareModalOpenForThisTrip,
-  openShareModalForThisTrip,
-  closeShareModal,
-  detailedSummaryText,
-  setDetailedSummaryText,
-  generateTripSummary,
+  onGenerateReport,
 }) => {
   const [tripKmSummary, setTripKmSummary] = React.useState<{ betweenVisits: number | null, firstToLast: number | null }>({ betweenVisits: null, firstToLast: null });
+  const [isGeneratingReport, setIsGeneratingReport] = React.useState(false);
 
 
   React.useEffect(() => {
@@ -146,27 +135,154 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
   const isPending = trip.syncStatus === 'pending';
   const isError = trip.syncStatus === 'error';
 
-
-  const handleShareWhatsApp = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const summary = generateTripSummary(false); // false for concise summary
-    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(summary)}`;
-    window.open(whatsappUrl, '_blank');
-    closeShareModal();
+  const formatCurrencyForReport = (value: number | undefined) => {
+    if (value === undefined) return 'N/A';
+    return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
   };
 
-  const handleViewDetailedSummary = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    const summary = generateTripSummary(true);
-    setDetailedSummaryText(summary);
+  const formatDateForReport = (dateString: string | undefined) => {
+    if (!dateString) return 'N/A';
+    try {
+      return format(new Date(dateString), 'dd/MM/yyyy HH:mm');
+    } catch {
+      return 'Data Inválida';
+    }
+  };
+
+
+  const handlePrintReport = async (event: React.MouseEvent) => {
+    event.stopPropagation();
+    setIsGeneratingReport(true);
+    const reportData = await onGenerateReport(trip);
+    setIsGeneratingReport(false);
+
+    if (!reportData) {
+      // Toast for error is handled in onGenerateReport
+      return;
+    }
+
+    let reportHtml = `
+      <html>
+        <head>
+          <title>Relatório da Viagem: ${reportData.name}</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 20px; font-size: 10pt; }
+            h1, h2, h3 { color: #333; }
+            h1 { font-size: 18pt; margin-bottom: 5px; }
+            h2 { font-size: 14pt; margin-top: 20px; margin-bottom: 10px; border-bottom: 1px solid #ccc; padding-bottom: 5px;}
+            h3 { font-size: 12pt; margin-top: 15px; margin-bottom: 5px; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 15px; }
+            th, td { border: 1px solid #ddd; padding: 6px; text-align: left; }
+            th { background-color: #f2f2f2; font-weight: bold; }
+            .trip-summary p { margin: 3px 0; }
+            .section-empty { color: #777; font-style: italic; }
+          </style>
+        </head>
+        <body>
+          <h1>Relatório da Viagem: ${reportData.name}</h1>
+          <div class="trip-summary">
+            <p><strong>Status:</strong> ${reportData.status}</p>
+            <p><strong>Motorista:</strong> ${reportData.driverName}</p>
+            <p><strong>Veículo:</strong> ${reportData.vehicleDisplay}</p>
+            <p><strong>Base:</strong> ${reportData.base || 'N/A'}</p>
+            <p><strong>Criada em:</strong> ${formatDateForReport(reportData.createdAt)}</p>
+            <p><strong>Atualizada em:</strong> ${formatDateForReport(reportData.updatedAt)}</p>
+            ${reportData.status === 'Finalizado' ? `<p><strong>KM Final:</strong> ${formatKm(reportData.finalKm)}</p>` : ''}
+            ${reportData.status === 'Finalizado' ? `<p><strong>Distância Total:</strong> ${formatKm(reportData.totalDistance)}</p>` : ''}
+          </div>
+
+          <h2>Visitas (${reportData.visits.length})</h2>
+    `;
+    if (reportData.visits.length > 0) {
+      reportHtml += `
+          <table>
+            <thead><tr><th>Cliente</th><th>Tipo</th><th>Local (Cidade)</th><th>KM Inicial</th><th>Motivo</th><th>Data/Hora</th></tr></thead>
+            <tbody>`;
+      reportData.visits.forEach(v => {
+        reportHtml += `<tr>
+                        <td>${v.clientName}</td>
+                        <td>${v.visitType || 'N/A'}</td>
+                        <td>${v.location}</td>
+                        <td>${formatKm(v.initialKm)}</td>
+                        <td>${v.reason}</td>
+                        <td>${formatDateForReport(v.timestamp)}</td>
+                       </tr>`;
+      });
+      reportHtml += `</tbody></table>`;
+    } else {
+      reportHtml += `<p class="section-empty">Nenhuma visita registrada.</p>`;
+    }
+
+    reportHtml += `<h2>Despesas (${reportData.expenses.length})</h2>`;
+    if (reportData.expenses.length > 0) {
+      reportHtml += `
+          <table>
+            <thead><tr><th>Descrição</th><th>Tipo</th><th>Valor</th><th>Data</th><th>Anexo</th></tr></thead>
+            <tbody>`;
+      reportData.expenses.forEach(e => {
+        reportHtml += `<tr>
+                        <td>${e.description}</td>
+                        <td>${e.expenseType}</td>
+                        <td>${formatCurrencyForReport(e.value)}</td>
+                        <td>${formatDateForReport(e.expenseDate)}</td>
+                        <td>${e.receiptFilename || 'Nenhum'}</td>
+                       </tr>`;
+      });
+      reportHtml += `</tbody></table>`;
+    } else {
+      reportHtml += `<p class="section-empty">Nenhuma despesa registrada.</p>`;
+    }
+
+    reportHtml += `<h2>Abastecimentos (${reportData.fuelings.length})</h2>`;
+    if (reportData.fuelings.length > 0) {
+      reportHtml += `
+          <table>
+            <thead><tr><th>Data</th><th>Litros</th><th>Preço/L</th><th>Total</th><th>Odômetro</th><th>Combustível</th><th>Local</th><th>Anexo</th></tr></thead>
+            <tbody>`;
+      reportData.fuelings.forEach(f => {
+        reportHtml += `<tr>
+                        <td>${formatDateForReport(f.date)}</td>
+                        <td>${f.liters.toFixed(2)} L</td>
+                        <td>${formatCurrencyForReport(f.pricePerLiter)}</td>
+                        <td>${formatCurrencyForReport(f.totalCost)}</td>
+                        <td>${formatKm(f.odometerKm)}</td>
+                        <td>${f.fuelType}</td>
+                        <td>${f.location}</td>
+                        <td>${f.receiptFilename || 'Nenhum'}</td>
+                       </tr>`;
+      });
+      reportHtml += `</tbody></table>`;
+    } else {
+      reportHtml += `<p class="section-empty">Nenhum abastecimento registrado.</p>`;
+    }
+
+    reportHtml += `
+        </body>
+      </html>
+    `;
+
+    const printWindow = window.open('', '_blank');
+    if (printWindow) {
+      printWindow.document.write(reportHtml);
+      printWindow.document.close();
+      printWindow.focus();
+      // Delay print slightly to ensure content is rendered
+      setTimeout(() => {
+        printWindow.print();
+        // Optional: close the window after printing or cancellation
+        // setTimeout(() => printWindow.close(), 1000);
+      }, 500);
+    } else {
+      alert("Seu navegador bloqueou a abertura da janela de impressão. Por favor, habilite pop-ups para este site.");
+    }
   };
 
 
   return (
     <AccordionItem key={trip.localId} value={trip.localId} className="border bg-card rounded-lg shadow-sm overflow-hidden group/item data-[state=open]:border-primary/50">
-      <AccordionHeader className="flex justify-between items-center hover:bg-accent/50 data-[state=open]:border-b">
+       <AccordionHeader className="flex justify-between items-center hover:bg-accent/50 data-[state=open]:border-b">
         <UiAccordionTrigger className={cn(
-          "flex-1 justify-between items-center hover:bg-accent/50 w-full data-[state=open]:border-b cursor-pointer",
+          "flex-1 justify-between items-center p-4 hover:bg-accent/50 w-full data-[state=open]:border-b cursor-pointer",
           isPending && "bg-yellow-50 hover:bg-yellow-100/80 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/30",
           isError && "bg-destructive/10 hover:bg-destructive/20"
         )}>
@@ -226,8 +342,19 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
               <span className="hidden sm:inline">{isSaving && tripToFinish?.localId === trip.localId ? 'Finalizando...' : 'Finalizar'}</span>
             </Button>
           )}
-          {(isAdmin || trip.userId === user?.id) && (
+           {(isAdmin || trip.userId === user?.id) && (
             <>
+               <Button
+                variant="ghost"
+                size="icon"
+                onClick={handlePrintReport}
+                className="text-muted-foreground hover:text-accent-foreground h-8 w-8"
+                disabled={isSaving || isDeleting || isGeneratingReport}
+                title="Gerar Relatório da Viagem (PDF)"
+              >
+                {isGeneratingReport ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
+              </Button>
+
               <Dialog open={isEditModalOpen && currentTripForEdit?.localId === trip.localId} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); }}>
                 <DialogTrigger asChild>
                   <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openEditModal(trip, e); }} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving || isDeleting}>
@@ -288,63 +415,6 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                   </form>
                 </DialogContent>
               </Dialog>
-
-              <Dialog
-                open={isShareModalOpenForThisTrip}
-                onOpenChange={(open) => {
-                  if (!open) {
-                    closeShareModal();
-                  }
-                }}
-              >
-                <DialogTrigger asChild>
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            openShareModalForThisTrip();
-                        }}
-                        className="text-muted-foreground hover:text-accent-foreground h-8 w-8"
-                        disabled={isSaving || isDeleting}
-                    >
-                        <Share2 className="h-4 w-4" />
-                    </Button>
-                </DialogTrigger>
-                <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                        <DialogTitle>Compartilhar/Exportar Viagem</DialogTitle>
-                        <CardDescription>{trip.name}</CardDescription>
-                    </DialogHeader>
-                    <div className="py-4 space-y-4">
-                        <Button onClick={handleShareWhatsApp} className="w-full bg-green-500 hover:bg-green-600 text-white">
-                            Compartilhar Resumo (WhatsApp)
-                        </Button>
-                        <Button variant="outline" onClick={handleViewDetailedSummary} className="w-full">
-                            Ver Resumo Detalhado (Texto)
-                        </Button>
-                        {detailedSummaryText && (
-                            <Alert className="mt-4">
-                                <AlertTitle>Resumo Detalhado da Viagem</AlertTitle>
-                                <AlertDescription>
-                                    <Textarea
-                                        readOnly
-                                        value={detailedSummaryText}
-                                        className="mt-2 h-48 text-xs bg-muted/50 border-muted-foreground/20 resize-none"
-                                        rows={10}
-                                    />
-                                </AlertDescription>
-                            </Alert>
-                        )}
-                    </div>
-                    <DialogFooter>
-                        <DialogClose asChild>
-                           <Button type="button" variant="outline" onClick={closeShareModal}>Fechar</Button>
-                        </DialogClose>
-                    </DialogFooter>
-                </DialogContent>
-              </Dialog>
-
 
               <AlertDialog open={!!tripToDelete && tripToDelete.localId === trip.localId} onOpenChange={(isOpen) => !isOpen && closeDeleteConfirmation()}>
                 <AlertDialogTrigger asChild>
