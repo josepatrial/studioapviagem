@@ -475,45 +475,21 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
   const confirmDeleteTrip = async () => {
     if (!tripToDelete) return;
 
-    try {
-        const [visits, expenses, fuelings] = await Promise.all([
-            getLocalVisits(tripToDelete.localId),
-            getLocalExpenses(tripToDelete.localId),
-            getLocalFuelings(tripToDelete.localId, 'tripLocalId'),
-        ]);
-
-        if (visits.length > 0 || expenses.length > 0 || fuelings.length > 0) {
-            toast({
-                variant: "destructive",
-                title: "Exclusão não permitida",
-                description: "Existem visitas, despesas ou abastecimentos associados localmente. Sincronize e exclua online se necessário.",
-                duration: 7000,
-            });
-            closeDeleteConfirmation();
-            return;
-        }
-    } catch (error) {
-        console.error("Error checking related local items before delete:", error);
-        toast({ variant: "destructive", title: "Erro", description: "Não foi possível verificar itens relacionados." });
-        closeDeleteConfirmation();
-        return;
-    }
-
     setIsDeleting(true);
     try {
-        await deleteLocalTrip(tripToDelete.localId);
-        console.log(`[Trips] Trip marked for deletion locally: ${tripToDelete.localId}`);
+        await deleteLocalTrip(tripToDelete.localId); // This marks the trip and its children for deletion
+        console.log(`[Trips] Trip and its children marked for deletion locally: ${tripToDelete.localId}`);
 
-        setAllTrips(prevTrips => prevTrips.filter(t => t.localId !== tripToDelete.localId));
+        setAllTrips(prevTrips => prevTrips.filter(t => t.localId !== tripToDelete!.localId));
 
         if (expandedTripId === tripToDelete.localId) {
           setExpandedTripId(null);
         }
-        toast({ title: 'Viagem marcada para exclusão na próxima sincronização.' });
+        toast({ title: 'Viagem marcada para exclusão.', description: 'A exclusão definitiva ocorrerá na próxima sincronização ou imediatamente se nunca foi sincronizada.' });
         closeDeleteConfirmation();
     } catch (error) {
-        console.error("Error marking trip for deletion locally:", error);
-        toast({ variant: "destructive", title: "Erro Local", description: "Não foi possível marcar a viagem para exclusão." });
+        console.error("Error marking trip and children for deletion locally:", error);
+        toast({ variant: "destructive", title: "Erro Local", description: "Não foi possível marcar a viagem e seus itens para exclusão." });
     } finally {
         setIsDeleting(false);
     }
