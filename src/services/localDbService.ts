@@ -1,3 +1,4 @@
+
 // src/services/localDbService.ts
 import type { VehicleInfo } from '@/components/Vehicle';
 import type { Trip } from '@/components/Trips/Trips';
@@ -38,9 +39,9 @@ export type LocalVisit = Omit<BaseVisit, 'id'> & LocalRecord & { localId: string
 export type LocalExpense = Omit<Expense, 'id'> & LocalRecord & { localId: string; tripLocalId: string; id?: string };
 // Update LocalFueling to include odometerKm and fuelType
 export type LocalFueling = Omit<BaseFueling, 'id'> & LocalRecord & { localId: string; tripLocalId: string; odometerKm: number; fuelType: string; id?: string };
-export type LocalUser = User & { lastLogin?: string; passwordHash?: string; username?: string; }; // Added username to LocalUser
+export type LocalUser = User & { lastLogin?: string; passwordHash?: string; username?: string; deleted?: boolean; }; // Added username and deleted to LocalUser
 
-const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin'> & {password: string})[] = [
+const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin' | 'deleted'> & {password: string})[] = [
   // Admin users
   {
     id: 'admin@grupo2irmaos.com.br',
@@ -306,6 +307,7 @@ export const openDB = (): Promise<IDBDatabase> => {
        if (!userStore.indexNames.contains('lastLogin')) userStore.createIndex('lastLogin', 'lastLogin', { unique: false });
        if (!userStore.indexNames.contains('role')) userStore.createIndex('role', 'role', { unique: false });
        if (!userStore.indexNames.contains('base')) userStore.createIndex('base', 'base', { unique: false });
+       if (!userStore.indexNames.contains('deleted')) userStore.createIndex('deleted', 'deleted', { unique: false });
 
 
       console.log('[localDbService] IndexedDB upgrade complete');
@@ -649,15 +651,19 @@ export const saveLocalUser = (user: LocalUser): Promise<void> => {
     });
 };
 
-export const deleteLocalUser = (userId: string): Promise<void> => {
-     console.log(`[deleteLocalUser] Deleting user with ID: ${userId}`);
-     return deleteLocalRecordByKey(STORE_USERS, userId);
+export const deleteLocalUser = (userId: string, permanent: boolean = false): Promise<void> => {
+     console.log(`[deleteLocalUser] Processing deletion for user ID: ${userId}, Permanent: ${permanent}`);
+     if (permanent) {
+        return deleteLocalRecordByKey(STORE_USERS, userId);
+     } else {
+        return markRecordForDeletion(STORE_USERS, userId);
+     }
 };
 
 export const addLocalDbVehicle = (vehicle: Omit<VehicleInfo, 'id'>, firebaseId?: string): Promise<string> => {
     const localId = `local_vehicle_${uuidv4()}`;
     const newLocalVehicle: LocalVehicle = {
-        ...(vehicle as Omit<VehicleInfo, 'id'>),
+        ...(vehicle as Omit<VehicleInfo, 'id'>), // Cast to ensure correct type spread
         localId,
         id: firebaseId || localId, // Use firebaseId for 'id' if provided
         firebaseId: firebaseId,
@@ -693,6 +699,7 @@ export const addLocalTrip = (trip: Omit<LocalTrip, 'localId' | 'syncStatus' | 'i
       localId,
       id: localId,
       syncStatus: 'pending',
+      deleted: false,
     };
     console.log(`[addLocalTrip] Preparing to add trip with localId: ${localId}`);
     return addLocalRecord<LocalTrip>(STORE_TRIPS, newLocalTrip);
@@ -876,6 +883,7 @@ export const addLocalVisit = (visit: Omit<LocalVisit, 'localId' | 'syncStatus' |
         localId,
         id: localId,
         syncStatus: 'pending',
+        deleted: false,
     };
      console.log(`[addLocalVisit] Preparing to add visit with localId: ${localId}`);
     return addLocalRecord<LocalVisit>(STORE_VISITS, newLocalVisit);
@@ -946,6 +954,7 @@ export const addLocalExpense = (expense: Omit<LocalExpense, 'localId' | 'syncSta
          localId,
          id: localId,
          syncStatus: 'pending',
+         deleted: false,
      };
       console.log(`[addLocalExpense] Preparing to add expense with localId: ${localId}`);
      return addLocalRecord<LocalExpense>(STORE_EXPENSES, newLocalExpense);
@@ -1024,6 +1033,7 @@ export const addLocalFueling = (fueling: Omit<LocalFueling, 'localId' | 'syncSta
           localId,
           id: localId,
           syncStatus: 'pending',
+          deleted: false,
       };
        console.log(`[addLocalFueling] Preparing to add fueling with localId: ${localId}`);
       return addLocalRecord<LocalFueling>(STORE_FUELINGS, newLocalFueling);
@@ -1129,7 +1139,7 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
                      return;
                  }
                 const index = store.index('deleted');
-                let cursorReq = index.openCursor(IDBKeyRange.only(true));
+                let cursorReq = index.openCursor(IDBKeyRange.only(true)); // Query for boolean true
 
                 const transaction = store.transaction;
                 transaction.oncomplete = () => {
@@ -1210,15 +1220,15 @@ export const seedInitialUsers = async () => {
             const hashPromises = seedUsersData.map(async (user) => {
                 const hash = await bcrypt.hash(user.password, 10);
                 const { password, ...userData } = user;
-                // Ensure role and base are correctly assigned from seedUsersData
                 const finalUserData: LocalUser = {
                     ...userData,
-                    id: user.id || user.email, // Use email as ID if id is not present
-                    username: user.username || user.email.split('@')[0], // Ensure username
+                    id: user.id || user.email,
+                    username: user.username || user.email.split('@')[0],
                     passwordHash: hash,
                     lastLogin: new Date().toISOString(),
-                    role: user.role || 'driver', // Default to 'driver' if not specified
-                    base: user.role === 'admin' ? 'ALL' : (user.base || 'N/A') // Default base for non-admins
+                    role: user.role || 'driver',
+                    base: user.role === 'admin' ? 'ALL' : (user.base || 'N/A'),
+                    deleted: false, // Ensure deleted is set for seeded users
                 };
                 return finalUserData;
             });
@@ -1228,7 +1238,7 @@ export const seedInitialUsers = async () => {
                 const addReq = store.add(user);
                 addReq.onerror = () => {
                     console.warn(`[seedInitialUsers] Error adding user ${user.email} (ID: ${user.id}), attempting update... Error:`, addReq.error);
-                    const updateReq = store.put(user);
+                    const updateReq = store.put(user); // Attempt to update if add failed (e.g., user already exists from a partial seed)
                     updateReq.onerror = () => {
                          console.error(`[seedInitialUsers] Error updating user ${user.email} (ID: ${user.id}) after add failed:`, updateReq.error);
                     };
@@ -1240,23 +1250,26 @@ export const seedInitialUsers = async () => {
                     console.log(`[seedInitialUsers] User ${user.email} (ID: ${user.id}) added to store.`);
                 };
             });
-            console.log("[seedInitialUsers] All add requests issued within transaction.");
+            console.log("[seedInitialUsers] All add/update requests issued within transaction.");
         } else {
             console.log("[seedInitialUsers] User store not empty, skipping seed.");
         }
+        // Wait for the transaction to complete
         await transactionCompletePromise;
         console.log("[seedInitialUsers] Seeding process/check finished.");
 
     } catch (error) {
         console.error("[seedInitialUsers] Error during seeding process:", error);
-        if (transaction && transaction.abort && transaction.readyState !== 'done') {
+        // Ensure transaction is aborted if an error occurs outside the transaction's own error/abort handlers
+        if (transaction && transaction.abort && transaction.readyState !== 'done') { // Check readyState
             console.warn("[seedInitialUsers] Aborting transaction due to error.");
             transaction.abort();
         }
-        throw error;
+        throw error; // Re-throw the error to be caught by the caller if necessary
     }
 };
 
 
 // Initial call to open the DB and seed users when the service loads
 openDB().then(() => seedInitialUsers()).catch(error => console.error("Failed to initialize/seed IndexedDB on load:", error));
+
