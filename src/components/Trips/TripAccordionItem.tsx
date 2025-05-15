@@ -5,10 +5,10 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { CardTitle, CardDescription } from '@/components/ui/card';
-import { AccordionItem, AccordionHeader, AccordionContent, AccordionTrigger as UiAccordionTrigger } from '../ui/accordion'; // Changed to relative path
+import { AccordionItem, AccordionHeader, AccordionContent, AccordionTrigger as UiAccordionTrigger } from '../ui/accordion';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Loader2, ChevronDown, TrendingUp, Edit, Trash2 } from 'lucide-react';
+import { Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Loader2, ChevronDown, TrendingUp, Edit, Trash2, Share2 } from 'lucide-react'; // Added Share2
 import type { Trip } from './Trips';
 import type { User } from '@/contexts/AuthContext';
 import type { LocalVehicle } from '@/services/localDbService';
@@ -34,11 +34,12 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Textarea } from '@/components/ui/textarea'; // Import Textarea for summary display
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'; // Import Alert for summary display
 
 
 const VisitsComponent = dynamic(() => import('./Visits').then(mod => mod.Visits), {
@@ -120,6 +121,9 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
   loadingVehicles,
 }) => {
   const [tripKmSummary, setTripKmSummary] = useState<{ betweenVisits: number | null, firstToLast: number | null }>({ betweenVisits: null, firstToLast: null });
+  const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
+  const [detailedSummaryText, setDetailedSummaryText] = useState<string | null>(null);
+
 
   useEffect(() => {
     if (isExpanded) {
@@ -130,17 +134,66 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
   const isPending = trip.syncStatus === 'pending';
   const isError = trip.syncStatus === 'error';
 
+  const generateTripSummary = (detailed: boolean): string => {
+    let summary = `Resumo da Viagem: ${trip.name}\n`;
+    summary += `Status: ${trip.status}\n`;
+    summary += `Veículo: ${getVehicleDisplay(trip.vehicleId)}\n`;
+    summary += `Motorista: ${getDriverName(trip.userId)}\n`;
+    summary += `Data de Criação: ${new Date(trip.createdAt).toLocaleDateString('pt-BR')}\n`;
+    if (trip.status === 'Finalizado' && trip.updatedAt !== trip.createdAt) {
+        summary += `Data de Finalização: ${new Date(trip.updatedAt).toLocaleDateString('pt-BR')}\n`;
+    } else if (trip.updatedAt !== trip.createdAt) {
+        summary += `Última Atualização: ${new Date(trip.updatedAt).toLocaleDateString('pt-BR')}\n`;
+    }
+
+    if (detailed) {
+        summary += `\n--- Detalhes ---\n`;
+        summary += `Total de Visitas: ${visitCount}\n`;
+        summary += `Total de Despesas Registradas: ${expenseCount}\n`; // You might want to sum values here
+        summary += `Total de Abastecimentos Registrados: ${fuelingCount}\n`; // You might want to sum values here
+        if (trip.status === 'Finalizado' && trip.totalDistance != null) {
+            summary += `Distância Total Percorrida (Viagem): ${formatKm(trip.totalDistance)}\n`;
+        }
+        if (tripKmSummary.betweenVisits !== null && tripKmSummary.betweenVisits > 0) {
+            summary += `Distância Percorrida (Entre Visitas): ${formatKm(tripKmSummary.betweenVisits)}\n`;
+        }
+        if (trip.finalKm != null) {
+            summary += `KM Final Registrado na Viagem: ${formatKm(trip.finalKm)}\n`;
+        }
+    } else { // Concise for WhatsApp
+        summary += `Visitas: ${visitCount}, Despesas: ${expenseCount}, Abastec.: ${fuelingCount}\n`;
+        if (trip.status === 'Finalizado' && trip.totalDistance != null) {
+            summary += `Dist. Total: ${formatKm(trip.totalDistance)}\n`;
+        }
+    }
+    return summary;
+  };
+
+  const handleShareWhatsApp = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const summary = generateTripSummary(false); // false for concise summary
+    const whatsappUrl = `https://wa.me/?text=${encodeURIComponent(summary)}`;
+    window.open(whatsappUrl, '_blank');
+    setIsShareDialogOpen(false);
+  };
+
+  const handleViewDetailedSummary = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    const summary = generateTripSummary(true);
+    setDetailedSummaryText(summary);
+  };
+
+
   return (
     <AccordionItem key={trip.localId} value={trip.localId} className="border bg-card rounded-lg shadow-sm overflow-hidden group/item data-[state=open]:border-primary/50">
       <AccordionHeader className={cn(
-        "flex justify-between items-center hover:bg-accent/50 w-full data-[state=open]:border-b", // Removed p-4 here, relies on Trigger's padding
+        "flex justify-between items-center hover:bg-accent/50 w-full data-[state=open]:border-b",
         isPending && "bg-yellow-50 hover:bg-yellow-100/80 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/30",
         isError && "bg-destructive/10 hover:bg-destructive/20"
       )}>
         <UiAccordionTrigger className={cn(
-          // Removed p-0, allowing base py-4 to apply. Added px-4 for horizontal padding if needed.
           "flex-1 text-left px-4 hover:no-underline [&_svg]:transition-transform [&_svg]:duration-200 [&[data-state=open]>svg]:rotate-180",
-          isPending && "bg-transparent", // Ensure conditional background doesn't conflict with default hover
+          isPending && "bg-transparent",
           isError && "bg-transparent"
         )}>
           <div className="flex-1 mr-4 space-y-1">
@@ -184,10 +237,9 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
               </div>
             </div>
           </div>
-          {/* Chevron is part of UiAccordionTrigger from ui/accordion.tsx */}
         </UiAccordionTrigger>
 
-        <div className="flex items-center gap-1 flex-shrink-0 ml-2 pr-4"> {/* Added pr-4 for spacing from edge */}
+        <div className="flex items-center gap-1 flex-shrink-0 ml-2 pr-4">
           {trip.status === 'Andamento' && (isAdmin || trip.userId === user?.id) && (
             <Button
               variant="outline"
@@ -263,6 +315,47 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                 </DialogContent>
               </Dialog>
 
+              <Dialog open={isShareDialogOpen} onOpenChange={(isOpen) => { if(!isOpen) { setIsShareDialogOpen(false); setDetailedSummaryText(null); } else { setIsShareDialogOpen(true); } }}>
+                <DialogTrigger asChild>
+                    <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); setIsShareDialogOpen(true); setDetailedSummaryText(null); }} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving || isDeleting}>
+                        <Share2 className="h-4 w-4" />
+                    </Button>
+                </DialogTrigger>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Compartilhar/Exportar Viagem</DialogTitle>
+                        <CardDescription>{trip.name}</CardDescription>
+                    </DialogHeader>
+                    <div className="py-4 space-y-4">
+                        <Button onClick={handleShareWhatsApp} className="w-full bg-green-500 hover:bg-green-600 text-white">
+                            Compartilhar Resumo (WhatsApp)
+                        </Button>
+                        <Button variant="outline" onClick={handleViewDetailedSummary} className="w-full">
+                            Ver Resumo Detalhado (Texto)
+                        </Button>
+                        {detailedSummaryText && (
+                            <Alert className="mt-4">
+                                <AlertTitle>Resumo Detalhado da Viagem</AlertTitle>
+                                <AlertDescription>
+                                    <Textarea
+                                        readOnly
+                                        value={detailedSummaryText}
+                                        className="mt-2 h-48 text-xs bg-muted/50 border-muted-foreground/20 resize-none"
+                                        rows={10}
+                                    />
+                                </AlertDescription>
+                            </Alert>
+                        )}
+                    </div>
+                    <DialogFooter>
+                        <DialogClose asChild>
+                           <Button type="button" variant="outline" onClick={() => {setIsShareDialogOpen(false); setDetailedSummaryText(null);}}>Fechar</Button>
+                        </DialogClose>
+                    </DialogFooter>
+                </DialogContent>
+              </Dialog>
+
+
               <AlertDialog open={!!tripToDelete && tripToDelete.localId === trip.localId} onOpenChange={(isOpen) => !isOpen && closeDeleteConfirmation()}>
                 <AlertDialogTrigger asChild>
                   <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openDeleteConfirmation(trip, e); }} className="text-muted-foreground hover:text-destructive h-8 w-8" disabled={isSaving || isDeleting}>
@@ -316,4 +409,3 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
     </AccordionItem>
   );
 };
-
