@@ -112,13 +112,17 @@ export const FinishTripDialog: React.FC<FinishTripDialogProps> = ({
           <AlertDialogTitle>Finalizar Viagem: {trip?.name}</AlertDialogTitle>
           <AlertDialogDescription>
             Insira a quilometragem final do veículo para calcular a distância percorrida.
-             {firstVisitKm !== null && (
-                <p className="text-sm mt-2">KM da primeira visita: <strong>{formatKm(firstVisitKm)}</strong></p>
-             )}
-             {lastRecordedVisitKm !== null && firstVisitKm !== lastRecordedVisitKm && ( // Only show if different from first
-                 <p className="text-sm">KM da última visita registrada: <strong>{formatKm(lastRecordedVisitKm)}</strong></p>
-             )}
           </AlertDialogDescription>
+          {firstVisitKm !== null && (
+            <p className="text-sm mt-1 text-muted-foreground">
+                KM da primeira visita: <strong>{formatKm(firstVisitKm)}</strong>
+            </p>
+          )}
+          {lastRecordedVisitKm !== null && firstVisitKm !== lastRecordedVisitKm && ( // Only show if different from first
+              <p className="text-sm text-muted-foreground">
+                  KM da última visita registrada: <strong>{formatKm(lastRecordedVisitKm)}</strong>
+              </p>
+          )}
         </AlertDialogHeader>
         <div className="py-4 space-y-2">
           <Label htmlFor="finalKm">Quilometragem Final do Veículo (Km)*</Label>
