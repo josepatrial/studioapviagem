@@ -469,7 +469,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
            )}
         </div>
 
-      {/*
       {isAdmin && user?.email === 'grupo2irmaos@grupo2irmaos.com.br' && adminDashboardData && (
         <div className="mt-8 space-y-6">
           <h2 className="text-2xl font-semibold text-primary">Painel do Administrador</h2>
@@ -595,7 +594,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
 
         </div>
       )}
-      */}
     </div>
   );
 };
