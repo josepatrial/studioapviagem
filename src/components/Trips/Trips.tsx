@@ -6,7 +6,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Filter, Loader2, Printer } from 'lucide-react';
+import { PlusCircle, Filter, Loader2, Printer, PlayCircle } from 'lucide-react'; // Added PlayCircle
 import {
   AlertDialog,
   AlertDialogAction,
@@ -108,8 +108,6 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
   const [tripToDelete, setTripToDelete] = useState<Trip | null>(null);
   const [expandedTripId, setExpandedTripId] = useState<string | null>(null);
   const { toast } = useToast();
-  // Removed fileInputRef as CSV import is being removed
-  // const fileInputRef = useRef<HTMLInputElement>(null);
 
 
   const [selectedVehicleIdForCreate, setSelectedVehicleIdForCreate] = useState('');
@@ -155,14 +153,11 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
              let localVehicles = await getLocalVehicles();
              if (localVehicles.length === 0 && navigator.onLine) {
                  try {
-                     // Attempt to fetch from online service if local is empty and online
-                     const onlineVehiclesData = await fetchOnlineVehicles(); // Assuming fetchOnlineVehicles fetches from Firestore
+                     const onlineVehiclesData = await fetchOnlineVehicles();
                      if (onlineVehiclesData.length > 0) {
-                        // Here you might want to save these to local DB if they aren't there
-                        // For now, we'll just use them if local is empty.
                         localVehicles = onlineVehiclesData.map(v => ({
                             ...v,
-                            localId: v.id, // Assuming online ID can serve as localId for this purpose
+                            localId: v.id,
                             syncStatus: 'synced',
                             deleted: false,
                             firebaseId: v.id
@@ -255,17 +250,17 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
          return user.name || user.email || `ID: ${driverId.substring(0,6)}...`;
      }
      const driver = drivers.find(d => d.id === driverId || d.firebaseId === driverId);
-     return driver?.name || driver?.email || `Motorista ${driverId.substring(0,6)}...`;
+     const nameToDisplay = driver?.name || driver?.email || `Motorista ${driverId.substring(0,6)}...`;
+     // console.log(`[Trips getDriverName] For driverId ${driverId}, found driver:`, driver, "Displaying:", nameToDisplay);
+     return nameToDisplay;
   };
 
 
    const getTripDescription = (trip: Trip): string => {
        const vehicleDisplay = getVehicleDisplay(trip.vehicleId);
-       // The trip.name itself already contains the vehicle info based on previous logic.
-       // So we just use trip.name and append driver and base.
-       const driverName = getDriverName(trip.userId);
-       const baseDisplay = trip.base ? ` (Base: ${trip.base})` : '';
-       return `${vehicleDisplay} - ${driverName}${baseDisplay}`;
+       const driverNamePart = getDriverName(trip.userId);
+       const baseDisplay = trip.base && trip.base !== 'N/A' && trip.base !== 'ALL_ADM_TRIP' ? ` (Base: ${trip.base})` : '';
+       return `${vehicleDisplay} - ${driverNamePart}${baseDisplay}`;
    };
 
 
@@ -296,7 +291,6 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
     }
 
     const dateStr = new Date().toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit', year: 'numeric'});
-    // Corrected trip name generation
     const generatedTripName = `Viagem ${vehicleForTrip.model} (${vehicleForTrip.licensePlate}) - ${dateStr}`;
     const now = new Date().toISOString();
 
@@ -325,7 +319,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
          const newUITrip: Trip = {
             ...newTripData,
             localId,
-            id: localId, // For UI purposes, id can be localId initially
+            id: localId,
             syncStatus: 'pending'
          };
         setAllTrips(prevTrips => [newUITrip, ...prevTrips].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
@@ -480,7 +474,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
     if (!tripToDelete) return;
     setIsDeleting(true);
     try {
-        await deleteLocalTrip(tripToDelete.localId);
+        await deleteLocalTrip(tripToDelete.localId); // This already marks children for deletion
         setAllTrips(prevTrips => prevTrips.filter(t => t.localId !== tripToDelete!.localId));
 
         if (expandedTripId === tripToDelete.localId) {
@@ -653,7 +647,6 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
               </form>
             </DialogContent>
           </Dialog>
-           {/* CSV Import Button for Trips Removed */}
         </div>
       </div>
 
@@ -726,13 +719,12 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
                 visitCount={visitCounts[trip.localId] ?? 0}
                 expenseCount={expenseCounts[trip.localId] ?? 0}
                 fuelingCount={fuelingCounts[trip.localId] ?? 0}
-                isExpanded={expandedTripId === trip.localId}
                 activeSubTab={activeSubTab}
                 getVehicleDisplay={getVehicleDisplay}
                 getDriverName={getDriverName}
                 getTripDescription={getTripDescription}
-                openFinishModal={(tripToFinish, event) => openFinishModal(tripToFinish, event)}
-                openEditModal={(tripToEdit, event) => openEditModal(tripToEdit, event)}
+                openFinishModal={(tripToFinishFromItem, event) => openFinishModal(tripToFinishFromItem, event)}
+                openEditModal={(tripToEditFromItem, event) => openEditModal(tripToEditFromItem, event)}
                 currentTripForEdit={currentTripForEdit}
                 isEditModalOpen={isEditModalOpen && currentTripForEdit?.localId === trip.localId}
                 closeEditModal={closeEditModal}
@@ -772,10 +764,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
 };
 
 // Function to fetch online vehicles if needed
-// This is a placeholder and should be implemented if you need to fetch vehicles directly from Firestore
-// for cases where local DB might be empty.
 const fetchOnlineVehicles = async (): Promise<VehicleInfo[]> => {
-    // In a real scenario, this would call a function from firestoreService.ts
     console.warn("fetchOnlineVehicles placeholder called. Implement Firestore fetch if needed.");
     return [];
 };
