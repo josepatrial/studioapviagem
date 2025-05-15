@@ -10,8 +10,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Dashboard } from '@/components/Dashboard';
 import { Trips } from './Trips/Trips';
 import { Vehicle } from '@/components/Vehicle';
-import { Drivers } from './Drivers/Drivers'; // Re-added import
-import { LogOut, User as UserIcon, LayoutDashboard, Truck, Car, RefreshCw, WifiOff, UserCog } from 'lucide-react'; // Re-added UserCog
+// import { Drivers } from './Drivers/Drivers'; // Removed as it's no longer used in this layout
+import { LogOut, User as UserIcon, LayoutDashboard, Truck, Car, RefreshCw, WifiOff } from 'lucide-react'; // Removed UserCog
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -139,8 +139,7 @@ const AppLayout: React.FC = () => {
          <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-1 flex-col overflow-hidden">
             <div className="overflow-x-auto border-b bg-background">
                <TabsList className={cn(
-                  "grid w-full rounded-none bg-transparent p-0 sm:w-auto sm:inline-flex",
-                  isAdmin ? "grid-cols-4" : "grid-cols-3" // Adjust grid columns based on admin status
+                  "grid w-full rounded-none bg-transparent p-0 sm:w-auto sm:inline-flex grid-cols-3" // Always 3 columns now
                )}>
                    <TabsTrigger value="dashboard" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none" onClick={() => setActiveSubTabInTrips(null)}>
                      <LayoutDashboard className="mr-2 h-4 w-4 sm:hidden md:inline-block" /> Dashboard
@@ -151,11 +150,7 @@ const AppLayout: React.FC = () => {
                    <TabsTrigger value="vehicle" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none" onClick={() => setActiveSubTabInTrips(null)}>
                       <Car className="mr-2 h-4 w-4 sm:hidden md:inline-block" /> Veículo
                    </TabsTrigger>
-                   {isAdmin && ( // "Motoristas" tab re-added
-                      <TabsTrigger value="drivers" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none" onClick={() => setActiveSubTabInTrips(null)}>
-                          <UserCog className="mr-2 h-4 w-4 sm:hidden md:inline-block" /> Motoristas
-                      </TabsTrigger>
-                   )}
+                   {/* "Motoristas" tab removed */}
                </TabsList>
             </div>
 
@@ -163,9 +158,7 @@ const AppLayout: React.FC = () => {
               <TabsContent value="dashboard"><Dashboard setActiveTab={navigateToTripsSection} /></TabsContent>
               <TabsContent value="trips"><Trips activeSubTab={activeSubTabInTrips} /></TabsContent>
               <TabsContent value="vehicle"><Vehicle /></TabsContent>
-              {isAdmin && ( // Content for "Motoristas" tab re-added
-                  <TabsContent value="drivers"><Drivers /></TabsContent>
-              )}
+              {/* Content for "Motoristas" tab removed */}
             </div>
          </Tabs>
       </div>
