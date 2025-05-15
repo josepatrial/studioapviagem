@@ -561,15 +561,17 @@ export const Expenses: React.FC<{ tripId: string; tripName?: string; }> = ({ tri
                         </AlertDialogTitle>
                         <AlertDialogDescription>
                             Por favor, revise os dados abaixo antes de salvar localmente.
-                            <ul className="mt-3 list-disc list-inside space-y-1 text-sm text-foreground">
-                                <li><strong>Descrição:</strong> {expenseToConfirm?.description}</li>
-                                <li><strong>Valor:</strong> {expenseToConfirm ? formatCurrency(expenseToConfirm.value) : 'N/A'}</li>
-                                <li><strong>Tipo:</strong> {expenseToConfirm?.expenseType}</li>
-                                <li><strong>Data:</strong> {expenseToConfirm?.expenseDate ? formatDate(expenseToConfirm?.expenseDate) : 'N/A'}</li>
-                                <li><strong>Anexo:</strong> {expenseToConfirm?.receiptFilename || 'Nenhum'}</li>
-                            </ul>
                         </AlertDialogDescription>
                     </AlertDialogHeader>
+                    <div className="py-2"> {/* Moved list here */}
+                        <ul className="list-disc list-inside space-y-1 text-sm text-foreground">
+                            <li><strong>Descrição:</strong> {expenseToConfirm?.description}</li>
+                            <li><strong>Valor:</strong> {expenseToConfirm ? formatCurrency(expenseToConfirm.value) : 'N/A'}</li>
+                            <li><strong>Tipo:</strong> {expenseToConfirm?.expenseType}</li>
+                            <li><strong>Data:</strong> {expenseToConfirm?.expenseDate ? formatDate(expenseToConfirm?.expenseDate) : 'N/A'}</li>
+                            <li><strong>Anexo:</strong> {expenseToConfirm?.receiptFilename || 'Nenhum'}</li>
+                        </ul>
+                    </div>
                     <AlertDialogFooter>
                         <AlertDialogCancel onClick={() => {
                             setIsConfirmModalOpen(false);

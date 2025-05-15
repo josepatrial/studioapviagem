@@ -400,15 +400,17 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, tripName })
               </AlertDialogTitle>
               <AlertDialogDescription>
                 Por favor, revise os dados abaixo, especialmente a <strong>Quilometragem Inicial</strong>. Esta ação não pode ser facilmente desfeita.
-                <ul className="mt-3 list-disc list-inside space-y-1 text-sm text-foreground">
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <div className="py-2"> {/* Moved list here and adjusted padding */}
+                <ul className="list-disc list-inside space-y-1 text-sm text-foreground">
                     <li><strong>Cliente:</strong> {visitToConfirm?.clientName}</li>
                     <li><strong>Tipo de Visita:</strong> {visitToConfirm?.visitType}</li>
                     <li><strong>Localização (Cidade):</strong> {visitToConfirm?.location}</li>
                     <li><strong>KM Inicial:</strong> {visitToConfirm ? formatKm(visitToConfirm.initialKm) : 'N/A'}</li>
                     <li><strong>Motivo:</strong> {visitToConfirm?.reason}</li>
                 </ul>
-              </AlertDialogDescription>
-            </AlertDialogHeader>
+            </div>
             <AlertDialogFooter>
               <AlertDialogCancel onClick={() => {
                   setIsConfirmModalOpen(false);
