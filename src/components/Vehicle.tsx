@@ -48,13 +48,12 @@ const parseVehicleCSV = (csvText: string): Record<string, string>[] => {
         'year': 'ano'
     };
 
-    // Get actual headers from the CSV
     const actualHeaders = headerLine.split(',').map(h => {
       let cleanHeader = h.trim();
       if (cleanHeader.startsWith('"') && cleanHeader.endsWith('"')) {
         cleanHeader = cleanHeader.substring(1, cleanHeader.length - 1).trim();
       }
-      return cleanHeader.toLowerCase(); // Use actual lowercase header from CSV for mapping
+      return cleanHeader.toLowerCase();
     });
     console.log("[parseVehicleCSV] Actual Headers from CSV:", JSON.stringify(actualHeaders));
 
@@ -69,35 +68,25 @@ const parseVehicleCSV = (csvText: string): Record<string, string>[] => {
             console.log(`[parseVehicleCSV] Skipping empty line ${i + 1}.`);
             continue;
         }
-        // console.log(`[parseVehicleCSV] Processing data line ${i + 1}:`, line);
 
         const values = line.split(',');
-        // console.log(`[parseVehicleCSV] Values after split for line ${i + 1}:`, JSON.stringify(values));
-
         const entry: Record<string, string> = {};
-        let hasModelo = false;
-        let hasPlaca = false;
+        let modeloValue = '';
+        let placaValue = '';
 
-        for (let j = 0; j < actualHeaders.length; j++) { // Iterate up to the number of actual headers found
-            const normalizedHeaderName = normalizedHeaders[j]; // Use the normalized header name for the key in `entry`
+        for (let j = 0; j < actualHeaders.length; j++) {
+            const normalizedHeaderName = normalizedHeaders[j];
             let value = values[j]?.trim() || '';
             if (value.startsWith('"') && value.endsWith('"')) {
               value = value.substring(1, value.length - 1).trim();
             }
-            entry[normalizedHeaderName] = value; // Use normalized header for consistent access
-            if (normalizedHeaderName === 'modelo' && value) hasModelo = true;
-            if (normalizedHeaderName === 'placa' && value) hasPlaca = true;
+            entry[normalizedHeaderName] = value;
+            if (normalizedHeaderName === 'modelo') modeloValue = value;
+            if (normalizedHeaderName === 'placa') placaValue = value;
         }
-        // console.log(`[parseVehicleCSV] Parsed entry for line ${i + 1}:`, JSON.stringify(entry));
-        // console.log(`[parseVehicleCSV] Line ${i + 1} - hasModelo: ${hasModelo}, hasPlaca: ${hasPlaca}`);
-
-        // Check if the *normalized* essential headers 'modelo' and 'placa' were found AND have values
-        const modeloValue = entry['modelo'];
-        const placaValue = entry['placa'];
 
         if (modeloValue && placaValue) {
             data.push(entry);
-            // console.log(`[parseVehicleCSV] Added entry for line ${i + 1} to data.`);
         } else {
             let reason = `Linha ${i + 1} ignorada:`;
             if (!modeloValue) reason += " Valor para 'Modelo' ausente ou vazio.";
@@ -382,9 +371,9 @@ export const Vehicle: React.FC = () => {
 
                 for (const row of parsedData) {
                     console.log("[Vehicle CSV Import] Processing row:", JSON.stringify(row));
-                    const modelo = row['modelo']?.trim(); // Access using normalized key
-                    const placa = row['placa']?.trim().toUpperCase(); // Access using normalized key
-                    let anoStr = row['ano']?.trim(); // Access using normalized key, this might be undefined
+                    const modelo = row['modelo']?.trim();
+                    const placa = row['placa']?.trim().toUpperCase();
+                    let anoStr = row['ano']?.trim();
 
                     if (!modelo) {
                         const reason = `Linha ignorada: 'Modelo' ausente ou vazio. Dados da linha: ${JSON.stringify(row)}`;
@@ -401,7 +390,7 @@ export const Vehicle: React.FC = () => {
                         continue;
                     }
 
-                    let ano = 0; // Default year
+                    let ano = 0;
                     if (anoStr) {
                         const parsedYear = parseInt(anoStr, 10);
                         if (!isNaN(parsedYear) && parsedYear >= 1900 && parsedYear <= new Date().getFullYear() + 5) {
@@ -510,22 +499,7 @@ export const Vehicle: React.FC = () => {
                 </form>
               </DialogContent>
             </Dialog>
-            <input
-              type="file"
-              accept=".csv"
-              ref={fileInputRef}
-              onChange={handleVehicleFileImport}
-              style={{ display: 'none' }}
-              disabled={isSaving}
-            />
-            <Button
-              onClick={() => fileInputRef.current?.click()}
-              variant="outline"
-              disabled={isSaving}
-            >
-              <FileUp className="mr-2 h-4 w-4" />
-              Importar Veículos (CSV)
-            </Button>
+            {/* CSV Import Button Removed */}
         </div>
       </div>
 
@@ -536,7 +510,7 @@ export const Vehicle: React.FC = () => {
        ) : vehicles.length === 0 ? (
          <Card className="text-center py-10 bg-card border border-border shadow-sm rounded-lg">
            <CardContent>
-             <p className="text-muted-foreground">Nenhum veículo encontrado localmente. Clique em "Cadastrar Veículo" ou "Importar Veículos (CSV)".</p>
+             <p className="text-muted-foreground">Nenhum veículo encontrado localmente. Clique em "Cadastrar Veículo".</p>
            </CardContent>
          </Card>
        ) : (
