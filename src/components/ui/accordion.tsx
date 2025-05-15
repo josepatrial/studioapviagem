@@ -3,7 +3,7 @@
 
 import * as React from "react"
 import * as AccordionPrimitive from "@radix-ui/react-accordion"
-import { Slot } from "@radix-ui/react-slot" // Import Slot
+import { Slot } from "@radix-ui/react-slot"
 import { ChevronDown } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -26,7 +26,7 @@ const AccordionHeader = React.forwardRef<
   React.ElementRef<typeof AccordionPrimitive.Header>,
   React.ComponentPropsWithoutRef<typeof AccordionPrimitive.Header>
 >(({ className, children, ...props }, ref) => (
-  <AccordionPrimitive.Header
+  <AccordionPrimitive.Header // This renders the <h3>
     ref={ref}
     className={cn("flex", className)}
     {...props}
@@ -41,21 +41,20 @@ const AccordionTrigger = React.forwardRef<
   React.ElementRef<typeof AccordionPrimitive.Trigger>,
   React.ComponentPropsWithoutRef<typeof AccordionPrimitive.Trigger>
 >(({ className, children, asChild = false, ...props }, ref) => {
-  const Comp = asChild ? Slot : AccordionPrimitive.Trigger; // Use the imported Slot
+  const Comp = asChild ? Slot : AccordionPrimitive.Trigger;
   return (
-    <AccordionPrimitive.Header className="flex"> {/* Ensure Header is always rendered */}
-      <Comp
-        ref={ref}
-        className={cn(
-          "flex flex-1 items-center justify-between py-4 font-medium transition-all hover:underline [&[data-state=open]>svg]:rotate-180",
-          className
-        )}
-        {...props}
-      >
-        {children}
-        <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200" />
-      </Comp>
-    </AccordionPrimitive.Header>
+    // Removed AccordionPrimitive.Header from here
+    <Comp
+      ref={ref}
+      className={cn(
+        "flex flex-1 items-center justify-between py-4 font-medium transition-all hover:underline [&[data-state=open]>svg]:rotate-180",
+        className
+      )}
+      {...props}
+    >
+      {children}
+      <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200" />
+    </Comp>
   );
 });
 AccordionTrigger.displayName = AccordionPrimitive.Trigger.displayName
