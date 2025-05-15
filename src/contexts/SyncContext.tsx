@@ -4,7 +4,7 @@
 
 import React, { createContext, useContext, useState, useCallback, ReactNode, useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
-import { useAuth } from './AuthContext';
+import { useAuth, User as AuthContextUserType } from './AuthContext';
 import {
     getPendingRecords,
     updateSyncStatus,
@@ -15,6 +15,7 @@ import {
     LocalExpense,
     LocalFueling,
     LocalVehicle,
+    LocalUser,
     STORE_TRIPS,
     STORE_VISITS,
     STORE_EXPENSES,
@@ -32,22 +33,22 @@ import {
     deleteVisit,
     addExpense,
     updateExpense,
-    deleteExpense,
+    deleteExpense as deleteFirestoreExpense, // Renamed to avoid conflict
     addFueling,
     updateFueling,
-    deleteFueling,
+    deleteFueling as deleteFirestoreFueling, // Renamed to avoid conflict
     addVehicle,
     updateVehicle,
-    deleteVehicle,
-    setUserData, // Added for user sync
+    deleteVehicle as deleteFirestoreVehicle, // Renamed to avoid conflict
+    setUserData,
     Trip as FirestoreTrip,
     Visit as FirestoreVisit,
     Expense as FirestoreExpense,
     Fueling as FirestoreFueling,
     VehicleInfo as FirestoreVehicle,
-    User as FirestoreUser, // Added for user sync
+    User as FirestoreUser,
 } from '@/services/firestoreService';
-import { deleteReceipt, uploadReceipt } from '@/services/storageService'; // For handling attachments during sync
+import { deleteReceipt, uploadReceipt } from '@/services/storageService';
 
 type SyncStatusState = 'idle' | 'syncing' | 'success' | 'error';
 
@@ -65,7 +66,7 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
     const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
     const [pendingCount, setPendingCount] = useState<number>(0);
     const { toast } = useToast();
-    const { user, firebaseUser } = useAuth();
+    const { user, firebaseUser } = useAuth(); // Get firebaseUser from AuthContext
 
     const updatePendingCount = useCallback(async () => {
         try {
@@ -83,34 +84,39 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
     }, [user, updatePendingCount]);
 
     const syncItem = useCallback(async <
-        L extends { localId: string; firebaseId?: string; syncStatus: 'pending' | 'error' | 'synced'; deleted?: boolean; userId?: string; [key: string]: any },
+        L extends { localId?: string; id?: string; firebaseId?: string; syncStatus: 'pending' | 'error' | 'synced'; deleted?: boolean; userId?: string; [key: string]: any },
         F extends { id: string; userId?: string; [key: string]: any }
     >(
         item: L,
         storeName: string,
-        // For users, addFn might take (id, data) and updateFn might be the same or similar to setUserData
-        addFn: (data: Omit<F, 'id'> | FirestoreUser, id?: string) => Promise<string>, // Allow id for setUserData like calls
-        updateFn: (id: string, data: Partial<Omit<F, 'id'> | FirestoreUser>) => Promise<void>,
+        addFn: (data: Omit<F, 'id'> | Partial<FirestoreUser>, id?: string) => Promise<string>,
+        updateFn: (id: string, data: Partial<Omit<F, 'id'> | Partial<FirestoreUser>>) => Promise<void>,
         deleteFn: (id: string) => Promise<void>,
         uploadFn?: (fileOrDataUrl: File | string, folder: string) => Promise<{ url: string; path: string }>,
         deleteStorageFn?: (path: string) => Promise<void>,
-        attachmentKey?: keyof L,
-        urlKey?: keyof L,
-        pathKey?: keyof L
+        attachmentKey?: keyof L, // e.g., 'receiptUrl' (might store data URL or File)
+        urlKey?: keyof L,      // e.g., 'receiptUrl' (for storing final URL)
+        pathKey?: keyof L      // e.g., 'receiptPath'
     ): Promise<boolean> => {
-        const { localId, firebaseId: currentFirebaseId, deleted, syncStatus: itemSyncStatus, ...dataToSyncBase } = item;
-        const logPrefix = `[SyncContext syncItem - ${storeName} ${localId}]`;
 
-        const currentAuthUserId = firebaseUser?.uid || user?.firebaseId || user?.id; // Prefer firebaseUser.uid directly
-
-        console.log(`${logPrefix} User state for Firestore op: AuthContext User (from useAuth):`, user, `Effective Auth User ID for this sync: ${currentAuthUserId}`);
-
-
-        if (!currentAuthUserId && !deleted) {
-            console.error(`${logPrefix} No authenticated Firebase user UID found for an add/update operation. Skipping Firestore operation.`);
-            toast({ variant: 'destructive', title: `Erro de Autenticação na Sincronização`, description: `Não foi possível sincronizar ${storeName} ID: ${localId} por falta de usuário autenticado no Firebase.`, duration: 7000 });
+        const itemLocalIdForDb = storeName === STORE_USERS ? item.id : item.localId;
+        const logPrefix = `[SyncContext syncItem - ${storeName} ${itemLocalIdForDb || 'NO_LOCAL_ID'}]`;
+        
+        if (!itemLocalIdForDb) {
+            console.error(`${logPrefix} Item is missing its primary local key (id for users, localId for others). Skipping sync. Item:`, item);
+            toast({ variant: 'destructive', title: `Erro de Dados Locais (${storeName})`, description: `Item sem ID local. Sincronização pulada.`, duration: 7000 });
             return false;
         }
+
+
+        const { localId, id: itemId, firebaseId: currentFirebaseId, deleted, syncStatus: itemSyncStatus, ...dataToSyncBase } = item;
+        // Note: 'localId' above will be from item.localId, 'itemId' will be from item.id.
+        // We'll use itemLocalIdForDb for local DB operations.
+
+        const currentAuthUserId = firebaseUser?.uid || user?.firebaseId;
+        console.log(`${logPrefix} User state for Firestore op: AuthContext User (from useAuth):`, user, `Effective Auth User ID for this sync: ${currentAuthUserId}`);
+        console.log(`${logPrefix} AuthContext firebaseUser state in SyncContext:`, firebaseUser);
+
 
         if (deleted) {
             try {
@@ -119,43 +125,66 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
                     await deleteFn(currentFirebaseId);
                     if (pathKey && item[pathKey] && deleteStorageFn) {
                         console.log(`${logPrefix} Deleting attachment from storage: ${item[pathKey]}`);
-                        await deleteStorageFn(item[pathKey]);
+                        await deleteStorageFn(item[pathKey] as string);
                     }
                     console.log(`${logPrefix} Firestore deletion successful for ${currentFirebaseId}.`);
                 } else {
                     console.log(`${logPrefix} Item was marked for deletion locally but had no Firebase ID. No Firestore deletion needed.`);
                 }
-                await updateSyncStatus(storeName, localId, currentFirebaseId, 'synced'); // Mark as synced after successful (or no-op) delete
+                await updateSyncStatus(storeName, itemLocalIdForDb, currentFirebaseId, 'synced');
                 return true;
             } catch (error: any) {
                 console.error(`${logPrefix} Error deleting Firestore document ${currentFirebaseId}:`, error);
-                toast({ variant: 'destructive', title: `Erro ao Excluir ${storeName} Online`, description: `ID: ${localId}. Erro: ${error.message}`, duration: 7000 });
-                await updateSyncStatus(storeName, localId, currentFirebaseId, 'error');
+                toast({ variant: 'destructive', title: `Erro ao Excluir ${storeName} Online`, description: `ID: ${itemLocalIdForDb}. Erro: ${error.message}`, duration: 7000 });
+                await updateSyncStatus(storeName, itemLocalIdForDb, currentFirebaseId, 'error');
                 return false;
             }
         }
 
+        if (!currentAuthUserId) {
+             console.error(`${logPrefix} No authenticated Firebase user UID found for an add/update operation. Skipping Firestore operation.`);
+             toast({ variant: 'destructive', title: `Erro de Autenticação na Sincronização`, description: `Não foi possível sincronizar ${storeName} ID: ${itemLocalIdForDb} por falta de usuário autenticado no Firebase.`, duration: 7000 });
+             // Do NOT mark as error, as this is an auth issue, not a data issue. Keep as pending.
+             return false;
+        }
+
         let newFirebaseId = currentFirebaseId;
-        let storageUrl: string | undefined = urlKey ? item[urlKey] : undefined;
-        let storagePath: string | undefined = pathKey ? item[pathKey] : undefined;
+        let storageUrl: string | undefined = urlKey ? item[urlKey] as string : undefined;
+        let storagePath: string | undefined = pathKey ? item[pathKey] as string : undefined;
         const localAttachment = attachmentKey ? item[attachmentKey] : null;
         let oldStoragePathToDelete: string | undefined = undefined;
         let needsStorageUpdate = false;
 
-        const fieldsToExcludeFromFirestore: (keyof L)[] = ['localId', 'syncStatus', 'deleted', 'firebaseId'];
+        const fieldsToExcludeFromFirestore: (keyof L)[] = ['localId', 'syncStatus', 'deleted', 'firebaseId', 'id'];
         if (attachmentKey) fieldsToExcludeFromFirestore.push(attachmentKey);
 
         const dataToSync = { ...dataToSyncBase };
         fieldsToExcludeFromFirestore.forEach(key => delete (dataToSync as any)[key]);
 
-
-        // Ensure userId is the Firebase UID for new records or if it's missing/incorrect
-        if (storeName !== STORE_USERS && currentAuthUserId && (!dataToSync.userId || (dataToSync.userId && dataToSync.userId.startsWith('local_')))) {
+        if (storeName !== STORE_USERS && currentAuthUserId && (!dataToSync.userId || (dataToSync.userId && (dataToSync.userId as string).startsWith('local_')))) {
             console.log(`${logPrefix} Setting/overriding userId in payload to current authenticated Firebase UID: ${currentAuthUserId}. Original item.userId was: ${item.userId}`);
             dataToSync.userId = currentAuthUserId;
         } else if (storeName !== STORE_USERS && !dataToSync.userId && item.userId) {
-            // If item.userId exists and is not a local_ one, keep it (might be from a previous sync)
             dataToSync.userId = item.userId;
+        }
+        // Ensure tripId (for child items) and vehicleId are Firebase IDs if parents are synced
+        if ((storeName === STORE_VISITS || storeName === STORE_EXPENSES || storeName === STORE_FUELINGS) && item.tripLocalId) {
+            const parentTrip = await getLocalDbStore(STORE_TRIPS, 'readonly').then(s => s.get(item.tripLocalId!)).then(req => new Promise(res => { req.onsuccess = () => res(req.result); req.onerror = () => res(null); }));
+            if (parentTrip && (parentTrip as LocalTrip).firebaseId) {
+                (dataToSync as any).tripId = (parentTrip as LocalTrip).firebaseId;
+            } else {
+                console.warn(`${logPrefix} Parent trip ${item.tripLocalId} for item ${itemLocalIdForDb} not synced or missing. Sync for this item may fail or be delayed.`);
+            }
+        }
+        if ((storeName === STORE_TRIPS || storeName === STORE_FUELINGS) && item.vehicleId && !(item.vehicleId as string).startsWith('local_') ) { // if vehicleId is already a firebaseId
+             (dataToSync as any).vehicleId = item.vehicleId;
+        } else if ((storeName === STORE_TRIPS || storeName === STORE_FUELINGS) && item.vehicleId) { // if vehicleId is a localId
+            const parentVehicle = await getLocalDbStore(STORE_VEHICLES, 'readonly').then(s => s.get(item.vehicleId!)).then(req => new Promise(res => { req.onsuccess = () => res(req.result); req.onerror = () => res(null); }));
+            if (parentVehicle && (parentVehicle as LocalVehicle).firebaseId) {
+                (dataToSync as any).vehicleId = (parentVehicle as LocalVehicle).firebaseId;
+            } else {
+                 console.warn(`${logPrefix} Parent vehicle ${item.vehicleId} for item ${itemLocalIdForDb} not synced or missing. Sync for this item may fail or be delayed.`);
+            }
         }
 
 
@@ -173,13 +202,13 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
                         console.log(`${logPrefix} Old attachment path ${oldStoragePathToDelete} marked for deletion.`);
                     }
                     console.log(`${logPrefix} Uploading new attachment...`);
-                    const uploadResult = await uploadFn(localAttachment, storeName);
+                    const uploadResult = await uploadFn(localAttachment as File | string, storeName);
                     storageUrl = uploadResult.url; storagePath = uploadResult.path;
                     console.log(`${logPrefix} Upload successful. URL: ${storageUrl}, Path: ${storagePath}`);
                 }
-            } else if (pathKey && item[pathKey] && !localAttachment && deleteStorageFn) {
+            } else if (pathKey && item[pathKey] && !localAttachment && deleteStorageFn) { // Attachment removed
                 needsStorageUpdate = true;
-                oldStoragePathToDelete = item[pathKey];
+                oldStoragePathToDelete = item[pathKey] as string;
                 storageUrl = undefined; storagePath = undefined;
                 console.log(`${logPrefix} Attachment removed locally. Marking ${oldStoragePathToDelete} for deletion from storage.`);
             }
@@ -189,21 +218,23 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
                 if (pathKey) (dataToSync as any)[pathKey] = storagePath;
             }
 
-            if (newFirebaseId) { // This means currentFirebaseId was present, so it's an update
+
+            if (newFirebaseId) {
                 console.log(`${logPrefix} Updating Firestore document. Firebase ID: ${newFirebaseId}.`);
                 await updateFn(newFirebaseId, dataToSync as Partial<Omit<F, 'id'>>);
                 console.log(`${logPrefix} Firestore document updated for ${newFirebaseId}.`);
-            } else { // No currentFirebaseId, so it's a new document
-                if (storeName === STORE_USERS && item.id && !item.id.startsWith('local_')) { // For users, the ID is known (Firebase UID)
-                    console.log(`${logPrefix} Setting/Updating user document in Firestore. User ID: ${item.id}.`);
-                    await addFn(dataToSync as FirestoreUser, item.id); // addFn is setUserData, which takes (id, data)
+            } else {
+                console.log(`${logPrefix} Adding new document to Firestore.`);
+                if (storeName === STORE_USERS && item.id && !(item.id as string).startsWith('local_')) {
+                    // For users being created in Firestore first time (e.g. seeded users logging in)
+                    // Their item.id IS the firebaseId
                     newFirebaseId = item.id;
-                    console.log(`${logPrefix} User document set/updated in Firestore for ID: ${newFirebaseId}`);
+                    console.log(`${logPrefix} User document to be created with known Firebase ID: ${newFirebaseId}.`);
+                    await addFn(dataToSync as Partial<FirestoreUser>, newFirebaseId);
                 } else {
-                    console.log(`${logPrefix} Adding new document to Firestore.`);
-                    newFirebaseId = await addFn(dataToSync as Omit<F, 'id'>);
-                    console.log(`${logPrefix} New document added to Firestore. New Firebase ID: ${newFirebaseId}`);
+                     newFirebaseId = await addFn(dataToSync as Omit<F, 'id'>);
                 }
+                console.log(`${logPrefix} New document added/set in Firestore. Firebase ID: ${newFirebaseId}`);
             }
 
             if (oldStoragePathToDelete && oldStoragePathToDelete !== storagePath && deleteStorageFn) {
@@ -217,16 +248,16 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
                 if (urlKey) (localUpdates as any)[urlKey] = storageUrl;
                 if (pathKey) (localUpdates as any)[pathKey] = storagePath;
             }
-            await updateSyncStatus(storeName, localId, newFirebaseId!, 'synced', localUpdates);
+            await updateSyncStatus(storeName, itemLocalIdForDb, newFirebaseId!, 'synced', localUpdates);
             return true;
         } catch (error: any) {
-            console.error(`${logPrefix} Error processing item ${localId} with Firestore. Error: ${error.code} - ${error.message}. Payload sent:`, dataToSync, `Auth User ID: ${currentAuthUserId}`);
-            toast({ variant: 'destructive', title: `Erro Sinc ${storeName}`, description: `ID: ${localId}. Erro: ${error.message}`, duration: 7000 });
+            console.error(`${logPrefix} Error processing item ${itemLocalIdForDb} with Firestore. Error: ${error.code} - ${error.message}. Payload sent:`, dataToSync, `Auth User ID: ${currentAuthUserId}`);
+            toast({ variant: 'destructive', title: `Erro Sinc ${storeName}`, description: `ID: ${itemLocalIdForDb}. Erro: ${error.message}`, duration: 7000 });
             if (needsStorageUpdate && storagePath && storagePath !== oldStoragePathToDelete && uploadFn && deleteStorageFn) {
                 console.warn(`${logPrefix} Rolling back storage upload for ${storagePath} due to error.`);
                 await deleteStorageFn(storagePath).catch(rbError => console.error(`${logPrefix} Error rolling back storage upload:`, rbError));
             }
-            await updateSyncStatus(storeName, localId, currentFirebaseId, 'error');
+            await updateSyncStatus(storeName, itemLocalIdForDb, currentFirebaseId, 'error');
             return false;
         }
     }, [user, firebaseUser, toast]);
@@ -243,9 +274,15 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
         }
 
         const currentAuthUserId = firebaseUser?.uid || user?.firebaseId;
+        console.log(`[SyncContext startSync] AuthContext user state in SyncContext:`, user);
+        console.log(`[SyncContext startSync] AuthContext firebaseUser state in SyncContext:`, firebaseUser);
+        console.log(`[SyncContext startSync] Effective Firebase User ID for sync: ${currentAuthUserId}`);
+
+
         if (!currentAuthUserId) {
+            console.warn(`[SyncContext startSync] Cannot start sync: No authenticated Firebase user ID (firebaseUser.uid or user.firebaseId).`);
             toast({ variant: 'destructive', title: "Erro de Autenticação", description: "Usuário Firebase não autenticado. Faça login online para sincronizar." });
-            setSyncStatus('error');
+            setSyncStatus('error'); // Set to error as sync cannot proceed
             return;
         }
 
@@ -266,63 +303,73 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
             }
             console.log(`[SyncContext startSync ${syncStartTime}] Total items to sync: ${totalPending}`);
 
-            // Sync Users first (if any pending)
+            // Sync Users first
             for (const pendingUser of pendingData.users) {
-                // For users, 'addFn' is effectively setUserData which needs the user's actual ID (Firebase UID)
-                // 'updateFn' is also setUserData. 'deleteFn' would be deleteUser.
-                // We assume pendingUser.id is the Firebase UID if it's not a local_ prefixed ID.
-                if (pendingUser.id && !pendingUser.id.startsWith('local_')) {
-                    const success = await syncItem<typeof pendingUser, FirestoreUser>(
+                const userLocalId = pendingUser.id; // For users, the key in local DB is 'id'
+                if (!userLocalId) {
+                     console.warn(`[SyncContext] Skipping user sync for an item missing 'id':`, pendingUser);
+                     skippedCount++;
+                     continue;
+                }
+
+                if (pendingUser.firebaseId || userLocalId === currentAuthUserId) { // Sync if it has a firebaseId or if it's the current user's record
+                    const success = await syncItem<LocalUser, FirestoreUser>(
                         pendingUser,
                         STORE_USERS,
-                        (data, id) => setUserData(id!, data as Partial<FirestoreUser>).then(() => id!), // setUserData doesn't return id, so we return it
+                        (data, id) => setUserData(id!, data as Partial<FirestoreUser>).then(() => id!),
                         (id, data) => setUserData(id, data as Partial<FirestoreUser>),
-                        async (id) => { console.warn(`[SyncContext] Deletion of user ${id} via sync not implemented yet.`); } // Or implement deleteUser if needed
+                        async (id) => { console.warn(`[SyncContext] Deletion of user ${id} via sync not implemented yet for regular users. Only for admin-deleted.`); }
                     );
                     if (success) syncedCount++; else errorCount++; overallSuccess = overallSuccess && success;
+                } else if (!pendingUser.firebaseId && pendingUser.id && pendingUser.id.startsWith('local_user_')) {
+                    // This is a locally created admin user, needs special handling if we allow admin to create Auth users
+                    // For now, we skip direct sync for these unless they are the current user trying to sync their own new profile
+                    console.warn(`[SyncContext] Skipping sync for locally created user ${userLocalId} without firebaseId. This user needs to login online first.`);
+                    skippedCount++;
                 } else {
-                    console.warn(`[SyncContext] Skipping sync for user with local ID: ${pendingUser.localId} as it might not be ready for Firestore.`);
+                    console.warn(`[SyncContext] Skipping user ${userLocalId} - conditions not met for sync (no firebaseId or not current user).`);
                     skippedCount++;
                 }
             }
 
 
             for (const vehicle of pendingData.vehicles) {
-                const success = await syncItem<LocalVehicle, FirestoreVehicle>(vehicle, STORE_VEHICLES, addVehicle, updateVehicle, deleteVehicle);
+                const success = await syncItem<LocalVehicle, FirestoreVehicle>(vehicle, STORE_VEHICLES, addVehicle, updateVehicle, deleteFirestoreVehicle);
                 if (success) syncedCount++; else errorCount++; overallSuccess = overallSuccess && success;
             }
 
             const getParentFirebaseId = async (localParentId: string | undefined, parentStoreName: string): Promise<string | null> => {
-                if (!localParentId) return null;
-                const dbInstance = await localDbOpenDB();
-                const tx = dbInstance.transaction(parentStoreName, 'readonly');
-                const store = tx.objectStore(parentStoreName);
-
-                let parent = await new Promise<any | null>((res) => {
-                    const req = store.get(localParentId);
-                    req.onsuccess = () => res(req.result);
-                    req.onerror = () => res(null);
-                });
-
-                if (!parent && store.indexNames.contains('firebaseId')) {
-                    const index = store.index('firebaseId');
-                    parent = await new Promise<any | null>((res) => {
-                        const req = index.get(localParentId);
-                        req.onsuccess = () => res(req.result);
-                        req.onerror = () => res(null);
+                 if (!localParentId) return null;
+                 try {
+                    const store = await getLocalDbStore(parentStoreName, 'readonly');
+                    const request = store.get(localParentId);
+                    return new Promise<string | null>((resolve) => {
+                        request.onsuccess = () => {
+                            const parent = request.result;
+                            resolve(parent && parent.syncStatus === 'synced' && parent.firebaseId ? parent.firebaseId : null);
+                        };
+                        request.onerror = () => {
+                            console.error(`Error fetching parent ${localParentId} from ${parentStoreName}:`, request.error);
+                            resolve(null);
+                        };
                     });
-                }
-                await tx.done;
-                return (parent && parent.syncStatus === 'synced' && parent.firebaseId) ? parent.firebaseId : null;
+                 } catch (error) {
+                    console.error(`Error opening store ${parentStoreName} to get parent ${localParentId}:`, error);
+                    return null;
+                 }
             };
 
             for (const trip of pendingData.trips) {
-                const parentVehicleFirebaseId = await getParentFirebaseId(trip.vehicleId, STORE_VEHICLES);
-                if (trip.vehicleId && !parentVehicleFirebaseId) {
-                    console.warn(`[SyncContext] Skipping trip ${trip.localId}, parent vehicle ${trip.vehicleId} not synced or missing Firebase ID.`);
-                    skippedCount++; continue;
+                let vehicleFirebaseId = trip.vehicleId;
+                if (trip.vehicleId && (trip.vehicleId as string).startsWith('local_')) {
+                    const fetchedVehicleFirebaseId = await getParentFirebaseId(trip.vehicleId, STORE_VEHICLES);
+                    if (!fetchedVehicleFirebaseId) {
+                        console.warn(`[SyncContext] Skipping trip ${trip.localId}, parent vehicle ${trip.vehicleId} not synced or missing Firebase ID.`);
+                        skippedCount++; continue;
+                    }
+                    vehicleFirebaseId = fetchedVehicleFirebaseId;
                 }
-                const tripDataForSync = { ...trip, vehicleId: parentVehicleFirebaseId || trip.vehicleId };
+                const tripDataForSync = { ...trip, vehicleId: vehicleFirebaseId };
                 const success = await syncItem<LocalTrip, FirestoreTrip>(tripDataForSync, STORE_TRIPS, data => addTrip(data as Omit<FirestoreTrip, 'id'>), updateTrip, deleteTripAndRelatedData);
                 if (success) syncedCount++; else errorCount++; overallSuccess = overallSuccess && success;
             }
@@ -342,7 +389,7 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
                     STORE_EXPENSES,
                     data => addExpense(data as Omit<FirestoreExpense, 'id'>),
                     updateExpense,
-                    deleteExpense,
+                    deleteFirestoreExpense,
                     uploadReceipt,
                     deleteReceipt,
                     'receiptUrl',
@@ -355,20 +402,21 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
                 const parentTripFirebaseId = await getParentFirebaseId(fueling.tripLocalId, STORE_TRIPS);
                 if (!parentTripFirebaseId) { skippedCount++; console.warn(`[SyncContext] Skipping fueling ${fueling.localId}, parent trip ${fueling.tripLocalId} not synced.`); continue; }
 
-                let parentVehicleFirebaseId: string | undefined = undefined;
-                if (fueling.vehicleId) {
-                     parentVehicleFirebaseId = await getParentFirebaseId(fueling.vehicleId, STORE_VEHICLES);
-                     if (!parentVehicleFirebaseId) {
+                let vehicleFirebaseId = fueling.vehicleId;
+                if (fueling.vehicleId && (fueling.vehicleId as string).startsWith('local_')) {
+                     const fetchedVehicleFirebaseId = await getParentFirebaseId(fueling.vehicleId, STORE_VEHICLES);
+                     if (!fetchedVehicleFirebaseId) {
                          console.warn(`[SyncContext] Skipping fueling ${fueling.localId}, its vehicle ${fueling.vehicleId} is not synced or missing Firebase ID.`);
                          skippedCount++; continue;
                      }
+                     vehicleFirebaseId = fetchedVehicleFirebaseId;
                 }
                 const success = await syncItem<LocalFueling, FirestoreFueling>(
-                    {...fueling, tripId: parentTripFirebaseId, vehicleId: parentVehicleFirebaseId || fueling.vehicleId },
+                    {...fueling, tripId: parentTripFirebaseId, vehicleId: vehicleFirebaseId },
                     STORE_FUELINGS,
                     data => addFueling(data as Omit<FirestoreFueling, 'id'>),
                     updateFueling,
-                    deleteFueling,
+                    deleteFirestoreFueling,
                     uploadReceipt,
                     deleteReceipt,
                     'receiptUrl',
@@ -386,9 +434,6 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
             console.error(`[SyncContext startSync ${syncStartTime}] Overall Sync Error:`, error);
             toast({ variant: 'destructive', title: "Erro na Sincronização", description: `Erro: ${error.message}` });
             setSyncStatus('error');
-        } finally {
-            // Optionally reset to 'idle' after a delay or based on success/error
-            // setTimeout(() => setSyncStatus('idle'), 3000);
         }
     }, [syncStatus, toast, user, firebaseUser, updatePendingCount, syncItem]);
 
@@ -407,3 +452,9 @@ export const useSync = (): SyncContextType => {
     return context;
 };
 
+// Helper needed for getting parent trip Firebase ID - ensures DB is opened
+// This helper is now incorporated into getParentFirebaseId within startSync for better error handling and clarity.
+// async function getStore(storeName: string, mode: IDBTransactionMode): Promise<IDBObjectStore> {
+//     const db = await localDbOpenDB(); // Reuse openDB logic from localDbService
+//     return db.transaction(storeName, mode).objectStore(storeName);
+// }
