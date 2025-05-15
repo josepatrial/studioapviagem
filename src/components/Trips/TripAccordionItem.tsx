@@ -5,7 +5,7 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { CardTitle, CardDescription } from '@/components/ui/card';
-import { AccordionItem, AccordionHeader, AccordionContent, AccordionTrigger as UiAccordionTrigger } from '../ui/accordion';
+import { AccordionItem, AccordionHeader, AccordionContent, AccordionTrigger as UiAccordionTrigger } from '../ui/accordion'; // Changed to relative path
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Loader2, ChevronDown, TrendingUp, Edit, Trash2 } from 'lucide-react';
@@ -133,14 +133,17 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
   return (
     <AccordionItem key={trip.localId} value={trip.localId} className="border bg-card rounded-lg shadow-sm overflow-hidden group/item data-[state=open]:border-primary/50">
       <AccordionHeader className={cn(
-        "flex justify-between items-center p-4 hover:bg-accent/50 w-full data-[state=open]:border-b",
+        "flex justify-between items-center hover:bg-accent/50 w-full data-[state=open]:border-b", // Removed p-4 here, relies on Trigger's padding
         isPending && "bg-yellow-50 hover:bg-yellow-100/80 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/30",
         isError && "bg-destructive/10 hover:bg-destructive/20"
       )}>
-        <UiAccordionTrigger
-          className="flex-1 text-left p-0 hover:no-underline [&_svg]:transition-transform [&_svg]:duration-200 [&[data-state=open]>svg]:rotate-180"
-        >
-          <div className="flex-1 mr-4 space-y-1"> {/* Container for trip info */}
+        <UiAccordionTrigger className={cn(
+          // Removed p-0, allowing base py-4 to apply. Added px-4 for horizontal padding if needed.
+          "flex-1 text-left px-4 hover:no-underline [&_svg]:transition-transform [&_svg]:duration-200 [&[data-state=open]>svg]:rotate-180",
+          isPending && "bg-transparent", // Ensure conditional background doesn't conflict with default hover
+          isError && "bg-transparent"
+        )}>
+          <div className="flex-1 mr-4 space-y-1">
             <div>
               <div className="flex items-center gap-2 flex-wrap">
                 <CardTitle className="text-lg">{trip.name}</CardTitle>
@@ -181,11 +184,10 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
               </div>
             </div>
           </div>
-          {/* Chevron is added by UiAccordionTrigger */}
+          {/* Chevron is part of UiAccordionTrigger from ui/accordion.tsx */}
         </UiAccordionTrigger>
 
-        {/* Action buttons as SIBLINGS to UiAccordionTrigger, still within AccordionHeader */}
-        <div className="flex items-center gap-1 flex-shrink-0 ml-2">
+        <div className="flex items-center gap-1 flex-shrink-0 ml-2 pr-4"> {/* Added pr-4 for spacing from edge */}
           {trip.status === 'Andamento' && (isAdmin || trip.userId === user?.id) && (
             <Button
               variant="outline"
@@ -314,3 +316,4 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
     </AccordionItem>
   );
 };
+
