@@ -1,4 +1,3 @@
-
 // src/components/Trips/TripAccordionItem.tsx
 'use client';
 
@@ -8,7 +7,7 @@ import { CardTitle, CardDescription } from '@/components/ui/card';
 import { AccordionItem, AccordionHeader, AccordionContent, AccordionTrigger as UiAccordionTrigger } from '../ui/accordion';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Loader2, ChevronDown, TrendingUp, Edit, Trash2, Printer } from 'lucide-react'; // Added Printer
+import { Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Loader2, ChevronDown, TrendingUp, Edit, Trash2, Printer, Share2, MessageCircle } from 'lucide-react'; // Added Printer, Share2, MessageCircle
 import type { Trip, TripReportData } from './Trips';
 import type { User } from '@/contexts/AuthContext';
 import type { LocalVehicle } from '@/services/localDbService';
@@ -68,14 +67,14 @@ interface TripAccordionItemProps {
   openFinishModal: (trip: Trip, event: React.MouseEvent) => void;
   openEditModal: (trip: Trip, event: React.MouseEvent) => void;
   currentTripForEdit: Trip | null;
-  isEditModalOpen: boolean;
+  isEditModalOpenForThisTrip: boolean;
   closeEditModal: () => void;
   handleEditTripSubmit: (e: React.FormEvent) => void;
   selectedVehicleIdForEdit: string;
   setSelectedVehicleIdForEdit: (id: string) => void;
   openDeleteConfirmation: (trip: Trip, event: React.MouseEvent) => void;
   tripToDelete: Trip | null;
-  isDeleteModalOpen: boolean;
+  isDeleteModalOpenForThisTrip: boolean;
   closeDeleteConfirmation: () => void;
   confirmDeleteTrip: () => Promise<void>;
   isSaving: boolean;
@@ -102,14 +101,14 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
   openFinishModal,
   openEditModal,
   currentTripForEdit,
-  isEditModalOpen,
+  isEditModalOpenForThisTrip,
   closeEditModal,
   handleEditTripSubmit,
   selectedVehicleIdForEdit,
   setSelectedVehicleIdForEdit,
   openDeleteConfirmation,
   tripToDelete,
-  isDeleteModalOpen,
+  isDeleteModalOpenForThisTrip,
   closeDeleteConfirmation,
   confirmDeleteTrip,
   isSaving,
@@ -127,10 +126,17 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
 
 
   React.useEffect(() => {
+    // console.log(`[TripAccordionItem ${trip.localId}] useEffect for isExpanded. isExpanded: ${isExpanded}`);
     if (isExpanded) {
-      getTripSummaryKmFunction(trip.localId).then(summary => setTripKmSummary(summary));
+      // console.log(`[TripAccordionItem ${trip.localId}] Expanded, fetching KM summary...`);
+      getTripSummaryKmFunction(trip.localId).then(summary => {
+        // console.log(`[TripAccordionItem ${trip.localId}] KM Summary fetched:`, summary);
+        setTripKmSummary(summary);
+      }).catch(err => {
+        // console.error(`[TripAccordionItem ${trip.localId}] Error fetching KM summary:`, err);
+      });
     }
-  }, [isExpanded, trip.localId, getTripSummaryKmFunction, trip.status, trip.finalKm, visitCount]);
+  }, [isExpanded, trip.localId, getTripSummaryKmFunction, trip.status, trip.finalKm, visitCount]); // Dependencies for KM summary
 
   const isPending = trip.syncStatus === 'pending';
   const isError = trip.syncStatus === 'error';
@@ -176,6 +182,10 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
             th { background-color: #f2f2f2; font-weight: bold; }
             .trip-summary p { margin: 3px 0; }
             .section-empty { color: #777; font-style: italic; }
+            @media print {
+              body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+              .no-print { display: none; }
+            }
           </style>
         </head>
         <body>
@@ -188,7 +198,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
             <p><strong>Criada em:</strong> ${formatDateForReport(reportData.createdAt)}</p>
             <p><strong>Atualizada em:</strong> ${formatDateForReport(reportData.updatedAt)}</p>
             ${reportData.status === 'Finalizado' ? `<p><strong>KM Final:</strong> ${formatKm(reportData.finalKm)}</p>` : ''}
-            ${reportData.status === 'Finalizado' ? `<p><strong>Distância Total:</strong> ${formatKm(reportData.totalDistance)}</p>` : ''}
+            ${reportData.status === 'Finalizado' && reportData.totalDistance != null ? `<p><strong>Distância Total:</strong> ${formatKm(reportData.totalDistance)}</p>` : ''}
           </div>
 
           <h2>Visitas (${reportData.visits.length})</h2>
@@ -257,21 +267,19 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
     }
 
     reportHtml += `
+          <div class="no-print" style="margin-top: 20px; text-align: center;">
+            <button onclick="window.print()">Imprimir Relatório</button>
+            <button onclick="window.close()">Fechar</button>
+          </div>
         </body>
       </html>
     `;
 
-    const printWindow = window.open('', '_blank');
+    const printWindow = window.open('', '_blank', 'width=800,height=600');
     if (printWindow) {
       printWindow.document.write(reportHtml);
       printWindow.document.close();
       printWindow.focus();
-      // Delay print slightly to ensure content is rendered
-      setTimeout(() => {
-        printWindow.print();
-        // Optional: close the window after printing or cancellation
-        // setTimeout(() => printWindow.close(), 1000);
-      }, 500);
     } else {
       alert("Seu navegador bloqueou a abertura da janela de impressão. Por favor, habilite pop-ups para este site.");
     }
@@ -280,9 +288,9 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
 
   return (
     <AccordionItem key={trip.localId} value={trip.localId} className="border bg-card rounded-lg shadow-sm overflow-hidden group/item data-[state=open]:border-primary/50">
-       <AccordionHeader className="flex justify-between items-center hover:bg-accent/50 data-[state=open]:border-b">
+      <AccordionHeader>
         <UiAccordionTrigger className={cn(
-          "flex-1 justify-between items-center p-4 hover:bg-accent/50 w-full data-[state=open]:border-b cursor-pointer",
+          "flex-1 p-4 hover:bg-accent/50 w-full data-[state=open]:border-b cursor-pointer",
           isPending && "bg-yellow-50 hover:bg-yellow-100/80 dark:bg-yellow-900/20 dark:hover:bg-yellow-900/30",
           isError && "bg-destructive/10 hover:bg-destructive/20"
         )}>
@@ -355,7 +363,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                 {isGeneratingReport ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
               </Button>
 
-              <Dialog open={isEditModalOpen && currentTripForEdit?.localId === trip.localId} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); }}>
+              <Dialog open={isEditModalOpenForThisTrip} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); }}>
                 <DialogTrigger asChild>
                   <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openEditModal(trip, e); }} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving || isDeleting}>
                     <Edit className="h-4 w-4" />
@@ -416,7 +424,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                 </DialogContent>
               </Dialog>
 
-              <AlertDialog open={!!tripToDelete && tripToDelete.localId === trip.localId} onOpenChange={(isOpen) => !isOpen && closeDeleteConfirmation()}>
+              <AlertDialog open={isDeleteModalOpenForThisTrip} onOpenChange={(isOpen) => !isOpen && closeDeleteConfirmation()}>
                 <AlertDialogTrigger asChild>
                   <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openDeleteConfirmation(trip, e); }} className="text-muted-foreground hover:text-destructive h-8 w-8" disabled={isSaving || isDeleting}>
                     <Trash2 className="h-4 w-4" />
@@ -446,8 +454,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
           )}
         </div>
       </AccordionHeader>
-      <AccordionContent className="p-4 pt-0 bg-secondary/30">
-        {isExpanded && (
+      <AccordionContent>
           <Tabs defaultValue={activeSubTab || "visits"} className="w-full">
             <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="visits"><MapPin className="mr-1 h-4 w-4 inline-block" />Visitas ({visitCount})</TabsTrigger>
@@ -464,7 +471,6 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
               <FuelingsComponent tripId={trip.localId} tripName={trip.name} vehicleId={trip.vehicleId} ownerUserId={trip.userId} />
             </TabsContent>
           </Tabs>
-        )}
       </AccordionContent>
     </AccordionItem>
   );

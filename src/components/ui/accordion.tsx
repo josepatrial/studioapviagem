@@ -3,6 +3,7 @@
 
 import * as React from "react"
 import * as AccordionPrimitive from "@radix-ui/react-accordion"
+import { Slot } from "@radix-ui/react-slot" // Import Slot
 import { ChevronDown } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -39,19 +40,24 @@ AccordionHeader.displayName = AccordionPrimitive.Header.displayName;
 const AccordionTrigger = React.forwardRef<
   React.ElementRef<typeof AccordionPrimitive.Trigger>,
   React.ComponentPropsWithoutRef<typeof AccordionPrimitive.Trigger>
->(({ className, children, ...props }, ref) => (
-  <AccordionPrimitive.Trigger
-    ref={ref}
-    className={cn(
-      "flex flex-1 items-center justify-between py-4 font-medium transition-all hover:underline [&[data-state=open]>svg]:rotate-180",
-      className
-    )}
-    {...props}
-  >
-    {children}
-    <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200" />
-  </AccordionPrimitive.Trigger>
-))
+>(({ className, children, asChild = false, ...props }, ref) => {
+  const Comp = asChild ? Slot : AccordionPrimitive.Trigger; // Use the imported Slot
+  return (
+    <AccordionPrimitive.Header className="flex"> {/* Ensure Header is always rendered */}
+      <Comp
+        ref={ref}
+        className={cn(
+          "flex flex-1 items-center justify-between py-4 font-medium transition-all hover:underline [&[data-state=open]>svg]:rotate-180",
+          className
+        )}
+        {...props}
+      >
+        {children}
+        <ChevronDown className="h-4 w-4 shrink-0 transition-transform duration-200" />
+      </Comp>
+    </AccordionPrimitive.Header>
+  );
+});
 AccordionTrigger.displayName = AccordionPrimitive.Trigger.displayName
 
 const AccordionContent = React.forwardRef<
@@ -61,14 +67,12 @@ const AccordionContent = React.forwardRef<
   <AccordionPrimitive.Content
     ref={ref}
     className={cn(
-      "overflow-hidden text-sm transition-all", // Removido: data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down
-      "data-[state=closed]:hidden data-[state=open]:block", // Adicionado para teste
-      className // Este className é para o AccordionPrimitive.Content, não para o div interno
+      "overflow-hidden text-sm transition-all data-[state=closed]:animate-accordion-up data-[state=open]:animate-accordion-down",
+      className
     )}
     {...props}
   >
-    {/* O className passado para AccordionContent (se houver) é aplicado ao div interno */}
-    <div className={cn("pb-4 pt-0", className)}>{children}</div>
+    <div className={cn("pb-4 pt-0")}>{children}</div>
   </AccordionPrimitive.Content>
 ))
 
