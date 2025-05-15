@@ -515,40 +515,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                 </CardContent>
             </Card>
 
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Ranking de Motoristas</CardTitle>
-              <CardDescription>{summaryData.filterContext}</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {adminDashboardData.tripsByDriver.length > 0 ? (
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>Motorista</TableHead>
-                            <TableHead className="text-right">Viagens</TableHead>
-                            <TableHead className="text-right">Distância Total</TableHead>
-                            <TableHead className="text-right">Despesas Totais</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {adminDashboardData.tripsByDriver.map(driverData => (
-                            <TableRow key={driverData.name}>
-                                <TableCell>{driverData.name}</TableCell>
-                                <TableCell className="text-right">{driverData.trips}</TableCell>
-                                <TableCell className="text-right">{formatKm(driverData.distance)}</TableCell>
-                                <TableCell className="text-right">{formatCurrency(driverData.expenses)}</TableCell>
-                            </TableRow>
-                        ))}
-                    </TableBody>
-                </Table>
-              ) : (
-                 <p className="text-muted-foreground">Nenhum dado para exibir no ranking de motoristas com os filtros atuais.</p>
-              )}
-            </CardContent>
-          </Card>
-
           <Card>
             <CardHeader>
                 <CardTitle>Performance de Veículos</CardTitle>
