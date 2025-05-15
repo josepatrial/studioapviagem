@@ -22,15 +22,15 @@ import {
     getLocalUser,
     saveLocalUser,
     deleteLocalUser,
-    LocalUser as DbUser,
+    LocalUser as DbUser, // Rename to avoid conflict
     openDB,
-    STORE_USERS,
-    getLocalUserByEmail,
-    getLocalUserByUsername,
-    seedInitialUsers
-} from '@/services/localDbService';
-import { hashPassword, verifyPassword } from '@/lib/passwordUtils';
-import { useCallback } from 'react';
+    STORE_USERS, // Import STORE_USERS
+    getLocalUserByEmail, // Add this import
+    seedInitialUsers, // Import initial seed users
+    getLocalUserByUsername, // Import for username login
+} from '@/services/localDbService'; // Import local DB functions and STORE_USERS
+import { hashPassword, verifyPassword } from '@/lib/passwordUtils'; // Import password utils
+import { useCallback } from 'react'; // Import useCallback
 
 export type UserRole = 'driver' | 'admin';
 export interface User extends Omit<DbUser, 'passwordHash'> {}
@@ -64,7 +64,7 @@ const createUserDocument = async (
   role: UserRole = 'driver'
 ): Promise<User> => {
   const startTime = performance.now();
-  console.log(`[AuthContext createUserDocument ${startTime}] Attempting to create/merge Firestore document for ${userId} in 'users' collection, role: ${role}, base: ${base}`);
+  console.log(`[AuthContext createUserDocument ${startTime}] Attempting to create/merge Firestore document for ${userId} in 'users' collection (DB: ${db?.databaseId}), role: ${role}, base: ${base}`);
   if (!db) {
     console.error(`[AuthContext createUserDocument ${startTime}] Firestore DB instance is not available. Cannot create user document for ${userId}.`);
     throw new Error('Firestore not initialized. Cannot create user document.');
@@ -84,7 +84,7 @@ const createUserDocument = async (
     console.log(`[AuthContext createUserDocument ${startTime}] Calling setDoc for user ${userId} in 'users' collection.`);
     await setDoc(userDocRef, userData, { merge: true });
     const endTime = performance.now();
-    console.log(`[AuthContext createUserDocument ${startTime}] Firestore document created/merged successfully for ${userId} in ${endTime - startTime} ms.`);
+    console.log(`[AuthContext createUserDocument ${startTime}] Firestore document created/merged successfully for ${userId} in 'users'. Time: ${endTime - startTime} ms.`);
     return {
         id: userId,
         name: userData.name!,
@@ -112,19 +112,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
     const checkLocalLogin = useCallback(async (): Promise<boolean> => {
         const checkLocalStartTime = performance.now();
-        console.log(`[checkLocalLogin ${checkLocalStartTime}] Checking local IndexedDB for user...`);
+        // console.log(`[checkLocalLogin ${checkLocalStartTime}] Checking local IndexedDB for user...`);
         try {
             const dbInstance = await openDB();
             if (!dbInstance.objectStoreNames.contains(STORE_USERS)) {
-                 console.warn(`[checkLocalLogin ${checkLocalStartTime}] User store '${STORE_USERS}' not found. Skipping local check.`);
+                 // console.warn(`[checkLocalLogin ${checkLocalStartTime}] User store '${STORE_USERS}' not found. Skipping local check.`);
                  setLoading(false);
                  return false;
             }
             const tx = dbInstance.transaction(STORE_USERS, 'readonly');
             const store = tx.objectStore(STORE_USERS);
-            const allUsers = await new Promise<LocalUser[]>((resolve, reject) => {
+            const allUsers = await new Promise<DbUser[]>((resolve, reject) => { // Use DbUser
                 const request = store.getAll();
-                request.onsuccess = () => resolve(request.result as LocalUser[]);
+                request.onsuccess = () => resolve(request.result as DbUser[]);
                 request.onerror = (e) => reject(request.error);
             });
             await tx.done;
@@ -148,13 +148,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                         userToSet.base = 'N/A';
                         saveLocalUser(userToSet).catch(err => console.error("Error saving default base locally:", err));
                     }
-                    const { passwordHash, ...finalUserToSet } = userToSet;
-                    setUser(finalUserToSet);
+                    const { passwordHash, ...finalUserToSet } = userToSet; // Exclude passwordHash
+                    setUser(finalUserToSet as User); // Cast to User
                     setFirebaseUser(null);
                     setLoading(false);
+                    // console.log(`[checkLocalLogin ${checkLocalStartTime}] Local user session restored:`, finalUserToSet);
                     return true;
                 }
             }
+            // console.log(`[checkLocalLogin ${checkLocalStartTime}] No recent local user session found.`);
             setUser(null);
             setLoading(false);
             return false;
@@ -174,20 +176,29 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
         const setupFirebaseListener = () => {
             if (!auth) {
+                // console.log(`[AuthContext onAuthStateChanged ${listenerId}] Firebase Auth instance not available. Skipping Firebase listener setup.`);
                 if (!user) setLoading(false);
                 return;
             }
+            // console.log(`[AuthContext onAuthStateChanged ${listenerId}] Setting up Firebase Auth listener.`);
             unsubscribe = onAuthStateChanged(auth, async (fbUser) => {
               const authChangeStartTime = performance.now();
-              console.log(`[AuthContext onAuthStateChanged ${listenerId} ${authChangeStartTime}] Received FB auth state. isMounted: ${isMounted}, fbUser present: ${!!fbUser}`);
-              if (!isMounted) return;
+              // console.log(`[AuthContext onAuthStateChanged ${listenerId} ${authChangeStartTime}] Received FB auth state. isMounted: ${isMounted}, fbUser present: ${!!fbUser}`);
+              if (!isMounted) { /*console.log(`[AuthContext onAuthStateChanged ${listenerId} ${authChangeStartTime}] Unmounted, ignoring.`);*/ return; }
+
               if (!fbUser) {
-                  if (firebaseUser) setUser(null);
+                  // Only clear user if there was a firebaseUser previously, to avoid clearing local-only sessions
+                  if (firebaseUser) {
+                      // console.log(`[AuthContext onAuthStateChanged ${listenerId} ${authChangeStartTime}] Firebase user logged out. Clearing user state.`);
+                      setUser(null);
+                  } else {
+                        // console.log(`[AuthContext onAuthStateChanged ${listenerId} ${authChangeStartTime}] No Firebase user, and no previous Firebase user. Local session might still be active.`);
+                  }
                   setFirebaseUser(null);
                   setLoading(false);
-                  console.log(`[AuthContext onAuthStateChanged ${listenerId} ${authChangeStartTime}] No Firebase user. Loading set to false.`);
+                  // console.log(`[AuthContext onAuthStateChanged ${listenerId} ${authChangeStartTime}] No Firebase user. Loading set to false.`);
               } else {
-                   console.log(`[AuthContext onAuthStateChanged ${listenerId} ${authChangeStartTime}] Firebase user (${fbUser.uid}) detected.`);
+                   // console.log(`[AuthContext onAuthStateChanged ${listenerId} ${authChangeStartTime}] Firebase user (${fbUser.uid}) detected.`);
                    setFirebaseUser(fbUser);
                    try {
                        let localUserData = await getLocalUser(fbUser.uid);
@@ -195,11 +206,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                        let firestoreData: User | null = null;
 
                        if (!localUserData || !localUserData.role || !localUserData.base) {
-                            console.log(`[AuthContext onAuthStateChanged ${listenerId}] User ${fbUser.uid} needs local update/creation. Fetching from Firestore...`);
+                            // console.log(`[AuthContext onAuthStateChanged ${listenerId}] User ${fbUser.uid} needs local update/creation. Fetching from Firestore...`);
                             if (navigator.onLine) {
                                 try {
                                     firestoreData = await getFirestoreUserData(fbUser.uid);
-                                     console.log(`[AuthContext onAuthStateChanged ${listenerId}] Firestore data for ${fbUser.uid}:`, firestoreData);
+                                     // console.log(`[AuthContext onAuthStateChanged ${listenerId}] Firestore data for ${fbUser.uid}:`, firestoreData);
                                 } catch (firestoreFetchError) {
                                      console.error(`[AuthContext onAuthStateChanged ${listenerId}] Error fetching Firestore data for ${fbUser.uid}:`, firestoreFetchError);
                                 }
@@ -207,7 +218,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                        }
 
                        if (firestoreData) {
-                            console.log(`[AuthContext onAuthStateChanged ${listenerId}] Firestore data found for ${fbUser.uid}. Merging with local.`);
+                            // console.log(`[AuthContext onAuthStateChanged ${listenerId}] Firestore data found for ${fbUser.uid}. Merging with local.`);
                             const existingLocal = await getLocalUser(fbUser.uid).catch(() => null);
                             const mergedLocal: DbUser = {
                                 id: fbUser.uid,
@@ -224,7 +235,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                             await saveLocalUser(mergedLocal);
                             localUserData = mergedLocal;
                        } else if (!localUserData) {
-                           console.log(`[AuthContext onAuthStateChanged ${listenerId}] No local or Firestore data for ${fbUser.uid}. Creating new local user.`);
+                           // console.log(`[AuthContext onAuthStateChanged ${listenerId}] No local or Firestore data for ${fbUser.uid}. Creating new local user.`);
                            let basicRole: UserRole = fbUser.email?.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br' ? 'admin' : 'driver';
                            let basicBase = basicRole === 'admin' ? 'ALL' : 'N/A';
                            const basicLocalUser: DbUser = {
@@ -246,12 +257,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                                 createUserDocument(fbUser.uid, basicLocalUser.email, basicLocalUser.name, basicLocalUser.username, basicLocalUser.base, basicLocalUser.role)
                                   .then(createdUserDoc => {
                                       saveLocalUser({...basicLocalUser, syncStatus: 'synced', name: createdUserDoc.name, base: createdUserDoc.base, role: createdUserDoc.role });
-                                      console.log(`[AuthContext onAuthStateChanged ${listenerId}] Firestore doc created for ${fbUser.uid}, local user updated to synced.`);
+                                      // console.log(`[AuthContext onAuthStateChanged ${listenerId}] Firestore doc created for ${fbUser.uid}, local user updated to synced.`);
                                   })
                                   .catch(err => console.error(`[AuthContext onAuthStateChanged ${listenerId}] Background Firestore create for ${fbUser.uid} failed:`, err));
                             }
                        } else {
-                           console.log(`[AuthContext onAuthStateChanged ${listenerId}] User ${fbUser.uid} found locally. Updating last login and consistency.`);
+                           // console.log(`[AuthContext onAuthStateChanged ${listenerId}] User ${fbUser.uid} found locally. Updating last login and consistency.`);
                            localUserData.lastLogin = nowISO;
                            if (localUserData.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br') {
                                 if (localUserData.role !== 'admin' || localUserData.base !== 'ALL') {
@@ -266,8 +277,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
                        if (isMounted) {
                            const { passwordHash, ...userToSet } = localUserData;
-                           setUser(userToSet);
-                           console.log(`[AuthContext onAuthStateChanged ${listenerId}] User state set to:`, userToSet);
+                           setUser(userToSet as User); // Cast to User
+                           // console.log(`[AuthContext onAuthStateChanged ${listenerId}] User state set to:`, userToSet);
                        }
                    } catch (error: any) {
                        console.error(`[AuthContext onAuthStateChanged ${listenerId}] Error processing user data for ${fbUser.uid}:`, error);
@@ -277,7 +288,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                    } finally {
                        if (isMounted) {
                           setLoading(false);
-                           console.log(`[AuthContext onAuthStateChanged ${listenerId} ${authChangeStartTime}] Finished processing FB user ${fbUser?.uid}. Loading false.`);
+                           // console.log(`[AuthContext onAuthStateChanged ${listenerId} ${authChangeStartTime}] Finished processing FB user ${fbUser?.uid}. Loading false.`);
                        }
                    }
               }
@@ -285,25 +296,41 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         };
 
         checkLocalLogin().then(localUserFound => {
-            if (isMounted) setupFirebaseListener();
+            // console.log(`[AuthProvider Effect ${listenerId}] checkLocalLogin completed. localUserFound: ${localUserFound}`);
+            if (isMounted) {
+                // console.log(`[AuthProvider Effect ${listenerId}] isMounted true. Setting up Firebase listener or finalizing loading.`);
+                // If a local user was found and set, we might not need to wait for Firebase if it's just an initial check
+                // However, the Firebase listener is still important for actual online auth changes.
+                setupFirebaseListener();
+            } else {
+                 // console.log(`[AuthProvider Effect ${listenerId}] Unmounted after checkLocalLogin. No listener setup.`);
+            }
         }).catch(err => {
-             if (isMounted) setupFirebaseListener();
+             console.error(`[AuthProvider Effect ${listenerId}] Error during checkLocalLogin:`, err);
+             if (isMounted) {
+                // console.log(`[AuthProvider Effect ${listenerId}] Error in checkLocalLogin, but still mounted. Setting up Firebase listener.`);
+                setupFirebaseListener();
+             }
         });
 
         openDB().then(() => seedInitialUsers()).catch(seedError => console.error("[AuthProvider Effect] Error seeding initial users:", seedError));
 
         return () => {
+            // console.log(`[AuthProvider Effect Cleanup ${listenerId}] Unmounting.`)
             isMounted = false;
-            if (unsubscribe) unsubscribe();
+            if (unsubscribe) {
+                // console.log(`[AuthProvider Effect Cleanup ${listenerId}] Unsubscribing from Firebase Auth listener.`);
+                unsubscribe();
+            }
         };
-      }, [checkLocalLogin, toast]);
+      }, [checkLocalLogin, toast, firebaseUser]); // Added firebaseUser to dependency array
 
 
    const login = async (emailOrUsername: string, pass: string): Promise<boolean> => {
      const loginStartTime = performance.now();
      const inputIsEmail = emailOrUsername.includes('@');
-     console.log(`[AuthProvider Login ${loginStartTime}] Attempting login with input: ${emailOrUsername}`);
-     setLoading(true);
+     // console.log(`[AuthProvider Login ${loginStartTime}] Attempting login with input: ${emailOrUsername}`);
+     setLoading(true); // Set loading true at the start of login attempt
 
      let localDbUser: DbUser | null = null;
      let emailForFirebase = emailOrUsername;
@@ -313,13 +340,15 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
             localDbUser = await getLocalUserByEmail(emailOrUsername);
           } else {
             localDbUser = await getLocalUserByUsername(emailOrUsername);
+            if (localDbUser) emailForFirebase = localDbUser.email; // Get email for Firebase if username was used
           }
 
           if (localDbUser) {
-             emailForFirebase = localDbUser.email;
+             // console.log(`[AuthProvider Login ${loginStartTime}] Local user found for input ${emailOrUsername}:`, localDbUser);
              if (localDbUser.passwordHash) {
                  const isPasswordValid = await verifyPassword(pass, localDbUser.passwordHash);
                  if (isPasswordValid) {
+                     // console.log(`[AuthProvider Login ${loginStartTime}] Local password verified for ${localDbUser.email}.`);
                      const nowISO = new Date().toISOString();
                      let userToUpdate = { ...localDbUser, lastLogin: nowISO };
                       if (userToUpdate.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br') {
@@ -329,17 +358,26 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                          userToUpdate.base = 'N/A';
                       }
                      await saveLocalUser(userToUpdate);
-                     const { passwordHash, ...userToSet } = userToUpdate;
-                     setUser(userToSet);
-                     setFirebaseUser(null);
+                     const { passwordHash, ...userToSet } = userToUpdate; // Exclude passwordHash
+                     setUser(userToSet as User); // Cast to User
+                     setFirebaseUser(null); // Clear firebaseUser if local login
                      setLoading(false);
+                     // console.log(`[AuthProvider Login ${loginStartTime}] Local login successful. User state set.`);
                      toast({ title: "Login Local Bem-sucedido!", description: "Conectado localmente." });
                      return true;
+                 } else {
+                    // console.log(`[AuthProvider Login ${loginStartTime}] Local password verification FAILED for ${localDbUser.email}.`);
                  }
+             } else {
+                // console.log(`[AuthProvider Login ${loginStartTime}] Local user ${localDbUser.email} found but has no passwordHash. Proceeding to online check.`);
              }
+          } else {
+             // console.log(`[AuthProvider Login ${loginStartTime}] No local user found for input ${emailOrUsername}.`);
           }
 
+         // If local login failed or wasn't possible (no hash), try online if connected
          if (!navigator.onLine) {
+             // console.log(`[AuthProvider Login ${loginStartTime}] Offline. Cannot attempt Firebase login.`);
              toast({ variant: "destructive", title: "Offline", description: "Você está offline. Login online indisponível.", duration: 5000 });
              setLoading(false);
              if (localDbUser) toast({ variant: "destructive", title: "Falha no Login Offline", description: "Credenciais locais inválidas.", duration: 5000 });
@@ -348,21 +386,25 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
          }
 
          if (!auth) {
+            // console.error(`[AuthProvider Login ${loginStartTime}] Firebase Auth instance not available for online login.`);
             toast({ variant: "destructive", title: "Erro de Configuração", description: "Serviço de autenticação Firebase não está disponível." });
             setLoading(false);
             return false;
          }
 
-         console.log(`[AuthProvider Login ${loginStartTime}] Attempting Firebase signInWithEmailAndPassword with email: ${emailForFirebase}`);
+         // console.log(`[AuthProvider Login ${loginStartTime}] Attempting Firebase signInWithEmailAndPassword with email: ${emailForFirebase}`);
          const userCredential = await signInWithEmailAndPassword(auth, emailForFirebase, pass);
          const loginEndTime = performance.now();
-         console.log(`[AuthProvider Login ${loginStartTime}] signInWithEmailAndPassword successful for ${userCredential.user.email}. Time: ${loginEndTime - loginStartTime} ms. Waiting for onAuthStateChanged...`);
-         return true;
+         // console.log(`[AuthProvider Login ${loginStartTime}] signInWithEmailAndPassword successful for ${userCredential.user.email}. Time: ${loginEndTime - loginStartTime} ms. Waiting for onAuthStateChanged...`);
+         // **Crucially, we return true here, but the UI update depends on the listener**
+         // setLoading(false) will be called by the onAuthStateChanged listener after it processes the new Firebase user.
+         return true; // Indicate login attempt was successful; listener will handle state
 
      } catch (error: any) {
         const loginEndTime = performance.now();
-        console.error(`[AuthProvider Login ${loginStartTime}] Login failed for input ${emailOrUsername}. Time: ${loginEndTime - loginStartTime} ms. Error Code: ${error.code}, Message: ${error.message}`);
+        // console.error(`[AuthProvider Login ${loginStartTime}] Login failed for ${emailOrUsername}. Time: ${loginEndTime - loginStartTime} ms. Error Code: ${error.code}, Message: ${error.message}`); // Log specific error code
         let errorMessage = 'Falha no Login. Verifique seu e-mail/usuário e senha.';
+         // Explicitly handle auth/invalid-credential
          if (error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password' || error.code === 'auth/invalid-credential') {
              errorMessage = 'E-mail/usuário ou senha inválidos.';
          } else if (error.code === 'auth/invalid-email') {
@@ -375,13 +417,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
                 errorMessage = 'Login com e-mail/senha não está habilitado. Contacte o administrador.';
          } else if (error.code?.includes('auth/configuration-not-found') || error.code === 'auth/invalid-api-key') {
               errorMessage = 'Erro de configuração do Firebase. Verifique as chaves de API e outras configurações na console do Firebase e no seu arquivo .env.';
-          } else if (error.code?.includes('auth/')) {
+          } else if (error.code?.includes('auth/')) { // Catch other Firebase auth errors
                errorMessage = `Erro de autenticação (${error.code}). Tente novamente.`;
-          } else {
+          } else { // Catch non-Firebase errors or unexpected errors
               errorMessage = 'Ocorreu um erro inesperado durante o login. Verifique sua conexão e tente novamente.';
           }
         toast({ variant: "destructive", title: "Falha no Login", description: errorMessage, duration: 9000 });
-        setUser(null);
+        setUser(null); // Ensure user state is cleared on any login failure
         setFirebaseUser(null);
         setLoading(false);
         return false;
@@ -391,148 +433,219 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
    const signup = async (email: string, pass: string, name: string, usernameInput?: string, base?: string): Promise<boolean> => {
      const signupStartTime = performance.now();
      const finalUsername = usernameInput?.trim() || email.split('@')[0];
-     console.log(`[AuthContext Signup ${signupStartTime}] Attempting signup for ${email}, username: ${finalUsername}, base: ${base}`);
+     // console.log(`[AuthContext Signup ${signupStartTime}] Attempting signup for ${email}, username: ${finalUsername}, base: ${base}`);
      setLoading(true);
 
      const isAdminUser = email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br';
      const userRole: UserRole = isAdminUser ? 'admin' : 'driver';
      const userBase = isAdminUser ? 'ALL' : (base?.trim().toUpperCase() || 'N/A');
      let tempLocalId = `local_user_${finalUsername.replace(/[^a-zA-Z0-9]/g, '_')}_${Date.now()}`;
-     let finalUserId = tempLocalId;
+     let finalUserId = tempLocalId; // Default to temp local ID
 
      try {
+         // Check for existing user locally by email
          const existingLocalUserByEmail = await getLocalUserByEmail(email);
          if (existingLocalUserByEmail) {
+              // console.warn(`[AuthContext Signup ${signupStartTime}] Email ${email} already exists locally.`);
               toast({ variant: "destructive", title: "Falha no Cadastro", description: "Este e-mail já está cadastrado localmente." });
               setLoading(false); return false;
          }
+         // Check for existing user locally by username (if provided and different from email part)
          if (finalUsername) {
             const existingLocalUserByUsername = await getLocalUserByUsername(finalUsername);
             if (existingLocalUserByUsername) {
+                // console.warn(`[AuthContext Signup ${signupStartTime}] Username ${finalUsername} already exists locally.`);
                 toast({ variant: "destructive", title: "Falha no Cadastro", description: "Este nome de usuário já está em uso localmente." });
                 setLoading(false); return false;
             }
          }
+         // console.log(`[AuthContext Signup ${signupStartTime}] Hashing password for ${email}.`);
          const passwordHash = await hashPassword(pass);
+         // console.log(`[AuthContext Signup ${signupStartTime}] Password hashed. Preparing local user data.`);
          const newUserLocalData: DbUser = {
             id: tempLocalId, email, name, username: finalUsername, role: userRole, base: userBase,
             lastLogin: new Date().toISOString(), passwordHash, syncStatus: 'pending',
          };
+         // console.log(`[AuthContext Signup ${signupStartTime}] Saving new user locally with temp ID: ${tempLocalId}. Data:`, newUserLocalData);
          await saveLocalUser(newUserLocalData);
-         console.log(`[AuthContext Signup ${signupStartTime}] User initially saved locally with temp ID: ${tempLocalId}.`);
+         // console.log(`[AuthContext Signup ${signupStartTime}] User initially saved locally with temp ID: ${tempLocalId}.`);
 
+         // Attempt Firebase Auth creation if online and auth service is available
          if (auth && navigator.onLine) {
              try {
-                 console.log(`[AuthContext Signup ${signupStartTime}] Attempting Firebase createUserWithEmailAndPassword for ${email}.`);
+                 // console.log(`[AuthContext Signup ${signupStartTime}] Attempting Firebase createUserWithEmailAndPassword for ${email}.`);
                  const userCredential = await firebaseCreateUserWithEmailAndPassword(auth, email, pass);
-                 finalUserId = userCredential.user.uid;
-                 console.log(`[AuthContext Signup ${signupStartTime}] Firebase Auth user created: ${finalUserId}.`);
+                 finalUserId = userCredential.user.uid; // Get the actual Firebase UID
+                 // console.log(`[AuthContext Signup ${signupStartTime}] Firebase Auth user created: ${finalUserId}.`);
 
+                 // User successfully created in Firebase Auth. Now, update the local record.
+                 // Delete the temporary local record first.
                  await deleteLocalUser(tempLocalId).catch(e => console.warn(`Failed to delete temp local user ${tempLocalId}:`, e));
+
+                 // Save new local record with Firebase UID as the ID.
                  const firebaseLinkedLocalData: DbUser = {
                      ...newUserLocalData, id: finalUserId, firebaseId: finalUserId, syncStatus: 'synced'
                  };
+                 // console.log(`[AuthContext Signup ${signupStartTime}] Saving updated local user record with Firebase ID: ${finalUserId}. Data:`, firebaseLinkedLocalData);
                  await saveLocalUser(firebaseLinkedLocalData);
-                 console.log(`[AuthContext Signup ${signupStartTime}] Local user record updated with Firebase ID: ${finalUserId}.`);
+                 // console.log(`[AuthContext Signup ${signupStartTime}] Local user record updated with Firebase ID: ${finalUserId}.`);
 
-                 console.log(`[AuthContext Signup ${signupStartTime}] Creating Firestore document for new Firebase user ${finalUserId}.`);
+                 // Now, create/merge the user document in Firestore 'users' collection.
+                 // console.log(`[AuthContext Signup ${signupStartTime}] Creating Firestore document for new Firebase user ${finalUserId}.`);
                  await createUserDocument(finalUserId, email, name, finalUsername, userBase, userRole);
+
+                 // Sign out the user immediately after signup to force them to log in
+                 // This ensures the onAuthStateChanged listener picks up the fresh state.
+                 // console.log(`[AuthContext Signup ${signupStartTime}] Signing out user ${finalUserId} after successful Firebase signup and Firestore doc creation.`);
                  await firebaseSignOut(auth);
              } catch (firebaseError: any) {
-                  console.warn(`[AuthContext Signup ${signupStartTime}] Firebase signup/setup failed. User remains local-only. Error: ${firebaseError.code}, ${firebaseError.message}`);
+                  // console.warn(`[AuthContext Signup ${signupStartTime}] Firebase signup/setup failed. User remains local-only with temp ID ${tempLocalId}. Error: ${firebaseError.code}, ${firebaseError.message}`);
                    let fbErrorDesc = "Falha ao criar usuário online. A conta funcionará localmente.";
-                    if (firebaseError.code === 'auth/email-already-in-use') fbErrorDesc = "E-mail já em uso online. A conta local foi criada. Tente fazer login.";
-                    else if (firebaseError.code === 'auth/weak-password') fbErrorDesc = "Senha fraca (mínimo 6 caracteres). Conta local criada.";
-                    else if (firebaseError.code?.includes('auth/configuration-not-found') || firebaseError.code === 'auth/invalid-api-key') fbErrorDesc = 'Erro de config. Firebase.';
+                    if (firebaseError.code === 'auth/email-already-in-use') {
+                        fbErrorDesc = "E-mail já em uso online. A conta local foi criada. Tente fazer login.";
+                        // Potentially try to link local with existing online if desired, but complex.
+                    } else if (firebaseError.code === 'auth/weak-password') {
+                        fbErrorDesc = "Senha fraca (mínimo 6 caracteres). Conta local criada.";
+                    } else if (firebaseError.code?.includes('auth/configuration-not-found') || firebaseError.code === 'auth/invalid-api-key') {
+                         fbErrorDesc = 'Erro de configuração do Firebase. A conta local foi criada.';
+                     }
                    toast({ variant: "destructive", title: "Aviso Cadastro Online", description: fbErrorDesc, duration: 7000 });
+                   // Keep local user with temp ID if Firebase part fails
              }
          } else {
-             console.log(`[AuthContext Signup ${signupStartTime}] Skipping Firebase signup (Offline or Auth unavailable).`);
+             // console.log(`[AuthContext Signup ${signupStartTime}] Skipping Firebase signup (Offline or Auth unavailable). User ${tempLocalId} remains local-only.`);
          }
+         // console.log(`[AuthContext Signup ${signupStartTime}] Signup process complete for input ${email}. Final User ID (if Firebase): ${finalUserId}, Temp Local ID (if only local): ${tempLocalId}.`);
          toast({ title: 'Cadastro local realizado com sucesso!', description: 'Você já pode fazer login.' });
          setLoading(false); return true;
      } catch (error: any) {
-       console.error(`[AuthContext Signup ${signupStartTime}] Local Signup failed. Error: `, error);
+       // This catch is primarily for errors during local DB operations or password hashing
+       console.error(`[AuthContext Signup ${signupStartTime}] Local Signup failed for ${email}. Error: `, error);
        toast({ variant: "destructive", title: "Falha no Cadastro Local", description: `Erro: ${error.message || 'Verifique os dados.'}`, duration: 9000 });
        setLoading(false); return false;
      }
    };
 
   const logout = async () => {
+    const logoutStartTime = performance.now();
+    // console.log(`[AuthProvider Logout ${logoutStartTime}] Initiating logout...`);
     setLoading(true);
-    setUser(null); setFirebaseUser(null);
+    setUser(null); setFirebaseUser(null); // Clear local state immediately
     try {
-        if (auth) await firebaseSignOut(auth);
+        if (auth) {
+            // console.log(`[AuthProvider Logout ${logoutStartTime}] Firebase Auth instance exists. Signing out from Firebase.`);
+            await firebaseSignOut(auth);
+        } else {
+            // console.log(`[AuthProvider Logout ${logoutStartTime}] Firebase Auth instance not available. Local state cleared.`);
+        }
+        // console.log(`[AuthProvider Logout ${logoutStartTime}] Logout successful.`);
         toast({title: "Logout", description: "Você saiu do sistema."})
     } catch (error) {
-      toast({ variant: "destructive", title: "Erro no Logout", description: "Não foi possível sair completamente." });
+      console.error(`[AuthProvider Logout ${logoutStartTime}] Error during Firebase signOut:`, error);
+      toast({ variant: "destructive", title: "Erro no Logout", description: "Não foi possível sair completamente do Firebase." });
     } finally {
         setLoading(false);
+        // console.log(`[AuthProvider Logout ${logoutStartTime}] Logout process finished. Loading set to false.`);
     }
   };
 
   const reauthenticate = async (currentPassword: string): Promise<boolean> => {
+      // console.log("[AuthProvider Reauthenticate] Attempting reauthentication...");
       if (!firebaseUser && !user) {
+           // console.warn("[AuthProvider Reauthenticate] No Firebase or local user session active.");
            toast({ variant: "destructive", title: "Erro", description: "Nenhuma sessão de usuário ativa." });
            return false;
       }
+
+      // Try Firebase reauthentication first if online and firebaseUser exists
       if (firebaseUser && auth && navigator.onLine) {
           try {
+              // console.log(`[AuthProvider Reauthenticate] Attempting Firebase reauthentication for ${firebaseUser.email}.`);
               const credential = EmailAuthProvider.credential(firebaseUser.email!, currentPassword);
               await reauthenticateWithCredential(firebaseUser, credential);
+              // console.log(`[AuthProvider Reauthenticate] Firebase reauthentication successful for ${firebaseUser.email}.`);
               return true;
           } catch (error: any) {
+               // console.warn(`[AuthProvider Reauthenticate] Firebase reauthentication failed for ${firebaseUser.email}. Error: ${error.code}`);
+               // If it's not a wrong password error, it might be a more serious issue.
+               // For now, we'll let it fall through to local check or fail if that's also not possible.
                if (error.code !== 'auth/wrong-password' && error.code !== 'auth/invalid-credential') {
-                   toast({ variant: "destructive", title: "Reautenticação Online Falhou", description: "Erro ao reautenticar online." });
-                   return false;
+                   toast({ variant: "destructive", title: "Reautenticação Online Falhou", description: "Erro ao reautenticar online. Verifique sua conexão ou tente mais tarde." });
+                   return false; // Don't proceed if it's not a simple wrong password
                }
           }
       }
+
+      // Fallback to local password check if there's a local user session
+      // This is useful if the user is offline or if Firebase reauth failed due to wrong password (and local might be different or not yet synced)
       if (user?.email) {
-           const localDbUser = await getLocalUserByEmail(user.email);
-           if (localDbUser?.passwordHash && await verifyPassword(currentPassword, localDbUser.passwordHash)) return true;
+           // console.log(`[AuthProvider Reauthenticate] Attempting local password verification for ${user.email}.`);
+           const localDbUser = await getLocalUserByEmail(user.email); // Or getLocalUser(user.id)
+           if (localDbUser?.passwordHash && await verifyPassword(currentPassword, localDbUser.passwordHash)) {
+               // console.log(`[AuthProvider Reauthenticate] Local password verification successful for ${user.email}.`);
+               return true;
+           } else {
+               // console.warn(`[AuthProvider Reauthenticate] Local password verification failed for ${user.email}.`);
+           }
       }
+
+      // console.warn("[AuthProvider Reauthenticate] All reauthentication methods failed.");
       toast({ variant: "destructive", title: "Autenticação Falhou", description: "Senha atual incorreta." });
       return false;
   };
 
     const updateEmail = async (currentPassword: string, newEmail: string): Promise<boolean> => {
-        if (!user) { toast({ variant: "destructive", title: "Erro", description: "Usuário não autenticado." }); return false; }
+        const updateEmailStartTime = performance.now();
+        // console.log(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Attempting to update email to ${newEmail}.`);
+        if (!user) { /* console.warn(`[AuthProvider UpdateEmail ${updateEmailStartTime}] No user authenticated.`); */ toast({ variant: "destructive", title: "Erro", description: "Usuário não autenticado." }); return false; }
         if (user.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br') {
+            // console.warn(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Attempted to change email for super admin.`);
             toast({ variant: "destructive", title: "Operação não permitida", description: "Não é possível alterar o e-mail deste usuário." }); return false;
         }
         setLoading(true);
         const isAuthenticated = await reauthenticate(currentPassword);
-        if (!isAuthenticated) { setLoading(false); return false; }
+        if (!isAuthenticated) { /* console.warn(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Reauthentication failed.`); */ setLoading(false); return false; }
 
         const originalEmail = user.email;
         try {
+            // Attempt Firebase update if online and firebaseUser exists
             if (firebaseUser && auth && navigator.onLine) {
+                 // console.log(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Attempting Firebase email update for ${firebaseUser.uid}.`);
                  await firebaseUpdateEmail(firebaseUser, newEmail);
+                 // console.log(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Firebase email updated successfully.`);
             }
-            const currentDbUser = await getLocalUser(user.id);
-            if (!currentDbUser) throw new Error("Usuário local não encontrado.");
-            const updatedDbUser: DbUser = { ...currentDbUser, email: newEmail, lastLogin: new Date().toISOString(), syncStatus: 'pending' };
-            await saveLocalUser(updatedDbUser);
-            setUser({ ...user, email: newEmail });
 
-             if (db && navigator.onLine && user.firebaseId) {
+            // Update local DB
+            const currentDbUser = await getLocalUser(user.id);
+            if (!currentDbUser) { /* console.error(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Local user ${user.id} not found for update.`); */ throw new Error("Usuário local não encontrado."); }
+            const updatedDbUser: DbUser = { ...currentDbUser, email: newEmail, username: newEmail.split('@')[0], lastLogin: new Date().toISOString(), syncStatus: 'pending' }; // Update username too
+            // console.log(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Updating local DB for user ${user.id}. New data:`, updatedDbUser);
+            await saveLocalUser(updatedDbUser);
+            setUser({ ...user, email: newEmail, username: newEmail.split('@')[0] }); // Update local context state
+
+            // Attempt Firestore update if online and user has firebaseId (meaning they were synced before)
+             if (db && navigator.onLine && (user.firebaseId || firebaseUser?.uid)) {
+                 const userIdToUpdateOnline = user.firebaseId || firebaseUser!.uid;
                  try {
-                    console.log(`[AuthContext updateEmail] Attempting to update Firestore email for ${user.firebaseId}.`);
-                    await setFirestoreUserData(user.firebaseId, { email: newEmail });
-                    console.log(`[AuthContext updateEmail] Firestore email updated for ${user.firebaseId}.`);
+                    // console.log(`[AuthContext updateEmail] Attempting to update Firestore email for ${userIdToUpdateOnline}.`);
+                    await setFirestoreUserData(userIdToUpdateOnline, { email: newEmail, username: newEmail.split('@')[0] }); // Update username in Firestore too
+                    // console.log(`[AuthContext updateEmail] Firestore email updated for ${userIdToUpdateOnline}.`);
                  } catch (firestoreError) {
-                      console.error(`[AuthContext updateEmail] Failed to update Firestore email for ${user.firebaseId}:`, firestoreError);
-                      toast({variant: "destructive", title: "Aviso Firestore", description: "E-mail atualizado localmente, falha online."})
+                      console.error(`[AuthContext updateEmail] Failed to update Firestore email for ${userIdToUpdateOnline}:`, firestoreError);
+                      toast({variant: "destructive", title: "Aviso Firestore", description: "E-mail atualizado localmente, mas falha ao atualizar online."})
                  }
             }
+            // console.log(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Email update process successful for user ${user.id}.`);
             toast({ title: "Sucesso", description: "E-mail atualizado." });
             return true;
         } catch (error: any) {
-             setUser({ ...user, email: originalEmail });
+             // console.error(`[AuthProvider UpdateEmail ${updateEmailStartTime}] Error updating email for user ${user.id}. Error: ${error.code}, ${error.message}`);
+             // Rollback local context state
+             setUser({ ...user, email: originalEmail, username: originalEmail.split('@')[0] });
+             // Attempt to rollback local DB if possible
              const currentDbUserToRollback = await getLocalUser(user.id);
              if(currentDbUserToRollback) {
-                await saveLocalUser({...currentDbUserToRollback, email: originalEmail}).catch(e => console.error("CRITICAL: Failed to rollback local DB email", e));
+                await saveLocalUser({...currentDbUserToRollback, email: originalEmail, username: originalEmail.split('@')[0]}).catch(e => console.error("CRITICAL: Failed to rollback local DB email", e));
              }
              let desc = "Não foi possível atualizar o e-mail.";
              if (error.code === 'auth/email-already-in-use') desc = "E-mail já em uso.";
@@ -545,24 +658,38 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
 
   const updatePassword = async (currentPassword: string, newPassword: string): Promise<boolean> => {
-      if (!user) { toast({ variant: "destructive", title: "Erro", description: "Usuário não autenticado." }); return false; }
+      const updatePasswordStartTime = performance.now();
+      // console.log(`[AuthProvider UpdatePassword ${updatePasswordStartTime}] Attempting to update password.`);
+      if (!user) { /* console.warn(`[AuthProvider UpdatePassword ${updatePasswordStartTime}] No user authenticated.`); */ toast({ variant: "destructive", title: "Erro", description: "Usuário não autenticado." }); return false; }
       setLoading(true);
       const isAuthenticated = await reauthenticate(currentPassword);
-      if (!isAuthenticated) { setLoading(false); return false; }
+      if (!isAuthenticated) { /* console.warn(`[AuthProvider UpdatePassword ${updatePasswordStartTime}] Reauthentication failed.`); */ setLoading(false); return false; }
       try {
+           // console.log(`[AuthProvider UpdatePassword ${updatePasswordStartTime}] Hashing new password.`);
            const newPasswordHash = await hashPassword(newPassword);
+           // console.log(`[AuthProvider UpdatePassword ${updatePasswordStartTime}] New password hashed.`);
+
+            // Attempt Firebase update if online and firebaseUser exists
             if (firebaseUser && auth && navigator.onLine) {
+               // console.log(`[AuthProvider UpdatePassword ${updatePasswordStartTime}] Attempting Firebase password update for ${firebaseUser.uid}.`);
                await firebaseUpdatePassword(firebaseUser, newPassword);
+               // console.log(`[AuthProvider UpdatePassword ${updatePasswordStartTime}] Firebase password updated successfully.`);
             }
+
+           // Update local DB
            const currentDbUser = await getLocalUser(user.id);
-           if (!currentDbUser) throw new Error("Usuário local não encontrado.");
+           if (!currentDbUser) { /* console.error(`[AuthProvider UpdatePassword ${updatePasswordStartTime}] Local user ${user.id} not found for update.`); */ throw new Error("Usuário local não encontrado."); }
            const updatedDbUser: DbUser = { ...currentDbUser, passwordHash: newPasswordHash, lastLogin: new Date().toISOString(), syncStatus: 'pending' };
+           // console.log(`[AuthProvider UpdatePassword ${updatePasswordStartTime}] Updating local DB for user ${user.id}.`);
            await saveLocalUser(updatedDbUser);
+
+           // console.log(`[AuthProvider UpdatePassword ${updatePasswordStartTime}] Password update process successful for user ${user.id}.`);
            toast({ title: "Sucesso", description: "Senha atualizada." });
            return true;
       } catch (error: any) {
+           // console.error(`[AuthProvider UpdatePassword ${updatePasswordStartTime}] Error updating password for user ${user.id}. Error: ${error.code}, ${error.message}`);
            let desc = "Erro ao atualizar senha.";
-           if (error.code === 'auth/weak-password') desc = "Nova senha muito fraca.";
+           if (error.code === 'auth/weak-password') desc = "Nova senha muito fraca (mínimo 6 caracteres).";
            toast({ variant: "destructive", title: "Falha", description: desc });
            return false;
       } finally {
@@ -571,36 +698,46 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   };
 
     const updateProfileName = async (newName: string): Promise<boolean> => {
-        if (!user) { toast({ variant: "destructive", title: "Erro", description: "Usuário não autenticado." }); return false; }
-        if (!newName.trim()) { toast({ variant: "destructive", title: "Erro", description: "Nome não pode ser vazio." }); return false; }
+        const updateNameStartTime = performance.now();
+        // console.log(`[AuthProvider UpdateName ${updateNameStartTime}] Attempting to update name to ${newName}.`);
+        if (!user) { /* console.warn(`[AuthProvider UpdateName ${updateNameStartTime}] No user authenticated.`); */ toast({ variant: "destructive", title: "Erro", description: "Usuário não autenticado." }); return false; }
+        if (!newName.trim()) { /* console.warn(`[AuthProvider UpdateName ${updateNameStartTime}] New name is empty.`); */ toast({ variant: "destructive", title: "Erro", description: "Nome não pode ser vazio." }); return false; }
         setLoading(true);
         const originalName = user.name;
         try {
+             // Update local DB
              const currentDbUser = await getLocalUser(user.id);
-             if (!currentDbUser) throw new Error("Usuário local não encontrado.");
+             if (!currentDbUser) { /* console.error(`[AuthProvider UpdateName ${updateNameStartTime}] Local user ${user.id} not found for update.`); */ throw new Error("Usuário local não encontrado."); }
              const updatedDbUser: DbUser = { ...currentDbUser, name: newName, lastLogin: new Date().toISOString(), syncStatus: 'pending' };
+             // console.log(`[AuthProvider UpdateName ${updateNameStartTime}] Updating local DB for user ${user.id}. New data:`, updatedDbUser);
              await saveLocalUser(updatedDbUser);
-             setUser({ ...user, name: newName });
+             setUser({ ...user, name: newName }); // Update local context state
 
-            if (db && navigator.onLine && user.firebaseId) {
+            // Attempt Firestore update if online and user has firebaseId (meaning they were synced before)
+            if (db && navigator.onLine && (user.firebaseId || firebaseUser?.uid)) {
+                const userIdToUpdateOnline = user.firebaseId || firebaseUser!.uid;
                 try {
-                    console.log(`[AuthContext updateProfileName] Attempting to update Firestore name for ${user.firebaseId}.`);
-                    await setFirestoreUserData(user.firebaseId, { name: newName });
-                     console.log(`[AuthContext updateProfileName] Firestore name updated for ${user.firebaseId}.`);
+                    // console.log(`[AuthContext updateProfileName] Attempting to update Firestore name for ${userIdToUpdateOnline}.`);
+                    await setFirestoreUserData(userIdToUpdateOnline, { name: newName });
+                    // console.log(`[AuthContext updateProfileName] Firestore name updated for ${userIdToUpdateOnline}.`);
                 } catch (firestoreError) {
-                     console.error(`[AuthContext updateProfileName] Failed to update Firestore name for ${user.firebaseId}:`, firestoreError);
-                     toast({variant: "destructive", title: "Aviso Firestore", description: "Nome atualizado localmente, falha online."})
+                     console.error(`[AuthContext updateProfileName] Failed to update Firestore name for ${userIdToUpdateOnline}:`, firestoreError);
+                     toast({variant: "destructive", title: "Aviso Firestore", description: "Nome atualizado localmente, mas falha ao atualizar online."})
                 }
             }
+            // console.log(`[AuthProvider UpdateName ${updateNameStartTime}] Name update process successful for user ${user.id}.`);
             toast({ title: "Sucesso", description: "Nome atualizado." });
             return true;
         } catch (error) {
+             // console.error(`[AuthProvider UpdateName ${updateNameStartTime}] Error updating name for user ${user.id}. Error:`, error);
+             // Rollback local context state
              setUser({ ...user, name: originalName });
+             // Attempt to rollback local DB if possible
              const currentDbUserToRollback = await getLocalUser(user.id);
              if(currentDbUserToRollback) {
                 await saveLocalUser({...currentDbUserToRollback, name: originalName}).catch(e => console.error("CRITICAL: Failed to rollback local DB name", e));
              }
-             toast({ variant: "destructive", title: "Falha Local", description: "Não foi possível salvar nome." });
+             toast({ variant: "destructive", title: "Falha Local", description: "Não foi possível salvar o nome localmente." });
             return false;
         } finally {
             setLoading(false);
@@ -608,39 +745,51 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
 
     const updateBase = async (newBase: string): Promise<boolean> => {
-        if (!user) { toast({ variant: "destructive", title: "Erro", description: "Usuário não autenticado." }); return false; }
+        const updateBaseStartTime = performance.now();
+        // console.log(`[AuthProvider UpdateBase ${updateBaseStartTime}] Attempting to update base to ${newBase}.`);
+        if (!user) { /* console.warn(`[AuthProvider UpdateBase ${updateBaseStartTime}] No user authenticated.`); */ toast({ variant: "destructive", title: "Erro", description: "Usuário não autenticado." }); return false; }
         if (user.role === 'admin' || user.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br') {
-             toast({ variant: "destructive", title: "Operação não permitida", description: "Base do admin não pode ser alterada." }); return false;
+             // console.warn(`[AuthProvider UpdateBase ${updateBaseStartTime}] Attempted to change base for admin user.`);
+             toast({ variant: "destructive", title: "Operação não permitida", description: "Base do administrador não pode ser alterada." }); return false;
         }
-        if (!newBase.trim()) { toast({ variant: "destructive", title: "Erro", description: "Base não pode ser vazia." }); return false; }
+        if (!newBase.trim()) { /* console.warn(`[AuthProvider UpdateBase ${updateBaseStartTime}] New base is empty.`); */ toast({ variant: "destructive", title: "Erro", description: "Base não pode ser vazia." }); return false; }
         setLoading(true);
         const originalBase = user.base;
+        const upperNewBase = newBase.trim().toUpperCase();
         try {
+             // Update local DB
              const currentDbUser = await getLocalUser(user.id);
-             if (!currentDbUser) throw new Error("Usuário local não encontrado.");
-             const updatedDbUser: DbUser = { ...currentDbUser, base: newBase.toUpperCase(), lastLogin: new Date().toISOString(), syncStatus: 'pending' };
+             if (!currentDbUser) { /* console.error(`[AuthProvider UpdateBase ${updateBaseStartTime}] Local user ${user.id} not found for update.`); */ throw new Error("Usuário local não encontrado."); }
+             const updatedDbUser: DbUser = { ...currentDbUser, base: upperNewBase, lastLogin: new Date().toISOString(), syncStatus: 'pending' };
+             // console.log(`[AuthProvider UpdateBase ${updateBaseStartTime}] Updating local DB for user ${user.id}. New data:`, updatedDbUser);
              await saveLocalUser(updatedDbUser);
-             setUser({ ...user, base: newBase.toUpperCase() });
+             setUser({ ...user, base: upperNewBase }); // Update local context state
 
-             if (db && navigator.onLine && user.firebaseId) {
+             // Attempt Firestore update if online and user has firebaseId
+             if (db && navigator.onLine && (user.firebaseId || firebaseUser?.uid)) {
+                 const userIdToUpdateOnline = user.firebaseId || firebaseUser!.uid;
                  try {
-                     console.log(`[AuthContext updateBase] Attempting to update Firestore base for ${user.firebaseId}.`);
-                     await setFirestoreUserData(user.firebaseId, { base: newBase.toUpperCase() });
-                     console.log(`[AuthContext updateBase] Firestore base updated for ${user.firebaseId}.`);
+                     // console.log(`[AuthProvider UpdateBase ${updateBaseStartTime}] Attempting to update Firestore base for ${userIdToUpdateOnline}.`);
+                     await setFirestoreUserData(userIdToUpdateOnline, { base: upperNewBase });
+                     // console.log(`[AuthProvider UpdateBase ${updateBaseStartTime}] Firestore base updated for ${userIdToUpdateOnline}.`);
                  } catch (firestoreError) {
-                      console.error(`[AuthContext updateBase] Failed to update Firestore base for ${user.firebaseId}:`, firestoreError);
-                      toast({variant: "destructive", title: "Aviso Firestore", description: "Base atualizada localmente, falha online."})
+                      console.error(`[AuthProvider UpdateBase ${updateBaseStartTime}] Failed to update Firestore base for ${userIdToUpdateOnline}:`, firestoreError);
+                      toast({variant: "destructive", title: "Aviso Firestore", description: "Base atualizada localmente, mas falha ao atualizar online."})
                  }
              }
+             // console.log(`[AuthProvider UpdateBase ${updateBaseStartTime}] Base update process successful for user ${user.id}.`);
              toast({ title: "Sucesso", description: "Base atualizada." });
              return true;
          } catch (error) {
+              // console.error(`[AuthProvider UpdateBase ${updateBaseStartTime}] Error updating base for user ${user.id}. Error:`, error);
+              // Rollback local context state
               setUser({ ...user, base: originalBase });
+              // Attempt to rollback local DB if possible
               const currentDbUserToRollback = await getLocalUser(user.id);
               if(currentDbUserToRollback) {
                   await saveLocalUser({...currentDbUserToRollback, base: originalBase}).catch(e => console.error("CRITICAL: Failed to rollback local DB base", e));
               }
-              toast({ variant: "destructive", title: "Falha Local", description: "Não foi possível salvar base." });
+              toast({ variant: "destructive", title: "Falha Local", description: "Não foi possível salvar a base localmente." });
               return false;
          } finally {
              setLoading(false);
@@ -661,4 +810,3 @@ export const useAuth = (): AuthContextType => {
   }
   return context;
 };
-
