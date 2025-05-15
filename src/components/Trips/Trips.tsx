@@ -6,7 +6,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Filter, Loader2, Printer, PlayCircle } from 'lucide-react'; // Added PlayCircle
+import { PlusCircle, Filter, Loader2, Printer, PlayCircle, Share2 } from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,6 +16,7 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
+  AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -51,20 +52,8 @@ import type { DateRange } from 'react-day-picker';
 import { parseISO, startOfDay, endOfDay, format as formatDateFn } from 'date-fns';
 import { formatKm } from '@/lib/utils';
 import { TripAccordionItem } from './TripAccordionItem';
+import { Textarea } from '../ui/textarea';
 
-
-const VisitsComponent = dynamic(() => import('./Visits').then(mod => mod.Visits), {
-  loading: () => <LoadingSpinner className="h-5 w-5" />,
-  ssr: false,
-});
-const ExpensesComponent = dynamic(() => import('./Expenses').then(mod => mod.Expenses), {
-    loading: () => <LoadingSpinner className="h-5 w-5" />,
-    ssr: false,
-});
-const FuelingsComponent = dynamic(() => import('./Fuelings').then(mod => mod.Fuelings), {
-    loading: () => <LoadingSpinner className="h-5 w-5" />,
-    ssr: false,
-});
 
 export interface Trip extends Omit<LocalTrip, 'localId'> {
     id: string; // Can be firebaseId or localId
@@ -98,12 +87,18 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
   const [loadingVehicles, setLoadingVehicles] = useState(true);
   const [loadingDrivers, setLoadingDrivers] = useState(isAdmin);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+
+  // State for controlling which trip's edit modal is open
+  const [editingTripId, setEditingTripId] = useState<string | null>(null);
+  const [currentTripForEdit, setCurrentTripForEdit] = useState<Trip | null>(null);
+  const [selectedVehicleIdForEdit, setSelectedVehicleIdForEdit] = useState('');
+
+
   const [isFinishModalOpen, setIsFinishModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
-  const [currentTripForEdit, setCurrentTripForEdit] = useState<Trip | null>(null);
+
   const [tripToFinish, setTripToFinish] = useState<Trip | null>(null);
   const [tripToDelete, setTripToDelete] = useState<Trip | null>(null);
   const [expandedTripId, setExpandedTripId] = useState<string | null>(null);
@@ -111,7 +106,6 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
 
 
   const [selectedVehicleIdForCreate, setSelectedVehicleIdForCreate] = useState('');
-  const [selectedVehicleIdForEdit, setSelectedVehicleIdForEdit] = useState('');
   const [filterDriver, setFilterDriver] = useState<string>('');
   const [filterDateRange, setFilterDateRange] = useState<DateRange | undefined>(undefined);
 
@@ -119,6 +113,10 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
   const [expenseCounts, setExpenseCounts] = useState<Record<string, number>>({});
   const [fuelingCounts, setFuelingCounts] = useState<Record<string, number>>({});
   const [visitsDataForFinish, setVisitsDataForFinish] = useState<Visit[]>([]);
+
+  // State for share dialog
+  const [sharingTripId, setSharingTripId] = useState<string | null>(null);
+  const [detailedSummaryText, setDetailedSummaryText] = useState<string | null>(null);
 
 
     useEffect(() => {
@@ -157,15 +155,17 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
                      if (onlineVehiclesData.length > 0) {
                         localVehicles = onlineVehiclesData.map(v => ({
                             ...v,
-                            localId: v.id,
+                            localId: v.id, // Assuming online ID is used as localId for simplicity
                             syncStatus: 'synced',
                             deleted: false,
                             firebaseId: v.id
                         } as LocalVehicle));
+                        // Optionally save these to local DB if not already present
+                        // For now, just using them in state
                      }
                  } catch (fetchError) {
                       console.error("Error fetching online vehicles:", fetchError);
-                     toast({ variant: "destructive", title: "Erro Online", description: "Não foi possível buscar veículos online." });
+                     // toast({ variant: "destructive", title: "Erro Online", description: "Não foi possível buscar veículos online." });
                  }
              }
              setVehicles(localVehicles);
@@ -214,7 +214,14 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
                 ...lt,
                 id: lt.firebaseId || lt.localId,
                 localId: lt.localId,
-            })).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+            })).sort((a, b) => {
+                 // Prioritize "Andamento" trips first
+                 if (a.status === 'Andamento' && b.status !== 'Andamento') return -1;
+                 if (a.status !== 'Andamento' && b.status === 'Andamento') return 1;
+                 // Then sort by creation date descending
+                 return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+            });
+
 
             setAllTrips(uiTrips);
 
@@ -246,11 +253,11 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
   };
 
   const getDriverName = (driverId: string): string => {
-     if (user && user.id === driverId) {
+     if (user && user.id === driverId) { // If the trip's userId is the current logged-in user
          return user.name || user.email || `ID: ${driverId.substring(0,6)}...`;
      }
-     const driver = drivers.find(d => d.id === driverId || d.firebaseId === driverId);
-     const nameToDisplay = driver?.name || driver?.email || `Motorista ${driverId.substring(0,6)}...`;
+     const driver = drivers.find(d => d.id === driverId || d.firebaseId === driverId); // Find in the fetched drivers list
+     const nameToDisplay = driver?.name || driver?.email || `Motorista (${driverId.substring(0,6)}...)`;
      // console.log(`[Trips getDriverName] For driverId ${driverId}, found driver:`, driver, "Displaying:", nameToDisplay);
      return nameToDisplay;
   };
@@ -290,8 +297,10 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
         return;
     }
 
+    // Simplified trip name: "Viagem [MODELO] ([PLACA]) - [DATA]"
     const dateStr = new Date().toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit', year: 'numeric'});
     const generatedTripName = `Viagem ${vehicleForTrip.model} (${vehicleForTrip.licensePlate}) - ${dateStr}`;
+
     const now = new Date().toISOString();
 
     const tripBase = user.role === 'admin' ? 'ALL_ADM_TRIP' : user.base;
@@ -303,8 +312,8 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
 
     const newTripData: Omit<LocalTrip, 'localId' | 'syncStatus'> = {
       name: generatedTripName,
-      vehicleId: vehicleForTrip.firebaseId || vehicleForTrip.localId,
-      userId: user.id,
+      vehicleId: vehicleForTrip.firebaseId || vehicleForTrip.localId, // Use firebaseId if available
+      userId: user.id, // This should be the firebaseId if user logged in online, or local id
       status: 'Andamento',
       createdAt: now,
       updatedAt: now,
@@ -318,11 +327,16 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
 
          const newUITrip: Trip = {
             ...newTripData,
-            localId,
-            id: localId,
+            localId, // Ensure localId is set
+            id: localId, // Set id to localId for newly created trips
             syncStatus: 'pending'
          };
-        setAllTrips(prevTrips => [newUITrip, ...prevTrips].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()));
+        setAllTrips(prevTrips => [newUITrip, ...prevTrips].sort((a, b) => {
+            if (a.status === 'Andamento' && b.status !== 'Andamento') return -1;
+            if (a.status !== 'Andamento' && b.status === 'Andamento') return 1;
+            return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        }));
+
 
         setVisitCounts(prev => ({ ...prev, [localId]: 0 }));
         setExpenseCounts(prev => ({ ...prev, [localId]: 0 }));
@@ -339,12 +353,20 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
     }
   };
 
-  const openEditModal = (tripToEdit: Trip, event: React.MouseEvent) => {
-    event.stopPropagation();
+  const handleOpenEditModal = (tripToEdit: Trip) => {
+    console.log("[Trips] handleOpenEditModal called for trip:", tripToEdit.localId);
     setCurrentTripForEdit(tripToEdit);
     setSelectedVehicleIdForEdit(tripToEdit.vehicleId);
-    setIsEditModalOpen(true);
+    setEditingTripId(tripToEdit.localId);
   };
+
+  const handleCloseEditModal = () => {
+    console.log("[Trips] handleCloseEditModal called");
+    setEditingTripId(null);
+    setCurrentTripForEdit(null);
+    setSelectedVehicleIdForEdit('');
+  };
+
 
   const handleEditTripSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -369,7 +391,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
 
     const updatedLocalTripData: LocalTrip = {
        ...originalLocalTrip,
-       vehicleId: vehicleForEdit.firebaseId || vehicleForEdit.localId,
+       vehicleId: vehicleForEdit.firebaseId || vehicleForEdit.localId, // Prioritize firebaseId
        updatedAt: new Date().toISOString(),
        syncStatus: originalLocalTrip.syncStatus === 'synced' ? 'pending' : originalLocalTrip.syncStatus,
      };
@@ -380,12 +402,14 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
 
         setAllTrips(prevTrips =>
              prevTrips.map(t => t.localId === currentTripForEdit.localId ? { ...updatedLocalTripData, id: updatedLocalTripData.firebaseId || updatedLocalTripData.localId } : t)
-             .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+             .sort((a, b) => {
+                if (a.status === 'Andamento' && b.status !== 'Andamento') return -1;
+                if (a.status !== 'Andamento' && b.status === 'Andamento') return 1;
+                return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+            })
          );
 
-        resetFormForEdit();
-        setIsEditModalOpen(false);
-        setCurrentTripForEdit(null);
+        handleCloseEditModal(); // Use the new close function
         toast({ title: 'Viagem atualizada localmente!' });
     } catch (error) {
         console.error("Error updating local trip:", error);
@@ -395,7 +419,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
     }
   };
 
-  const openFinishModal = async (trip: Trip, event: React.MouseEvent) => {
+  const handleOpenFinishModal = async (trip: Trip, event: React.MouseEvent) => {
     event.stopPropagation();
     try {
         const visits = await getLocalVisits(trip.localId);
@@ -442,7 +466,11 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
 
         setAllTrips(prevTrips =>
             prevTrips.map(t => t.localId === tripLocalId ? { ...updatedLocalTripData, id: updatedLocalTripData.firebaseId || updatedLocalTripData.localId } : t)
-            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+            .sort((a, b) => {
+                if (a.status === 'Andamento' && b.status !== 'Andamento') return -1;
+                if (a.status !== 'Andamento' && b.status === 'Andamento') return 1;
+                return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+            })
         );
 
         setIsFinishModalOpen(false);
@@ -494,56 +522,90 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
   const resetFormForCreate = () => {
     setSelectedVehicleIdForCreate('');
   };
-  const resetFormForEdit = () => {
-    setSelectedVehicleIdForEdit('');
+
+  const handleOpenShareDialog = async (tripId: string) => {
+    const tripData = allTrips.find(t => t.localId === tripId);
+    if (!tripData) return;
+
+    setCurrentTripForEdit(tripData); // For data fetching context
+    setSharingTripId(tripId);
+    setDetailedSummaryText("Gerando resumo...");
+
+    const reportData = await handleGenerateTripReportData(tripData);
+    if (reportData) {
+        const summaryParts = [
+            `Resumo da Viagem: ${reportData.name}`,
+            `Status: ${reportData.status}`,
+            `Motorista: ${reportData.driverName}`,
+            `Veículo: ${reportData.vehicleDisplay}`,
+            `Criada em: ${formatDateFn(parseISO(reportData.createdAt), 'dd/MM/yyyy')}`,
+        ];
+        if (reportData.status === 'Finalizado') {
+            if (reportData.finalKm) summaryParts.push(`KM Final: ${formatKm(reportData.finalKm)}`);
+            if (reportData.totalDistance) summaryParts.push(`Distância Total: ${formatKm(reportData.totalDistance)}`);
+        }
+        summaryParts.push(`\nVisitas (${reportData.visits.length}):`);
+        reportData.visits.forEach(v => summaryParts.push(`- ${v.clientName} (${v.location}) em ${formatDateFn(parseISO(v.timestamp), 'dd/MM/yy HH:mm')}`));
+        if (reportData.visits.length === 0) summaryParts.push("- Nenhuma visita.");
+
+        summaryParts.push(`\nDespesas (${reportData.expenses.length}):`);
+        reportData.expenses.forEach(e => summaryParts.push(`- ${e.expenseType}: ${e.value.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})} (${e.description})`));
+        if (reportData.expenses.length === 0) summaryParts.push("- Nenhuma despesa.");
+
+        summaryParts.push(`\nAbastecimentos (${reportData.fuelings.length}):`);
+        reportData.fuelings.forEach(f => summaryParts.push(`- ${f.liters.toFixed(2)}L de ${f.fuelType} por ${f.totalCost.toLocaleString('pt-BR', {style: 'currency', currency: 'BRL'})} em ${f.location}`));
+        if (reportData.fuelings.length === 0) summaryParts.push("- Nenhum abastecimento.");
+
+        setDetailedSummaryText(summaryParts.join('\n'));
+    } else {
+        setDetailedSummaryText("Não foi possível gerar o resumo.");
+    }
   };
 
-
-  const closeCreateModal = () => {
-    resetFormForCreate();
-    setIsCreateModalOpen(false);
+  const handleCloseShareDialog = () => {
+    setSharingTripId(null);
+    setDetailedSummaryText(null);
+    setCurrentTripForEdit(null); // Clear context
   };
 
-  const closeEditModal = () => {
-    resetFormForEdit();
-    setIsEditModalOpen(false);
-    setCurrentTripForEdit(null);
-  };
 
   const getTripSummaryKm = useCallback(async (tripId: string) => {
     const visits = await getLocalVisits(tripId);
     if (visits.length === 0) return { betweenVisits: null, firstToLast: null };
 
-    visits.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    // Sort visits by timestamp to correctly calculate distance between them
+    const sortedVisits = [...visits].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
     let betweenVisitsKm = 0;
-    for (let i = 1; i < visits.length; i++) {
-        if (visits[i].initialKm && visits[i-1].initialKm) {
-            const diff = visits[i].initialKm - visits[i-1].initialKm;
-            if (diff > 0) {
+    for (let i = 1; i < sortedVisits.length; i++) {
+        if (sortedVisits[i].initialKm && sortedVisits[i-1].initialKm) {
+            const diff = sortedVisits[i].initialKm - sortedVisits[i-1].initialKm;
+            if (diff > 0) { // Consider only positive differences to avoid issues with out-of-order KM entries
                  betweenVisitsKm += diff;
             }
         }
     }
 
-    const firstVisitKm = visits[0].initialKm;
+    const firstVisitKm = sortedVisits[0].initialKm;
     const currentTripData = allTrips.find(t => t.localId === tripId);
     let firstToLastKm = null;
+
     if (currentTripData?.status === 'Finalizado' && currentTripData.finalKm != null && firstVisitKm != null) {
       const diff = currentTripData.finalKm - firstVisitKm;
-       if (diff >= 0) {
+       if (diff >= 0) { // Ensure final KM is not less than first visit KM
            firstToLastKm = diff;
        } else {
+           // This case implies an error in data entry, log it but maybe show 0 or N/A
            console.warn(`Trip ${tripId}: Final KM (${currentTripData.finalKm}) is less than first visit KM (${firstVisitKm}). Setting total distance to 0.`);
-           firstToLastKm = 0;
+           firstToLastKm = 0; // Or null, depending on how you want to handle this
        }
     }
 
     return {
-        betweenVisits: betweenVisitsKm > 0 ? betweenVisitsKm : null,
+        betweenVisits: betweenVisitsKm > 0 ? betweenVisitsKm : null, // Show null if no distance between visits
         firstToLast: firstToLastKm
     };
-  }, [allTrips]);
+  }, [allTrips]); // allTrips dependency is important if trip.finalKm comes from there
 
 
   const handleGenerateTripReportData = useCallback(async (trip: Trip): Promise<TripReportData | null> => {
@@ -584,7 +646,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
            )}
         </h2>
         <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center w-full sm:w-auto">
-          <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
+          <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) setIsCreateModalOpen(false); else setIsCreateModalOpen(true); }}>
             <DialogTrigger asChild>
               <Button onClick={() => { resetFormForCreate(); setIsCreateModalOpen(true); }} className="bg-primary hover:bg-primary/90 text-primary-foreground h-9 w-full sm:w-auto" disabled={loadingVehicles || isSaving}>
                 <PlusCircle className="mr-2 h-4 w-4" /> Criar Nova Viagem
@@ -637,7 +699,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
                 </div>
                 <DialogFooter>
                   <DialogClose asChild>
-                    <Button type="button" variant="outline" onClick={closeCreateModal} disabled={isSaving}>Cancelar</Button>
+                    <Button type="button" variant="outline" onClick={() => setIsCreateModalOpen(false)} disabled={isSaving}>Cancelar</Button>
                   </DialogClose>
                   <Button type="submit" disabled={loadingVehicles || isSaving || (!user?.base && user?.role !== 'admin')} className="bg-primary hover:bg-primary/90">
                      {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -696,7 +758,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
              <LoadingSpinner />
           </div>
        ) : allTrips.length === 0 ? (
-        <Card className="text-center py-10 bg-card border border-border">
+        <Card className="text-center py-10 bg-card border border-border shadow-lg">
           <CardContent>
             <p className="text-muted-foreground">
                 {isAdmin && (filterDriver || filterDateRange)
@@ -719,22 +781,23 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
                 visitCount={visitCounts[trip.localId] ?? 0}
                 expenseCount={expenseCounts[trip.localId] ?? 0}
                 fuelingCount={fuelingCounts[trip.localId] ?? 0}
+                isExpanded={expandedTripId === trip.localId}
                 activeSubTab={activeSubTab}
                 getVehicleDisplay={getVehicleDisplay}
                 getDriverName={getDriverName}
                 getTripDescription={getTripDescription}
-                openFinishModal={(tripToFinishFromItem, event) => openFinishModal(tripToFinishFromItem, event)}
-                openEditModal={(tripToEditFromItem, event) => openEditModal(tripToEditFromItem, event)}
+                openFinishModal={(tripToFinishFromItem, event) => handleOpenFinishModal(tripToFinishFromItem, event)}
                 currentTripForEdit={currentTripForEdit}
-                isEditModalOpen={isEditModalOpen && currentTripForEdit?.localId === trip.localId}
-                closeEditModal={closeEditModal}
+                isEditModalOpenForThisTrip={editingTripId === trip.localId}
+                openEditModalForThisTrip={() => handleOpenEditModal(trip)}
+                closeEditModal={handleCloseEditModal}
                 handleEditTripSubmit={handleEditTripSubmit}
                 selectedVehicleIdForEdit={selectedVehicleIdForEdit}
                 setSelectedVehicleIdForEdit={setSelectedVehicleIdForEdit}
-                openDeleteConfirmation={(tripToDeleteFromItem, event) => openDeleteConfirmation(tripToDeleteFromItem, event)}
                 tripToDelete={tripToDelete}
-                isDeleteModalOpen={isDeleteModalOpen && tripToDelete?.localId === trip.localId}
-                closeDeleteConfirmation={closeDeleteConfirmation}
+                isDeleteModalOpenForThisTrip={isDeleteModalOpen && tripToDelete?.localId === trip.localId}
+                openDeleteModalForThisTrip={(tripToDeleteFromItem, event) => openDeleteConfirmation(tripToDeleteFromItem, event)}
+                closeDeleteModal={closeDeleteConfirmation}
                 confirmDeleteTrip={confirmDeleteTrip}
                 isSaving={isSaving}
                 isDeleting={isDeleting}
@@ -745,6 +808,10 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
                 getTripSummaryKmFunction={getTripSummaryKm}
                 loadingVehicles={loadingVehicles}
                 onGenerateReport={handleGenerateTripReportData}
+                isShareModalOpenForThisTrip={sharingTripId === trip.localId}
+                openShareModalForThisTrip={() => handleOpenShareDialog(trip.localId)}
+                closeShareModal={handleCloseShareDialog}
+                detailedSummaryText={sharingTripId === trip.localId ? detailedSummaryText : null}
             />
           ))}
         </Accordion>
@@ -765,8 +832,8 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
 
 // Function to fetch online vehicles if needed
 const fetchOnlineVehicles = async (): Promise<VehicleInfo[]> => {
-    console.warn("fetchOnlineVehicles placeholder called. Implement Firestore fetch if needed.");
+    console.warn("fetchOnlineVehicles placeholder called from Trips.tsx. This should ideally use firestoreService.");
+    // This is a placeholder. In a real app, you'd import and call getVehicles from firestoreService.
+    // For now, to avoid breaking if firestoreService isn't fully set up:
     return [];
 };
-
-    
