@@ -19,6 +19,7 @@ import { useToast } from '@/hooks/use-toast';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { MultiSelectCombobox, type MultiSelectOption } from '@/components/ui/multi-select-combobox';
 
 
 const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -50,6 +51,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
   const [loadingDrivers, setLoadingDrivers] = useState(isAdmin);
   const [filterDriverId, setFilterDriverId] = useState<string>('');
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  const [selectedVehicleIds, setSelectedVehicleIds] = useState<string[]>([]);
+
 
   const [expenses, setExpenses] = useState<LocalExpense[]>([]);
   const [fuelings, setFuelings] = useState<LocalFueling[]>([]);
@@ -91,7 +94,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                     localId: v.id, // localId becomes firebaseId for online-only fetched items
                     firebaseId: v.id, // firebaseId is firebaseId
                     syncStatus: 'synced',
-                    deleted: false 
+                    deleted: false
                 } as LocalVehicle));
                 setVehicles(onlineVehicles);
             }
@@ -209,6 +212,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     };
   }, [isAdmin, filterDriverId, dateRange, drivers, expenses, fuelings, trips, vehicles, visits]);
 
+
+  const vehicleOptions: MultiSelectOption[] = useMemo(() => {
+    return vehicles.map(v => ({
+      value: v.firebaseId || v.localId,
+      label: `${v.model} (${v.licensePlate})`,
+      icon: Car
+    }));
+  }, [vehicles]);
+
+
   const adminDashboardData = useMemo(() => {
     if (!isAdmin || user?.email !== 'grupo2irmaos@grupo2irmaos.com.br' || loadingDrivers) {
       return null;
@@ -233,66 +246,34 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         currentFuelingsSource = currentFuelingsSource.filter(f => { try { return isWithinInterval(parseISO(f.date), interval); } catch { return false; } });
         currentVisitsSource = currentVisitsSource.filter(v => { try { return isWithinInterval(parseISO(v.timestamp), interval); } catch { return false; }});
     }
-    
+
     const relevantTripIdsForCharts = new Set(currentTripsSource.map(t => t.localId));
     currentExpensesSource = currentExpensesSource.filter(e => e.tripLocalId && relevantTripIdsForCharts.has(e.tripLocalId));
-    // No need to filter fuelings by trip for vehicle performance, but filter if for driver ranking
-    const fuelingsForDriverRanking = currentFuelingsSource.filter(f => f.tripLocalId && relevantTripIdsForCharts.has(f.tripLocalId));
 
 
     const driverNameMap = new Map(drivers.map(d => [d.id, d.name || d.email || `Motorista Desconhecido`]));
     const vehicleNameMap = new Map(vehicles.map(v => [v.firebaseId || v.localId, `${v.model} (${v.licensePlate})`]));
     const tripDetailsMap = new Map(currentTripsSource.map(t => [t.localId, { vehicleId: t.vehicleId, userId: t.userId }]));
 
-
-    const tripsByDriver: Record<string, { count: number; totalDistance: number; totalExpenses: number, name?: string }> = {};
-
-    currentTripsSource.forEach(trip => {
-      const driverIdFromTrip = trip.userId;
-      const resolvedDriverName = driverNameMap.get(driverIdFromTrip) || `Motorista (${driverIdFromTrip.substring(0,6)}...)`;
-      const aggregationKey = resolvedDriverName;
-
-
-      if (!tripsByDriver[aggregationKey]) {
-        tripsByDriver[aggregationKey] = { count: 0, totalDistance: 0, totalExpenses: 0, name: resolvedDriverName };
-      }
-      tripsByDriver[aggregationKey].count++;
-      tripsByDriver[aggregationKey].totalDistance += trip.totalDistance || 0;
-
-      const tripExpenses = currentExpensesSource.filter(e => e.tripLocalId === trip.localId);
-      tripExpenses.forEach(expense => {
-        tripsByDriver[aggregationKey].totalExpenses += expense.value;
-      });
-    });
-
-
-    const chartableTripsByDriver = Object.values(tripsByDriver)
-      .map(data => ({ name: data.name, trips: data.count, distance: data.totalDistance, expenses: data.totalExpenses }))
-      .sort((a,b) => b.trips - a.trips)
-      .slice(0, 10);
-
     // Vehicle Performance Calculation
     console.log("[Dashboard Admin] Raw vehicles for performance:", JSON.stringify(vehicles.map(v => ({ localId: v.localId, firebaseId: v.firebaseId, model: v.model, plate: v.licensePlate, effectiveId: v.firebaseId || v.localId }))));
-    const uniqueVehiclesForPerf = Array.from(new Map(vehicles.map(v => [v.firebaseId || v.localId, v])).values());
+    let uniqueVehiclesForPerf = Array.from(new Map(vehicles.map(v => [v.firebaseId || v.localId, v])).values());
     console.log("[Dashboard Admin] Unique vehicles for performance (after Map de-duplication):", JSON.stringify(uniqueVehiclesForPerf.map(v => ({ localId: v.localId, firebaseId: v.firebaseId, model: v.model, plate: v.licensePlate, effectiveId: v.firebaseId || v.localId }))));
 
-    const idsForPerfTable = uniqueVehiclesForPerf.map(v => v.firebaseId || v.localId);
-    const duplicateIdsInUniqueList = idsForPerfTable.filter((id, index) => idsForPerfTable.indexOf(id) !== index);
-    if (duplicateIdsInUniqueList.length > 0) {
-        console.error("[Dashboard Admin] CRITICAL: Duplicate effective IDs found in uniqueVehiclesForPerf list:", duplicateIdsInUniqueList);
-        const problemObjects = uniqueVehiclesForPerf.filter(v => duplicateIdsInUniqueList.includes(v.firebaseId || v.localId));
-        console.error("[Dashboard Admin] Problematic objects in uniqueVehiclesForPerf:", JSON.stringify(problemObjects.map(v => ({ localId: v.localId, firebaseId: v.firebaseId, model: v.model, plate: v.licensePlate, effectiveId: v.firebaseId || v.localId }))));
+    if (selectedVehicleIds.length > 0) {
+      uniqueVehiclesForPerf = uniqueVehiclesForPerf.filter(v => selectedVehicleIds.includes(v.firebaseId || v.localId));
+      console.log("[Dashboard Admin] Filtered vehicles for performance (after multi-select):", JSON.stringify(uniqueVehiclesForPerf.map(v => ({ id: v.firebaseId || v.localId, name: `${v.model} (${v.licensePlate})` }))));
     }
 
 
     const vehiclePerformance = uniqueVehiclesForPerf.map(vehicle => {
-        const vehicleIdForFiltering = vehicle.firebaseId || vehicle.localId; 
+        const vehicleIdForFiltering = vehicle.firebaseId || vehicle.localId;
         const vehicleFuelings = currentFuelingsSource.filter(f => f.vehicleId === vehicleIdForFiltering);
         const vehicleTrips = currentTripsSource.filter(t => t.vehicleId === vehicleIdForFiltering);
 
         const totalFuelingCost = vehicleFuelings.reduce((sum, f) => sum + f.totalCost, 0);
         const totalLiters = vehicleFuelings.reduce((sum, f) => sum + f.liters, 0);
-        
+
         const sortedFuelings = [...vehicleFuelings].sort((a, b) => {
             const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
             if (dateDiff !== 0) return dateDiff;
@@ -307,12 +288,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                  totalKmFromFuelings = lastOdometer - firstOdometer;
             }
         }
-        
-        const totalKmFromTrips = vehicleTrips
-            .filter(t => t.status === 'Finalizado' && t.totalDistance != null)
-            .reduce((sum, t) => sum + (t.totalDistance || 0), 0);
 
-        const kmDriven = totalKmFromFuelings > 0 ? totalKmFromFuelings : totalKmFromTrips;
+        const kmDriven = totalKmFromFuelings; // Using fueling odometer for consistency
 
         const avgCostPerKm = kmDriven > 0 ? totalFuelingCost / kmDriven : 0;
         const avgKmPerLiter = totalLiters > 0 && kmDriven > 0 ? kmDriven / totalLiters : 0;
@@ -322,7 +299,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
 
 
         return {
-            id: vehicle.firebaseId || vehicle.localId, // This is the key for the TableRow
+            id: vehicle.firebaseId || vehicle.localId,
             name: `${vehicle.model} (${vehicle.licensePlate})`,
             totalFuelingCost,
             totalLiters,
@@ -334,15 +311,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
             latestFuelType,
         };
     }).sort((a,b) => b.kmDriven - a.kmDriven);
-    
-    console.log("[Dashboard Admin] Final vehiclePerformance array for table:", JSON.stringify(vehiclePerformance.map(vp => ({ id: vp.id, name: vp.name }))));
+
+    console.log("[Dashboard Admin] Final vehiclePerformance array for table:", JSON.stringify(vehiclePerformance.map(vp => ({ id: vp.id, name: vp.name, kmDriven: vp.kmDriven }))));
 
 
     // Prepare data for Visits Table
     const adminVisitsTableData: AdminVisitData[] = currentVisitsSource
       .map(visit => {
         const tripDetail = tripDetailsMap.get(visit.tripLocalId);
-        if (!tripDetail) return null; 
+        if (!tripDetail) return null;
 
         const driverName = driverNameMap.get(tripDetail.userId) || 'Desconhecido';
         const vehicleName = vehicleNameMap.get(tripDetail.vehicleId) || 'Desconhecido';
@@ -362,11 +339,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
 
 
     return {
-      tripsByDriver: chartableTripsByDriver,
       vehiclePerformance,
       adminVisitsTableData,
     };
-  }, [isAdmin, user?.email, trips, expenses, vehicles, drivers, dateRange, filterDriverId, loadingDrivers, fuelings, visits]);
+  }, [isAdmin, user?.email, trips, expenses, vehicles, drivers, dateRange, filterDriverId, loadingDrivers, fuelings, visits, selectedVehicleIds]);
 
 
   return (
@@ -539,9 +515,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
             </Card>
 
           <Card>
-            <CardHeader>
+            <CardHeader className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
+              <div>
                 <CardTitle>Performance de Veículos</CardTitle>
                 <CardDescription>{summaryData.filterContext}</CardDescription>
+              </div>
+              <div className="w-full sm:w-auto sm:min-w-[250px]">
+                <Label htmlFor="vehicleMultiSelect">Filtrar Veículos Específicos:</Label>
+                <MultiSelectCombobox
+                  options={vehicleOptions}
+                  selected={selectedVehicleIds}
+                  onChange={setSelectedVehicleIds}
+                  placeholder="Selecionar veículos..."
+                  searchPlaceholder="Buscar veículo..."
+                  emptySearchMessage="Nenhum veículo encontrado."
+                  className="mt-1"
+                />
+              </div>
             </CardHeader>
             <CardContent>
                 {adminDashboardData.vehiclePerformance.length > 0 ? (
@@ -576,7 +566,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                         </TableBody>
                     </Table>
                 ) : (
-                    <p className="text-muted-foreground">Nenhum dado de performance de veículos para exibir com os filtros atuais.</p>
+                    <p className="text-muted-foreground">
+                      {selectedVehicleIds.length > 0 ? "Nenhum dos veículos selecionados possui dados de performance para os filtros atuais." : "Nenhum dado de performance de veículos para exibir com os filtros atuais."}
+                    </p>
                 )}
             </CardContent>
           </Card>
@@ -586,6 +578,3 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     </div>
   );
 };
-
-
-    
