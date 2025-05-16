@@ -9,29 +9,29 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"; // Removed AlertDialogTrigger as it's used inside a Dialog
 import { getCurrentLocation, getCurrentCity, Coordinate } from '@/services/geolocation';
 import { useToast } from "@/hooks/use-toast";
 import { LoadingSpinner } from '@/components/LoadingSpinner';
-import { addLocalVisit, updateLocalVisit, deleteLocalVisit, getLocalVisits, LocalVisit } from '@/services/localDbService';
+import { addLocalVisit, updateLocalVisit, deleteLocalVisit, getLocalVisits, LocalVisit, getLocalVisitTypes } from '@/services/localDbService';
 import { cn } from '@/lib/utils';
 import { formatKm } from '@/lib/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export interface Visit extends Omit<LocalVisit, 'localId' | 'tripLocalId'> {
   id: string;
-  tripId: string; // This is actually tripLocalId in this context
+  tripId: string; 
   userId: string; 
   syncStatus?: 'pending' | 'synced' | 'error';
   visitType?: string;
 }
 
 interface VisitsProps {
-  tripId: string; // This is tripLocalId
+  tripId: string; 
   ownerUserId: string; 
 }
 
-const visitTypes = ['Entrega', 'Coleta', 'Reunião', 'Manutenção', 'Visita Técnica', 'Outro'];
+// const visitTypes = ['Entrega', 'Coleta', 'Reunião', 'Manutenção', 'Visita Técnica', 'Outro']; // Removed hardcoded
 
 export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId }) => {
   console.log("[VisitsComponent props] tripId:", tripLocalId, "ownerUserId:", ownerUserId);
@@ -56,6 +56,9 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
   const [reason, setReason] = useState('');
   const [visitType, setVisitType] = useState('');
 
+  const [availableVisitTypes, setAvailableVisitTypes] = useState<string[]>([]);
+  const [loadingVisitTypes, setLoadingVisitTypes] = useState(true);
+
    useEffect(() => {
     const fetchVisitsData = async () => {
       if (!tripLocalId) return;
@@ -79,13 +82,24 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
       }
     };
     fetchVisitsData();
+
+    setLoadingVisitTypes(true);
+    getLocalVisitTypes()
+      .then(types => {
+        setAvailableVisitTypes(['Outro', ...types]); // Ensure "Outro" is always an option
+      })
+      .catch(err => {
+        console.error("Failed to load visit types:", err);
+        setAvailableVisitTypes(['Outro']); // Fallback
+        toast({ variant: 'destructive', title: 'Erro ao carregar tipos de visita' });
+      })
+      .finally(() => setLoadingVisitTypes(false));
+
   }, [tripLocalId, ownerUserId, toast]);
 
 
   const getLastVisitKm = (): number | null => {
       if (visits.length === 0) return null;
-      // Assuming visits are sorted descending by timestamp, the first one is the latest.
-      // To get the one before the *new* one, we need the current latest.
       const sortedChronologically = [...visits].sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
       return sortedChronologically.length > 0 ? sortedChronologically[sortedChronologically.length - 1].initialKm : null;
   };
@@ -212,7 +226,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
             initialKm: kmValue,
             reason,
             visitType,
-            syncStatus: originalLocalVisit.syncStatus === 'synced' ? 'pending' : originalLocalVisit.syncStatus,
+            syncStatus: originalLocalVisit.syncStatus === 'synced' && !originalLocalVisit.deleted ? 'pending' : originalLocalVisit.syncStatus,
             deleted: originalLocalVisit.deleted || false,
       };
 
@@ -308,7 +322,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
    const closeConfirmModal = () => {
         setIsConfirmModalOpen(false);
         setVisitToConfirm(null);
-        setIsCreateModalOpen(true);
+        setIsCreateModalOpen(true); // Reopen create modal if confirmation is cancelled
     }
 
   return (
@@ -334,12 +348,14 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
 
                     <div className="space-y-2">
                         <Label htmlFor="visitType">Tipo de Visita*</Label>
-                        <Select onValueChange={setVisitType} value={visitType} required disabled={isSaving}>
+                        <Select onValueChange={setVisitType} value={visitType} required disabled={isSaving || loadingVisitTypes}>
                             <SelectTrigger id="visitType">
-                                <SelectValue placeholder="Selecione o tipo de visita" />
+                                <SelectValue placeholder={loadingVisitTypes ? "Carregando tipos..." : "Selecione o tipo de visita"} />
                             </SelectTrigger>
                             <SelectContent>
-                                {visitTypes.map((type) => (
+                                {loadingVisitTypes ? (
+                                     <SelectItem value="loading" disabled><Loader2 className="mr-2 h-4 w-4 animate-spin inline-block"/> Carregando...</SelectItem>
+                                ) : availableVisitTypes.map((type) => (
                                     <SelectItem key={type} value={type}>{type}</SelectItem>
                                 ))}
                             </SelectContent>
@@ -373,7 +389,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
                     <DialogFooter>
                         <DialogClose asChild><Button type="button" variant="outline" onClick={closeCreateModal} disabled={isSaving}>Cancelar</Button></DialogClose>
                         <Button type="submit" disabled={isFetchingLocation || isSaving} className="bg-primary hover:bg-primary/90">
-                            {isSaving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                            {(isSaving || isFetchingLocation) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                             Confirmar Dados
                         </Button>
                     </DialogFooter>
@@ -393,8 +409,8 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
                     Por favor, revise os dados abaixo, especialmente a <strong>Quilometragem Inicial</strong>. Esta ação não pode ser facilmente desfeita.
                 </AlertDialogDescription>
             </AlertDialogHeader>
-            <div className="py-2"> {/* Moved ul outside AlertDialogDescription */}
-                <ul className="mt-3 list-disc list-inside space-y-1 text-sm text-foreground">
+            <div className="py-2">
+                <ul className="list-disc list-inside space-y-1 text-sm text-foreground">
                     <li><strong>Cliente:</strong> {visitToConfirm?.clientName}</li>
                     <li><strong>Tipo de Visita:</strong> {visitToConfirm?.visitType}</li>
                     <li><strong>Localização (Cidade):</strong> {visitToConfirm?.location}</li>
@@ -415,26 +431,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
           </AlertDialogContent>
         </AlertDialog>
 
-        <AlertDialog open={isDeleteModalOpen} onOpenChange={(isOpen) => !isOpen && closeDeleteConfirmation()}>
-            <AlertDialogContent>
-                <AlertDialogHeader>
-                    <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
-                    <AlertDialogDescription>
-                        Tem certeza que deseja marcar esta visita para "{visitToDelete?.clientName}" para exclusão? A exclusão definitiva ocorrerá na próxima sincronização.
-                    </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                    <AlertDialogCancel onClick={closeDeleteConfirmation} disabled={isSaving}>Cancelar</AlertDialogCancel>
-                    <AlertDialogAction onClick={confirmDeleteVisit} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground" disabled={isSaving}>
-                        {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                        {isSaving ? 'Marcando...' : 'Marcar para Excluir'}
-                    </AlertDialogAction>
-                </AlertDialogFooter>
-            </AlertDialogContent>
-        </AlertDialog>
-
-
-      {loading ? (
+        {loading ? (
            <div className="flex justify-center items-center h-20">
                <LoadingSpinner />
            </div>
@@ -525,12 +522,14 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
                                     </div>
                                     <div className="space-y-2">
                                         <Label htmlFor="editVisitType">Tipo de Visita*</Label>
-                                        <Select onValueChange={setVisitType} value={visitType} required disabled={isSaving}>
+                                        <Select onValueChange={setVisitType} value={visitType} required disabled={isSaving || loadingVisitTypes}>
                                             <SelectTrigger id="editVisitType">
-                                                <SelectValue placeholder="Selecione o tipo de visita" />
+                                                <SelectValue placeholder={loadingVisitTypes ? "Carregando tipos..." : "Selecione o tipo"} />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {visitTypes.map((type) => (
+                                                {loadingVisitTypes ? (
+                                                    <SelectItem value="loading" disabled><Loader2 className="mr-2 h-4 w-4 animate-spin inline-block"/> Carregando...</SelectItem>
+                                                ) : availableVisitTypes.map((type) => (
                                                     <SelectItem key={type} value={type}>{type}</SelectItem>
                                                 ))}
                                             </SelectContent>
@@ -559,15 +558,15 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
                                     </div>
                                     <DialogFooter>
                                         <DialogClose asChild><Button type="button" variant="outline" onClick={closeEditModal} disabled={isSaving}>Cancelar</Button></DialogClose>
-                                        <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isSaving}>
-                                            {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                            {isSaving ? 'Salvando...' : 'Salvar Alterações Locais'}
+                                        <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isSaving || isFetchingLocation}>
+                                            {(isSaving || isFetchingLocation) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                            Salvar Alterações Locais
                                         </Button>
                                     </DialogFooter>
                                 </form>
                             </DialogContent>
                         </Dialog>
-                        <AlertDialog>
+                        <AlertDialog open={isDeleteModalOpen && visitToDelete?.id === visit.id} onOpenChange={(isOpen) => { if(!isOpen) closeDeleteConfirmation();}}>
                             <AlertDialogTrigger asChild>
                                 <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => openDeleteConfirmation(visit)} disabled={isSaving}>
                                 <Trash2 className="h-4 w-4" />

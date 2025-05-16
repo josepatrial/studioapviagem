@@ -1,39 +1,82 @@
 // src/app/profile/page.tsx
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { ArrowLeft, Loader2, User, Mail, Lock, Building } from 'lucide-react'; // Import icons for sections
+import { ArrowLeft, Loader2, User, Mail, Lock, Building, ListPlus, Trash2, Tag } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { useToast } from '@/hooks/use-toast';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"; // Import Tabs
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+    addLocalVisitType,
+    getLocalVisitTypes,
+    deleteLocalVisitType,
+    addLocalExpenseType,
+    getLocalExpenseTypes,
+    deleteLocalExpenseType,
+} from '@/services/localDbService';
+import {
+    AlertDialog,
+    AlertDialogAction,
+    AlertDialogCancel,
+    AlertDialogContent,
+    AlertDialogDescription,
+    AlertDialogFooter,
+    AlertDialogHeader,
+    AlertDialogTitle,
+    AlertDialogTrigger,
+  } from '@/components/ui/alert-dialog';
 
 const ProfilePage: React.FC = () => {
-  const { user, loading, updateEmail, updatePassword, updateProfileName, updateBase } = useAuth(); // Added updateBase
+  const { user, loading, updateEmail, updatePassword, updateProfileName, updateBase } = useAuth();
   const router = useRouter();
   const { toast } = useToast();
 
-  // State for profile updates
   const [newName, setNewName] = useState(user?.name || '');
   const [newEmail, setNewEmail] = useState(user?.email || '');
   const [currentPasswordForEmail, setCurrentPasswordForEmail] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmNewPassword, setConfirmNewPassword] = useState('');
-  const [newBase, setNewBase] = useState(user?.base || ''); // Added state for new base
+  const [newBase, setNewBase] = useState(user?.base || '');
 
   const [isUpdatingName, setIsUpdatingName] = useState(false);
   const [isUpdatingEmail, setIsUpdatingEmail] = useState(false);
   const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
-  const [isUpdatingBase, setIsUpdatingBase] = useState(false); // Added loading state for base update
+  const [isUpdatingBase, setIsUpdatingBase] = useState(false);
 
-  const [activeTab, setActiveTab] = useState('name'); // State for active tab
+  const [activeTab, setActiveTab] = useState('name');
+
+  // State for custom types
+  const [visitTypes, setVisitTypes] = useState<string[]>([]);
+  const [newVisitTypeInput, setNewVisitTypeInput] = useState('');
+  const [expenseTypes, setExpenseTypes] = useState<string[]>([]);
+  const [newExpenseTypeInput, setNewExpenseTypeInput] = useState('');
+  const [loadingTypes, setLoadingTypes] = useState(false);
+  const [typeToDelete, setTypeToDelete] = useState<{ type: string; category: 'visit' | 'expense' } | null>(null);
+
+
+  useEffect(() => {
+    if (user?.role === 'admin') {
+      setLoadingTypes(true);
+      Promise.all([getLocalVisitTypes(), getLocalExpenseTypes()])
+        .then(([fetchedVisitTypes, fetchedExpenseTypes]) => {
+          setVisitTypes(fetchedVisitTypes);
+          setExpenseTypes(fetchedExpenseTypes);
+        })
+        .catch(err => {
+          console.error("Failed to load custom types:", err);
+          toast({ variant: 'destructive', title: 'Erro ao carregar tipos', description: 'Não foi possível buscar os tipos customizados.' });
+        })
+        .finally(() => setLoadingTypes(false));
+    }
+  }, [user?.role, toast]);
 
   if (loading || !user) {
     return (
@@ -42,9 +85,10 @@ const ProfilePage: React.FC = () => {
       </div>
     );
   }
+  const isAdmin = user.role === 'admin';
 
   const handleGoBack = () => {
-    router.back(); // Navigate to the previous page
+    router.back();
   };
 
   const handleUpdateName = async (e: React.FormEvent) => {
@@ -59,7 +103,7 @@ const ProfilePage: React.FC = () => {
           // toast is handled in context
       } else {
           // toast is handled in context
-          setNewName(user.name || ''); // Reset on failure
+          setNewName(user.name || '');
       }
       setIsUpdatingName(false);
   };
@@ -77,11 +121,9 @@ const ProfilePage: React.FC = () => {
      setIsUpdatingEmail(true);
      const success = await updateEmail(currentPasswordForEmail, newEmail);
      if (success) {
-       // toast is handled in context
-       setCurrentPasswordForEmail(''); // Clear password field
+       setCurrentPasswordForEmail('');
      } else {
-       // toast is handled in context
-       setNewEmail(user.email || ''); // Reset email on failure
+       setNewEmail(user.email || '');
      }
      setIsUpdatingEmail(false);
    };
@@ -96,45 +138,88 @@ const ProfilePage: React.FC = () => {
        toast({ variant: 'destructive', title: 'Senhas não coincidem', description: 'A nova senha e a confirmação devem ser iguais.'});
        return;
      }
-     if (newPassword.length < 6) { // Basic length check
+     if (newPassword.length < 6) {
         toast({ variant: 'destructive', title: 'Senha muito curta', description: 'A nova senha deve ter pelo menos 6 caracteres.'});
         return;
      }
-
      setIsUpdatingPassword(true);
      const success = await updatePassword(currentPassword, newPassword);
      if (success) {
-        // toast is handled in context
        setCurrentPassword('');
        setNewPassword('');
        setConfirmNewPassword('');
-     } else {
-       // toast is handled in context
      }
      setIsUpdatingPassword(false);
    };
 
-    const handleUpdateBase = async (e: React.FormEvent) => { // Added handler for base update
+    const handleUpdateBase = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!newBase || newBase === user.base) {
             toast({ variant: 'default', title: 'Nenhuma alteração', description: 'A base não foi alterada.'});
             return;
         }
-        if (user.role === 'admin') {
-            toast({ variant: 'destructive', title: 'Operação não permitida', description: 'A base do administrador não pode ser alterada.'});
+        if (isAdmin && user.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br') { // Stricter check for super admin
+            toast({ variant: 'destructive', title: 'Operação não permitida', description: 'A base do super administrador não pode ser alterada.'});
             return;
         }
         setIsUpdatingBase(true);
         const success = await updateBase(newBase);
-        if (success) {
-            // Toast handled in context
-        } else {
-            // Toast handled in context
-            setNewBase(user.base || ''); // Reset on failure
+        if (!success) {
+            setNewBase(user.base || '');
         }
         setIsUpdatingBase(false);
     };
 
+    const handleAddType = async (category: 'visit' | 'expense') => {
+        const typeName = category === 'visit' ? newVisitTypeInput.trim() : newExpenseTypeInput.trim();
+        if (!typeName) {
+            toast({ variant: 'destructive', title: 'Nome Inválido', description: 'O nome do tipo não pode ser vazio.' });
+            return;
+        }
+        setIsUpdatingBase(true); // Re-use loading state for simplicity
+        try {
+            if (category === 'visit') {
+                if (visitTypes.includes(typeName)) throw new Error("Tipo de visita já existe.");
+                await addLocalVisitType(typeName);
+                setVisitTypes(prev => [...prev, typeName].sort());
+                setNewVisitTypeInput('');
+            } else {
+                if (expenseTypes.includes(typeName)) throw new Error("Tipo de despesa já existe.");
+                await addLocalExpenseType(typeName);
+                setExpenseTypes(prev => [...prev, typeName].sort());
+                setNewExpenseTypeInput('');
+            }
+            toast({ title: 'Tipo Adicionado!', description: `"${typeName}" foi adicionado com sucesso.` });
+        } catch (error: any) {
+            toast({ variant: 'destructive', title: 'Erro ao Adicionar', description: error.message || 'Não foi possível adicionar o tipo.' });
+        } finally {
+            setIsUpdatingBase(false);
+        }
+    };
+
+    const openDeleteTypeDialog = (type: string, category: 'visit' | 'expense') => {
+        setTypeToDelete({ type, category });
+    };
+
+    const confirmDeleteType = async () => {
+        if (!typeToDelete) return;
+        setIsUpdatingBase(true);
+        try {
+            if (typeToDelete.category === 'visit') {
+                await deleteLocalVisitType(typeToDelete.type);
+                setVisitTypes(prev => prev.filter(t => t !== typeToDelete.type));
+            } else {
+                await deleteLocalExpenseType(typeToDelete.type);
+                setExpenseTypes(prev => prev.filter(t => t !== typeToDelete.type));
+            }
+            toast({ title: 'Tipo Removido!', description: `"${typeToDelete.type}" foi removido.` });
+        } catch (error: any) {
+            toast({ variant: 'destructive', title: 'Erro ao Remover', description: error.message || 'Não foi possível remover o tipo.' });
+        } finally {
+            setIsUpdatingBase(false);
+            setTypeToDelete(null);
+        }
+    };
 
   return (
     <div className="flex min-h-screen flex-col items-center bg-secondary p-4 md:p-6">
@@ -149,8 +234,6 @@ const ProfilePage: React.FC = () => {
           <CardDescription>Visualize e atualize suas informações.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
-
-          {/* User Info Display */}
           <div className="space-y-2">
              <Label htmlFor="userId">ID do Usuário</Label>
              <Input id="userId" value={user.id} readOnly className="bg-muted/50 cursor-not-allowed" />
@@ -160,40 +243,30 @@ const ProfilePage: React.FC = () => {
              <Input id="currentNameDisplay" value={user.name || 'Não definido'} readOnly className="bg-muted/50 cursor-not-allowed" />
              <Label htmlFor="currentBaseDisplay">Base Atual</Label>
              <Input id="currentBaseDisplay" value={user.base || 'Não definida'} readOnly className="bg-muted/50 cursor-not-allowed" />
+             {isAdmin && <p className="text-xs text-blue-500 pt-1">Função: Administrador</p>}
           </div>
-
           <Separator />
 
-           {/* Tabs for Update Sections */}
            <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-             <TabsList className="grid w-full grid-cols-4"> {/* Changed to grid-cols-4 */}
-               <TabsTrigger value="name">
-                  <User className="mr-2 h-4 w-4" /> Alterar Nome
-               </TabsTrigger>
-               <TabsTrigger value="email">
-                  <Mail className="mr-2 h-4 w-4" /> Alterar E-mail
-               </TabsTrigger>
-               <TabsTrigger value="password">
-                  <Lock className="mr-2 h-4 w-4" /> Alterar Senha
-               </TabsTrigger>
-               <TabsTrigger value="base"> {/* Added Base Tab */}
-                  <Building className="mr-2 h-4 w-4" /> Alterar Base
-               </TabsTrigger>
+             <TabsList className={`grid w-full ${isAdmin ? 'grid-cols-4 sm:grid-cols-6' : 'grid-cols-2 sm:grid-cols-4'}`}>
+               <TabsTrigger value="name"><User className="mr-1 sm:mr-2 h-4 w-4" /> <span className="hidden sm:inline">Alterar </span>Nome</TabsTrigger>
+               <TabsTrigger value="email"><Mail className="mr-1 sm:mr-2 h-4 w-4" /> <span className="hidden sm:inline">Alterar </span>E-mail</TabsTrigger>
+               <TabsTrigger value="password"><Lock className="mr-1 sm:mr-2 h-4 w-4" /> <span className="hidden sm:inline">Alterar </span>Senha</TabsTrigger>
+               <TabsTrigger value="base"><Building className="mr-1 sm:mr-2 h-4 w-4" /> <span className="hidden sm:inline">Alterar </span>Base</TabsTrigger>
+               {isAdmin && (
+                <>
+                  <TabsTrigger value="visitTypes"><Tag className="mr-1 sm:mr-2 h-4 w-4" />Tipos Visita</TabsTrigger>
+                  <TabsTrigger value="expenseTypes"><Tag className="mr-1 sm:mr-2 h-4 w-4" />Tipos Despesa</TabsTrigger>
+                </>
+               )}
              </TabsList>
 
-             {/* Update Name Section */}
              <TabsContent value="name" className="mt-6">
                 <form onSubmit={handleUpdateName} className="space-y-4">
                   <h3 className="text-lg font-semibold">Alterar Nome de Exibição</h3>
                   <div className="space-y-2">
                     <Label htmlFor="name">Novo Nome</Label>
-                    <Input
-                      id="name"
-                      value={newName}
-                      onChange={(e) => setNewName(e.target.value)}
-                      placeholder="Seu nome de exibição"
-                      disabled={isUpdatingName}
-                    />
+                    <Input id="name" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Seu nome de exibição" disabled={isUpdatingName} />
                   </div>
                   <Button type="submit" disabled={isUpdatingName || !newName || newName === user.name} className="bg-primary hover:bg-primary/90">
                      {isUpdatingName && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
@@ -201,38 +274,17 @@ const ProfilePage: React.FC = () => {
                   </Button>
                 </form>
              </TabsContent>
-
-             {/* Update Email Section */}
              <TabsContent value="email" className="mt-6">
                 <form onSubmit={handleUpdateEmail} className="space-y-4">
                   <h3 className="text-lg font-semibold">Alterar Endereço de E-mail</h3>
                   <div className="space-y-2">
                     <Label htmlFor="email">Novo E-mail</Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      value={newEmail}
-                      onChange={(e) => setNewEmail(e.target.value)}
-                      placeholder="seu.novo@email.com"
-                      required
-                      disabled={isUpdatingEmail || user.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br'}
-                      title={user.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br' ? "E-mail do super administrador não pode ser alterado." : ""}
-                    />
-                     {user.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br' && (
-                        <p className="text-xs text-destructive">E-mail do super administrador não pode ser alterado.</p>
-                     )}
+                    <Input id="email" type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder="seu.novo@email.com" required disabled={isUpdatingEmail || user.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br'} title={user.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br' ? "E-mail do super administrador não pode ser alterado." : ""} />
+                     {user.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br' && (<p className="text-xs text-destructive">E-mail do super administrador não pode ser alterado.</p>)}
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="currentPasswordForEmail">Senha Atual</Label>
-                    <Input
-                      id="currentPasswordForEmail"
-                      type="password"
-                      value={currentPasswordForEmail}
-                      onChange={(e) => setCurrentPasswordForEmail(e.target.value)}
-                      placeholder="Digite sua senha atual"
-                      required
-                      disabled={isUpdatingEmail || user.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br'}
-                    />
+                    <Input id="currentPasswordForEmail" type="password" value={currentPasswordForEmail} onChange={(e) => setCurrentPasswordForEmail(e.target.value)} placeholder="Digite sua senha atual" required disabled={isUpdatingEmail || user.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br'} />
                     <p className="text-xs text-muted-foreground">Necessário para confirmar a alteração do e-mail.</p>
                   </div>
                   <Button type="submit" disabled={isUpdatingEmail || !currentPasswordForEmail || !newEmail || newEmail === user.email || user.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br'} className="bg-primary hover:bg-primary/90">
@@ -241,83 +293,103 @@ const ProfilePage: React.FC = () => {
                   </Button>
                 </form>
              </TabsContent>
-
-             {/* Update Password Section */}
              <TabsContent value="password" className="mt-6">
                 <form onSubmit={handleUpdatePassword} className="space-y-4">
                   <h3 className="text-lg font-semibold">Alterar Senha</h3>
-                  <div className="space-y-2">
-                    <Label htmlFor="currentPassword">Senha Atual</Label>
-                    <Input
-                      id="currentPassword"
-                      type="password"
-                      value={currentPassword}
-                      onChange={(e) => setCurrentPassword(e.target.value)}
-                      placeholder="Sua senha atual"
-                      required
-                      disabled={isUpdatingPassword}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="newPassword">Nova Senha</Label>
-                    <Input
-                      id="newPassword"
-                      type="password"
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="Mínimo 6 caracteres"
-                      required
-                      disabled={isUpdatingPassword}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="confirmNewPassword">Confirmar Nova Senha</Label>
-                    <Input
-                      id="confirmNewPassword"
-                      type="password"
-                      value={confirmNewPassword}
-                      onChange={(e) => setConfirmNewPassword(e.target.value)}
-                      placeholder="Repita a nova senha"
-                      required
-                      disabled={isUpdatingPassword}
-                    />
-                  </div>
+                  <div className="space-y-2"><Label htmlFor="currentPassword">Senha Atual</Label><Input id="currentPassword" type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Sua senha atual" required disabled={isUpdatingPassword} /></div>
+                  <div className="space-y-2"><Label htmlFor="newPassword">Nova Senha</Label><Input id="newPassword" type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="Mínimo 6 caracteres" required disabled={isUpdatingPassword} /></div>
+                  <div className="space-y-2"><Label htmlFor="confirmNewPassword">Confirmar Nova Senha</Label><Input id="confirmNewPassword" type="password" value={confirmNewPassword} onChange={(e) => setConfirmNewPassword(e.target.value)} placeholder="Repita a nova senha" required disabled={isUpdatingPassword} /></div>
                   <Button type="submit" disabled={isUpdatingPassword || !currentPassword || !newPassword || !confirmNewPassword || newPassword !== confirmNewPassword} className="bg-primary hover:bg-primary/90">
                      {isUpdatingPassword && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                      {isUpdatingPassword ? 'Atualizando...' : 'Salvar Senha'}
                   </Button>
                 </form>
              </TabsContent>
-
-             {/* Update Base Section */}
              <TabsContent value="base" className="mt-6">
                 <form onSubmit={handleUpdateBase} className="space-y-4">
                   <h3 className="text-lg font-semibold">Alterar Base Operacional</h3>
                   <div className="space-y-2">
                     <Label htmlFor="base">Nova Base</Label>
-                    <Input
-                      id="base"
-                      value={newBase}
-                      onChange={(e) => setNewBase(e.target.value.toUpperCase())}
-                      placeholder="Ex: SP, RJ, MG"
-                      disabled={isUpdatingBase || user.role === 'admin'}
-                      title={user.role === 'admin' ? "Base do administrador não pode ser alterada." : ""}
-                    />
-                     {user.role === 'admin' && (
-                        <p className="text-xs text-destructive">Base do administrador não pode ser alterada.</p>
-                     )}
+                    <Input id="base" value={newBase} onChange={(e) => setNewBase(e.target.value.toUpperCase())} placeholder="Ex: SP, RJ, MG" disabled={isUpdatingBase || (isAdmin && user.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br')} title={(isAdmin && user.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br') ? "Base do super administrador não pode ser alterada." : ""} />
+                     {(isAdmin && user.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br') && (<p className="text-xs text-destructive">Base do super administrador não pode ser alterada.</p>)}
                   </div>
-                  <Button type="submit" disabled={isUpdatingBase || !newBase || newBase === user.base || user.role === 'admin'} className="bg-primary hover:bg-primary/90">
+                  <Button type="submit" disabled={isUpdatingBase || !newBase || newBase === user.base || (isAdmin && user.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br')} className="bg-primary hover:bg-primary/90">
                      {isUpdatingBase && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                      {isUpdatingBase ? 'Atualizando...' : 'Salvar Base'}
                   </Button>
                 </form>
              </TabsContent>
 
-           </Tabs>
+            {isAdmin && (
+              <>
+                <TabsContent value="visitTypes" className="mt-6">
+                  <h3 className="text-lg font-semibold mb-3">Gerenciar Tipos de Visita</h3>
+                  <form onSubmit={(e) => { e.preventDefault(); handleAddType('visit'); }} className="flex gap-2 mb-4">
+                    <Input value={newVisitTypeInput} onChange={(e) => setNewVisitTypeInput(e.target.value)} placeholder="Novo tipo de visita" disabled={isUpdatingBase || loadingTypes} />
+                    <Button type="submit" disabled={isUpdatingBase || loadingTypes || !newVisitTypeInput.trim()} className="bg-primary hover:bg-primary/90">
+                      {isUpdatingBase ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ListPlus className="mr-2 h-4 w-4" />} Adicionar
+                    </Button>
+                  </form>
+                  {loadingTypes ? <LoadingSpinner /> : visitTypes.length > 0 ? (
+                    <ul className="space-y-2 rounded-md border p-2">
+                      {visitTypes.map(type => (
+                        <li key={type} className="flex justify-between items-center p-2 hover:bg-muted/50 rounded-sm">
+                          <span>{type}</span>
+                          <Button variant="ghost" size="icon" onClick={() => openDeleteTypeDialog(type, 'visit')} className="h-7 w-7 text-destructive" disabled={isUpdatingBase}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (<p className="text-sm text-muted-foreground">Nenhum tipo de visita cadastrado.</p>)}
+                </TabsContent>
 
+                <TabsContent value="expenseTypes" className="mt-6">
+                  <h3 className="text-lg font-semibold mb-3">Gerenciar Tipos de Despesa</h3>
+                  <form onSubmit={(e) => { e.preventDefault(); handleAddType('expense'); }} className="flex gap-2 mb-4">
+                    <Input value={newExpenseTypeInput} onChange={(e) => setNewExpenseTypeInput(e.target.value)} placeholder="Novo tipo de despesa" disabled={isUpdatingBase || loadingTypes} />
+                    <Button type="submit" disabled={isUpdatingBase || loadingTypes || !newExpenseTypeInput.trim()} className="bg-primary hover:bg-primary/90">
+                      {isUpdatingBase ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <ListPlus className="mr-2 h-4 w-4" />} Adicionar
+                    </Button>
+                  </form>
+                   {loadingTypes ? <LoadingSpinner /> : expenseTypes.length > 0 ? (
+                    <ul className="space-y-2 rounded-md border p-2">
+                      {expenseTypes.map(type => (
+                        <li key={type} className="flex justify-between items-center p-2 hover:bg-muted/50 rounded-sm">
+                          <span>{type}</span>
+                          <Button variant="ghost" size="icon" onClick={() => openDeleteTypeDialog(type, 'expense')} className="h-7 w-7 text-destructive" disabled={isUpdatingBase}>
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (<p className="text-sm text-muted-foreground">Nenhum tipo de despesa cadastrado.</p>)}
+                </TabsContent>
+              </>
+            )}
+           </Tabs>
         </CardContent>
       </Card>
+
+        {typeToDelete && (
+            <AlertDialog open={!!typeToDelete} onOpenChange={(isOpen) => { if (!isOpen) setTypeToDelete(null); }}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Confirmar Remoção</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Tem certeza que deseja remover o tipo "{typeToDelete.type}"? Esta ação não pode ser desfeita.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel onClick={() => setTypeToDelete(null)} disabled={isUpdatingBase}>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction onClick={confirmDeleteType} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground" disabled={isUpdatingBase}>
+                            {isUpdatingBase && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                            Remover
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+        )}
     </div>
   );
 };

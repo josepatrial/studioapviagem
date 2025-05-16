@@ -34,8 +34,7 @@ import {
     AlertDialogFooter,
     AlertDialogHeader,
     AlertDialogTitle,
-    AlertDialogTrigger,
-  } from '@/components/ui/alert-dialog';
+  } from '@/components/ui/alert-dialog'; // Removed AlertDialogTrigger as it's used inside a Dialog
 import {
     Button
   } from '@/components/ui/button';
@@ -65,22 +64,23 @@ import {
    updateLocalExpense,
    deleteLocalExpense,
    getLocalExpenses,
-   LocalExpense
+   LocalExpense,
+   getLocalExpenseTypes,
 } from '@/services/localDbService';
-import { uploadReceipt, deleteReceipt } from '@/services/storageService'; // Assuming these are implemented
+import { uploadReceipt, deleteReceipt } from '@/services/storageService';
 
 export interface Expense extends Omit<LocalExpense, 'localId' | 'tripLocalId'> {
     id: string;
-    tripId: string; 
-    userId: string; 
+    tripId: string;
+    userId: string;
     syncStatus?: 'pending' | 'synced' | 'error';
 }
 
-const expenseTypes = ['Pedágio', 'Alimentação', 'Hospedagem', 'Combustível', 'Manutenção', 'Outros'];
+// const expenseTypes = ['Pedágio', 'Alimentação', 'Hospedagem', 'Combustível', 'Manutenção', 'Outros']; // Removed hardcoded
 
 interface ExpensesProps {
-  tripId: string; 
-  ownerUserId: string; 
+  tripId: string;
+  ownerUserId: string;
 }
 
 export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUserId }) => {
@@ -110,6 +110,8 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
     const [isCameraOpen, setIsCameraOpen] = useState(false);
     const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
 
+    const [availableExpenseTypes, setAvailableExpenseTypes] = useState<string[]>([]);
+    const [loadingExpenseTypes, setLoadingExpenseTypes] = useState(true);
 
     useEffect(() => {
         const fetchExpensesData = async () => {
@@ -121,7 +123,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
                     ...le,
                     id: le.firebaseId || le.localId,
                     tripId: le.tripLocalId,
-                    userId: le.userId || ownerUserId, 
+                    userId: le.userId || ownerUserId,
                     syncStatus: le.syncStatus
                 }));
                 setExpenses(uiExpenses);
@@ -133,6 +135,19 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
             }
         };
         fetchExpensesData();
+
+        setLoadingExpenseTypes(true);
+        getLocalExpenseTypes()
+            .then(types => {
+                setAvailableExpenseTypes(['Outros', ...types]); // Ensure "Outros" is always an option
+            })
+            .catch(err => {
+                console.error("Failed to load expense types:", err);
+                setAvailableExpenseTypes(['Outros']); // Fallback
+                toast({ variant: 'destructive', title: 'Erro ao carregar tipos de despesa' });
+            })
+            .finally(() => setLoadingExpenseTypes(false));
+
     }, [tripLocalId, ownerUserId, toast]);
 
     useEffect(() => {
@@ -176,7 +191,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
 
 
     const formatCurrency = (amount: number) => amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-    const formatDateDisplay = (dateString: string) => { 
+    const formatDateDisplay = (dateString: string) => {
         try {
              const date = new Date(dateString);
              return format(date, 'dd/MM/yyyy');
@@ -242,14 +257,14 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
 
         const newExpenseData: Omit<LocalExpense, 'localId' | 'syncStatus' | 'receiptUrl' | 'receiptPath'> = {
             tripLocalId: tripLocalId,
-            userId: ownerUserId, 
+            userId: ownerUserId,
             description,
             value: valueNumber,
             expenseDate: expenseDate.toISOString(),
             timestamp: new Date().toISOString(),
             expenseType,
             receiptFilename: attachmentFilename || undefined,
-            deleted: false, 
+            deleted: false,
         };
 
         setExpenseToConfirm({ ...newExpenseData, attachment: attachment });
@@ -264,24 +279,28 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
         setIsSaving(true);
         const { attachment: tempAttachment, ...dataToSaveBase } = expenseToConfirm;
 
-        const dataToSave: Omit<LocalExpense, 'localId' | 'syncStatus'> = {
+        const dataToSave: Omit<LocalExpense, 'localId' | 'syncStatus' | 'deleted'> = {
             ...dataToSaveBase,
              userId: ownerUserId,
              receiptUrl: typeof tempAttachment === 'string' ? tempAttachment : undefined,
-             receiptPath: undefined, 
+             receiptPath: undefined,
              receiptFilename: attachmentFilename || undefined,
-             deleted: false,
         };
 
         try {
             const localId = await addLocalExpense(dataToSave);
              const newUIExpense: Expense = {
-                ...dataToSave,
+                ...(dataToSave as Omit<LocalExpense, 'localId' | 'syncStatus' | 'deleted' | 'tripLocalId'>), // Cast to ensure all needed fields are present
                 localId: localId,
                 id: localId,
                 tripId: tripLocalId,
                 userId: ownerUserId,
-                syncStatus: 'pending'
+                syncStatus: 'pending',
+                // Ensure all fields of Expense (derived from LocalExpense) are present
+                tripLocalId: tripLocalId, // this was missing in the spread
+                deleted: false, // explicitly set
+                timestamp: dataToSave.timestamp,
+                expenseDate: dataToSave.expenseDate,
              };
             setExpenses(prevExpenses => [newUIExpense, ...prevExpenses].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
             resetForm();
@@ -320,21 +339,21 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
         setIsSaving(true);
         const updatedLocalExpenseData: LocalExpense = {
             ...originalLocalExpense,
-            userId: ownerUserId, 
+            userId: ownerUserId,
             description,
             value: valueNumber,
             expenseDate: expenseDate.toISOString(),
             expenseType,
             receiptUrl: typeof attachment === 'string' ? attachment : (attachment === null ? undefined : originalLocalExpense.receiptUrl),
             receiptFilename: attachmentFilename || (attachment === null ? undefined : originalLocalExpense.receiptFilename),
-            syncStatus: originalLocalExpense.syncStatus === 'synced' ? 'pending' : originalLocalExpense.syncStatus,
+            syncStatus: originalLocalExpense.syncStatus === 'synced' && !originalLocalExpense.deleted ? 'pending' : originalLocalExpense.syncStatus,
             deleted: originalLocalExpense.deleted || false,
         };
 
         try {
             await updateLocalExpense(updatedLocalExpenseData);
             const updatedUIExpense: Expense = {
-                ...updatedLocalExpenseData,
+                ...(updatedLocalExpenseData as Omit<LocalExpense, 'localId' | 'tripLocalId'>),
                 id: updatedLocalExpenseData.firebaseId || updatedLocalExpenseData.localId,
                 tripId: tripLocalId,
                 userId: ownerUserId,
@@ -497,12 +516,14 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
                                     </div>
                                     <div className="space-y-2">
                                         <Label htmlFor="expenseType">Tipo de Despesa*</Label>
-                                        <Select onValueChange={setExpenseType} value={expenseType} required disabled={isSaving}>
+                                        <Select onValueChange={setExpenseType} value={expenseType} required disabled={isSaving || loadingExpenseTypes}>
                                             <SelectTrigger id="expenseType">
-                                                <SelectValue placeholder="Selecione o tipo" />
+                                                <SelectValue placeholder={loadingExpenseTypes ? "Carregando tipos..." : "Selecione o tipo"} />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {expenseTypes.map((type) => (
+                                                 {loadingExpenseTypes ? (
+                                                    <SelectItem value="loading" disabled><Loader2 className="mr-2 h-4 w-4 animate-spin inline-block"/> Carregando...</SelectItem>
+                                                ) : availableExpenseTypes.map((type) => (
                                                     <SelectItem key={type} value={type}>{type}</SelectItem>
                                                 ))}
                                             </SelectContent>
@@ -559,7 +580,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
                             Por favor, revise os dados abaixo antes de salvar localmente.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
-                    <div className="py-2"> {/* Moved ul outside AlertDialogDescription */}
+                    <div className="py-2">
                         <ul className="list-disc list-inside space-y-1 text-sm text-foreground">
                             <li><strong>Descrição:</strong> {expenseToConfirm?.description}</li>
                             <li><strong>Valor:</strong> {expenseToConfirm ? formatCurrency(expenseToConfirm.value) : 'N/A'}</li>
@@ -617,7 +638,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
                  </DialogContent>
              </Dialog>
 
-              <AlertDialog open={isDeleteModalOpen} onOpenChange={closeDeleteConfirmation}>
+            <AlertDialog open={isDeleteModalOpen} onOpenChange={(isOpen) => {if (!isOpen) closeDeleteConfirmation();}}>
                  <AlertDialogContent>
                      <AlertDialogHeader>
                          <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
@@ -718,12 +739,14 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
                                                     </div>
                                                      <div className="space-y-2">
                                                         <Label htmlFor="editExpenseType">Tipo de Despesa*</Label>
-                                                        <Select onValueChange={setExpenseType} value={expenseType} required disabled={isSaving}>
+                                                        <Select onValueChange={setExpenseType} value={expenseType} required disabled={isSaving || loadingExpenseTypes}>
                                                             <SelectTrigger id="editExpenseType">
-                                                                <SelectValue placeholder="Selecione o tipo" />
+                                                                <SelectValue placeholder={loadingExpenseTypes ? "Carregando tipos..." : "Selecione o tipo"} />
                                                             </SelectTrigger>
                                                             <SelectContent>
-                                                                {expenseTypes.map((type) => (
+                                                                {loadingExpenseTypes ? (
+                                                                    <SelectItem value="loading" disabled><Loader2 className="mr-2 h-4 w-4 animate-spin inline-block"/> Carregando...</SelectItem>
+                                                                ) : availableExpenseTypes.map((type) => (
                                                                     <SelectItem key={type} value={type}>{type}</SelectItem>
                                                                 ))}
                                                             </SelectContent>
@@ -767,7 +790,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
                                                 </form>
                                             </DialogContent>
                                         </Dialog>
-                                        <AlertDialog>
+                                         <AlertDialog open={isDeleteModalOpen && expenseToDelete?.id === expense.id} onOpenChange={(isOpen) => {if(!isOpen) closeDeleteConfirmation();}}>
                                             <AlertDialogTrigger asChild>
                                                 <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => openDeleteConfirmation(expense)} disabled={isSaving}>
                                                     <Trash2 className="h-4 w-4" />
