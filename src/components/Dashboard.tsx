@@ -214,8 +214,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
 
 
   const vehicleOptions: MultiSelectOption[] = useMemo(() => {
-    return vehicles.map(v => ({
-      value: v.firebaseId || v.localId,
+    // De-duplicate vehicles before mapping to options
+    const uniqueVehicles = Array.from(new Map(vehicles.map(v => [v.firebaseId || v.localId, v])).values());
+    return uniqueVehicles.map(v => ({
+      value: v.firebaseId || v.localId, // This is the key for CommandItem
       label: `${v.model} (${v.licensePlate})`,
       icon: Car
     }));
@@ -578,3 +580,4 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     </div>
   );
 };
+
