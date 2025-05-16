@@ -50,20 +50,21 @@ try {
   console.log(`Firebase services initialized. Firestore connected to database: ${DATABASE_ID}`);
 
   // Enable offline persistence only after db is initialized
-  if (db) {
-    persistenceEnabledPromise = enableIndexedDbPersistence(db)
-      .then(() => {
-        console.log(`Firebase Firestore persistence enabled successfully for database: ${DATABASE_ID}.`);
-      })
-      .catch((err) => {
-        if (err.code === 'failed-precondition') {
-          console.warn(`Firestore persistence failed for database ${DATABASE_ID} (multiple tabs open or other issue).`);
-        } else if (err.code === 'unimplemented') {
-          console.warn(`Firestore persistence is not available in this browser for database ${DATABASE_ID}.`);
-        } else {
-          console.error(`Error enabling Firestore persistence for database ${DATABASE_ID}:`, err);
-        }
-      });
+  // Enable offline persistence only in the browser environment
+  if (typeof window !== 'undefined' && db) {
+    persistenceEnabledPromise = enableIndexedDbPersistence(db, { synchronizeTabs: true })
+ .then(() => {
+ console.log(`Firebase Firestore persistence enabled successfully for database: ${DATABASE_ID}.`);
+ })
+ .catch((err) => {
+ if (err.code === 'failed-precondition') {
+ console.warn(`Firestore persistence failed for database ${DATABASE_ID} (multiple tabs open or other issue).`);
+ } else if (err.code === 'unimplemented') {
+ console.warn(`Firestore persistence is not available in this browser for database ${DATABASE_ID}.`);
+ } else {
+ console.error(`Error enabling Firestore persistence for database ${DATABASE_ID}:`, err);
+ }
+ });
   } else {
     console.error(`Firestore DB instance for ${DATABASE_ID} is null, cannot enable persistence.`);
     persistenceEnabledPromise = Promise.reject(new Error(`Firestore DB instance for ${DATABASE_ID} is null`));

@@ -52,6 +52,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
   const [filterDriverId, setFilterDriverId] = useState<string>('');
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
   const [selectedVehicleIds, setSelectedVehicleIds] = useState<string[]>([]);
+  const [selectedDriverIdsForVisits, setSelectedDriverIdsForVisits] = useState<string[]>([]);
 
 
   const [expenses, setExpenses] = useState<LocalExpense[]>([]);
@@ -223,6 +224,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     }));
   }, [vehicles]);
 
+  const driverOptionsForVisits: MultiSelectOption[] = useMemo(() => {
+    return drivers.map(d => ({
+      value: d.id,
+      label: d.name || d.email || `ID ${d.id.substring(0,6)}`,
+      icon: Users
+    }));
+  }, [drivers]);
+
 
   const adminDashboardData = useMemo(() => {
     if (!isAdmin || user?.email !== 'grupo2irmaos@grupo2irmaos.com.br' || loadingDrivers) {
@@ -318,7 +327,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
 
 
     // Prepare data for Visits Table
-    const adminVisitsTableData: AdminVisitData[] = currentVisitsSource
+    let visitsToDisplay = currentVisitsSource;
+    if (selectedDriverIdsForVisits.length > 0) {
+        const driverIdSet = new Set(selectedDriverIdsForVisits);
+        visitsToDisplay = visitsToDisplay.filter(visit => {
+            const tripDetail = tripDetailsMap.get(visit.tripLocalId);
+            return tripDetail && driverIdSet.has(tripDetail.userId);
+        });
+    }
+
+    const adminVisitsTableData: AdminVisitData[] = visitsToDisplay
       .map(visit => {
         const tripDetail = tripDetailsMap.get(visit.tripLocalId);
         if (!tripDetail) return null;
@@ -344,7 +362,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
       vehiclePerformance,
       adminVisitsTableData,
     };
-  }, [isAdmin, user?.email, trips, expenses, vehicles, drivers, dateRange, filterDriverId, loadingDrivers, fuelings, visits, selectedVehicleIds]);
+  }, [isAdmin, user?.email, trips, expenses, vehicles, drivers, dateRange, filterDriverId, loadingDrivers, fuelings, visits, selectedVehicleIds, selectedDriverIdsForVisits]);
 
 
   return (
@@ -358,7 +376,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
            <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
              {isAdmin && (
                 <div className="space-y-1.5">
-                    <Label htmlFor="driverFilter">Filtrar por Motorista</Label>
+                    <Label htmlFor="driverFilter">Filtrar por Motorista (Global)</Label>
                     <Select value={filterDriverId} onValueChange={(value) => setFilterDriverId(value === 'all' ? '' : value)} disabled={loadingDrivers}>
                         <SelectTrigger id="driverFilter">
                             <SelectValue placeholder={loadingDrivers ? "Carregando..." : (drivers.length === 0 ? "Nenhum motorista" : "Todos os Motoristas")} />
@@ -474,11 +492,25 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         <div className="mt-8 space-y-6">
           <h2 className="text-2xl font-semibold text-primary">Painel do Administrador</h2>
             <Card>
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <MapPin className="h-5 w-5" /> Lista de Visitas Recentes
-                    </CardTitle>
-                    <CardDescription>{summaryData.filterContext}</CardDescription>
+                <CardHeader className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
+                    <div>
+                        <CardTitle className="flex items-center gap-2">
+                            <MapPin className="h-5 w-5" /> Lista de Visitas Recentes
+                        </CardTitle>
+                        <CardDescription>{summaryData.filterContext}</CardDescription>
+                    </div>
+                    <div className="w-full sm:w-auto sm:min-w-[250px]">
+                        <Label htmlFor="visitsDriverMultiSelect">Filtrar Motoristas (Visitas):</Label>
+                        <MultiSelectCombobox
+                            options={driverOptionsForVisits}
+                            selected={selectedDriverIdsForVisits}
+                            onChange={setSelectedDriverIdsForVisits}
+                            placeholder="Selecionar motoristas..."
+                            searchPlaceholder="Buscar motorista..."
+                            emptySearchMessage="Nenhum motorista encontrado."
+                            className="mt-1"
+                        />
+                    </div>
                 </CardHeader>
                 <CardContent>
                     {adminDashboardData.adminVisitsTableData.length > 0 ? (
