@@ -52,7 +52,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
   const [filterDriverId, setFilterDriverId] = useState<string>('');
   const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
   const [selectedVehicleIds, setSelectedVehicleIds] = useState<string[]>([]);
-  const [selectedDriverIdsForVisits, setSelectedDriverIdsForVisits] = useState<string[]>([]);
 
 
   const [expenses, setExpenses] = useState<LocalExpense[]>([]);
@@ -224,14 +223,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     }));
   }, [vehicles]);
 
-  const driverOptionsForVisits: MultiSelectOption[] = useMemo(() => {
-    return drivers.map(d => ({
-      value: d.id,
-      label: d.name || d.email || `ID ${d.id.substring(0,6)}`,
-      icon: Users
-    }));
-  }, [drivers]);
-
 
   const adminDashboardData = useMemo(() => {
     if (!isAdmin || user?.email !== 'grupo2irmaos@grupo2irmaos.com.br' || loadingDrivers) {
@@ -327,16 +318,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
 
 
     // Prepare data for Visits Table
-    let visitsToDisplay = currentVisitsSource;
-    if (selectedDriverIdsForVisits.length > 0) {
-        const driverIdSet = new Set(selectedDriverIdsForVisits);
-        visitsToDisplay = visitsToDisplay.filter(visit => {
-            const tripDetail = tripDetailsMap.get(visit.tripLocalId);
-            return tripDetail && driverIdSet.has(tripDetail.userId);
-        });
-    }
-
-    const adminVisitsTableData: AdminVisitData[] = visitsToDisplay
+    const adminVisitsTableData: AdminVisitData[] = currentVisitsSource
       .map(visit => {
         const tripDetail = tripDetailsMap.get(visit.tripLocalId);
         if (!tripDetail) return null;
@@ -362,7 +344,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
       vehiclePerformance,
       adminVisitsTableData,
     };
-  }, [isAdmin, user?.email, trips, expenses, vehicles, drivers, dateRange, filterDriverId, loadingDrivers, fuelings, visits, selectedVehicleIds, selectedDriverIdsForVisits]);
+  }, [isAdmin, user?.email, trips, expenses, vehicles, drivers, dateRange, filterDriverId, loadingDrivers, fuelings, visits, selectedVehicleIds]);
 
 
   return (
@@ -499,18 +481,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                         </CardTitle>
                         <CardDescription>{summaryData.filterContext}</CardDescription>
                     </div>
-                    <div className="w-full sm:w-auto sm:min-w-[250px]">
-                        <Label htmlFor="visitsDriverMultiSelect">Filtrar Motoristas (Visitas):</Label>
-                        <MultiSelectCombobox
-                            options={driverOptionsForVisits}
-                            selected={selectedDriverIdsForVisits}
-                            onChange={setSelectedDriverIdsForVisits}
-                            placeholder="Selecionar motoristas..."
-                            searchPlaceholder="Buscar motorista..."
-                            emptySearchMessage="Nenhum motorista encontrado."
-                            className="mt-1"
-                        />
-                    </div>
+                    {/* Multi-select for visits drivers removed */}
                 </CardHeader>
                 <CardContent>
                     {adminDashboardData.adminVisitsTableData.length > 0 ? (
