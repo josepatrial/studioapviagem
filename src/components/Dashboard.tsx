@@ -50,7 +50,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
   const [drivers, setDrivers] = useState<User[]>([]);
   const [loadingDrivers, setLoadingDrivers] = useState(isAdmin);
   const [filterDriverId, setFilterDriverId] = useState<string>('');
-  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined); // Global date range
+  const [vehiclePerformanceDateRange, setVehiclePerformanceDateRange] = useState<DateRange | undefined>(undefined); // Date range for vehicle performance
   const [selectedVehicleIds, setSelectedVehicleIds] = useState<string[]>([]);
 
 
@@ -151,6 +152,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     let allExpensesFromDb = expenses;
     let allFuelingsFromDb = fuelings;
 
+    // Apply global date range filter
     if (dateRange?.from) {
         const startDate = startOfDay(dateRange.from);
         const endDate = dateRange.to ? endOfDay(dateRange.to) : null;
@@ -238,6 +240,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     let currentVisitsSource = visits;
 
 
+    // Apply global date range filter first
     if (dateRange?.from) {
         const startDate = startOfDay(dateRange.from);
         const endDate = dateRange.to ? endOfDay(dateRange.to) : null;
@@ -257,7 +260,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
     const vehicleNameMap = new Map(vehicles.map(v => [v.firebaseId || v.localId, `${v.model} (${v.licensePlate})`]));
     const tripDetailsMap = new Map(currentTripsSource.map(t => [t.localId, { vehicleId: t.vehicleId, userId: t.userId }]));
 
-    // Vehicle Performance Calculation
+    // ----- Vehicle Performance Calculation -----
+    let fuelingsForPerf = currentFuelingsSource; // Start with globally filtered fuelings
+
+    // Apply specific date filter for vehicle performance if set
+    if (vehiclePerformanceDateRange?.from) {
+        const perfStartDate = startOfDay(vehiclePerformanceDateRange.from);
+        const perfEndDate = vehiclePerformanceDateRange.to ? endOfDay(vehiclePerformanceDateRange.to) : new Date(8640000000000000);
+        const perfInterval = { start: perfStartDate, end: perfEndDate };
+        fuelingsForPerf = fuelingsForPerf.filter(f => { try { return isWithinInterval(parseISO(f.date), perfInterval); } catch { return false; } });
+    }
+
+
     console.log("[Dashboard Admin] Raw vehicles for performance:", JSON.stringify(vehicles.map(v => ({ localId: v.localId, firebaseId: v.firebaseId, model: v.model, plate: v.licensePlate, effectiveId: v.firebaseId || v.localId }))));
     let uniqueVehiclesForPerf = Array.from(new Map(vehicles.map(v => [v.firebaseId || v.localId, v])).values());
     console.log("[Dashboard Admin] Unique vehicles for performance (after Map de-duplication):", JSON.stringify(uniqueVehiclesForPerf.map(v => ({ localId: v.localId, firebaseId: v.firebaseId, model: v.model, plate: v.licensePlate, effectiveId: v.firebaseId || v.localId }))));
@@ -270,7 +284,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
 
     const vehiclePerformance = uniqueVehiclesForPerf.map(vehicle => {
         const vehicleIdForFiltering = vehicle.firebaseId || vehicle.localId;
-        const vehicleFuelings = currentFuelingsSource.filter(f => f.vehicleId === vehicleIdForFiltering);
+        // Use fuelingsForPerf which has the vehicle performance date filter applied
+        const vehicleFuelings = fuelingsForPerf.filter(f => f.vehicleId === vehicleIdForFiltering);
+        // Trips are still from currentTripsSource (globally filtered) for general trip data context, not performance calculation
         const vehicleTrips = currentTripsSource.filter(t => t.vehicleId === vehicleIdForFiltering);
 
         const totalFuelingCost = vehicleFuelings.reduce((sum, f) => sum + f.totalCost, 0);
@@ -344,7 +360,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
       vehiclePerformance,
       adminVisitsTableData,
     };
-  }, [isAdmin, user?.email, trips, expenses, vehicles, drivers, dateRange, filterDriverId, loadingDrivers, fuelings, visits, selectedVehicleIds]);
+  }, [isAdmin, user?.email, trips, expenses, vehicles, drivers, dateRange, vehiclePerformanceDateRange, filterDriverId, loadingDrivers, fuelings, visits, selectedVehicleIds]);
 
 
   return (
@@ -352,7 +368,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
        <Card className="shadow-md">
            <CardHeader>
              <CardTitle className="text-lg flex items-center gap-2">
-                <Filter className="h-5 w-5" /> Filtros do Painel
+                <Filter className="h-5 w-5" /> Filtros Globais do Painel
              </CardTitle>
            </CardHeader>
            <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
@@ -385,7 +401,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                 </div>
               )}
              <div className="space-y-1.5">
-                <Label>Filtrar por Data (Criação/Registro)</Label>
+                <Label>Filtrar por Data (Global)</Label>
                 <DateRangePicker date={dateRange} onDateChange={setDateRange} />
              </div>
            </CardContent>
@@ -481,7 +497,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                         </CardTitle>
                         <CardDescription>{summaryData.filterContext}</CardDescription>
                     </div>
-                    {/* Multi-select for visits drivers removed */}
                 </CardHeader>
                 <CardContent>
                     {adminDashboardData.adminVisitsTableData.length > 0 ? (
@@ -520,22 +535,36 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
             </Card>
 
           <Card>
-            <CardHeader className="flex flex-col sm:flex-row justify-between sm:items-center gap-2">
+            <CardHeader className="flex flex-col gap-4">
               <div>
                 <CardTitle>Performance de Veículos</CardTitle>
-                <CardDescription>{summaryData.filterContext}</CardDescription>
+                <CardDescription>
+                  {summaryData.filterContext}
+                  {vehiclePerformanceDateRange?.from && (
+                    <span className="block text-xs">
+                      (Período performance: {formatDateFn(vehiclePerformanceDateRange.from, 'dd/MM/yy')}
+                      {vehiclePerformanceDateRange.to ? ` - ${formatDateFn(vehiclePerformanceDateRange.to, 'dd/MM/yy')}` : ' em diante'})
+                    </span>
+                  )}
+                </CardDescription>
               </div>
-              <div className="w-full sm:w-auto sm:min-w-[250px]">
-                <Label htmlFor="vehicleMultiSelect">Filtrar Veículos Específicos:</Label>
-                <MultiSelectCombobox
-                  options={vehicleOptions}
-                  selected={selectedVehicleIds}
-                  onChange={setSelectedVehicleIds}
-                  placeholder="Selecionar veículos..."
-                  searchPlaceholder="Buscar veículo..."
-                  emptySearchMessage="Nenhum veículo encontrado."
-                  className="mt-1"
-                />
+              <div className="flex flex-col sm:flex-row justify-between items-end gap-4">
+                <div className="w-full sm:w-auto sm:min-w-[250px] flex-grow space-y-1.5">
+                  <Label htmlFor="vehicleMultiSelect">Filtrar Veículos Específicos:</Label>
+                  <MultiSelectCombobox
+                    options={vehicleOptions}
+                    selected={selectedVehicleIds}
+                    onChange={setSelectedVehicleIds}
+                    placeholder="Selecionar veículos..."
+                    searchPlaceholder="Buscar veículo..."
+                    emptySearchMessage="Nenhum veículo encontrado."
+                    className="mt-1"
+                  />
+                </div>
+                <div className="w-full sm:w-auto space-y-1.5">
+                  <Label htmlFor="vehiclePerformanceDateRange">Filtrar Período (Performance):</Label>
+                  <DateRangePicker date={vehiclePerformanceDateRange} onDateChange={setVehiclePerformanceDateRange} />
+                </div>
               </div>
             </CardHeader>
             <CardContent>
