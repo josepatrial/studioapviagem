@@ -627,7 +627,7 @@ export const addLocalVisit = (visit: Omit<LocalVisit, 'localId' | 'syncStatus' |
         ...visit,
         localId,
         id: localId,
-        userId: visit.userId,
+        userId: visit.userId, // Ensure userId is included from the passed visit object
         deleted: false,
         syncStatus: 'pending',
     };
@@ -680,7 +680,7 @@ export const addLocalExpense = (expense: Omit<LocalExpense, 'localId' | 'syncSta
          ...expense,
          localId,
          id: localId,
-         userId: expense.userId,
+         userId: expense.userId, // Ensure userId is included
          deleted: false,
          syncStatus: 'pending',
      };
@@ -741,7 +741,7 @@ export const addLocalFueling = (fueling: Omit<LocalFueling, 'localId' | 'syncSta
           ...fueling,
           localId,
           id: localId,
-          userId: fueling.userId,
+          userId: fueling.userId, // Ensure userId is included
           deleted: false,
           syncStatus: 'pending',
       };
@@ -925,15 +925,14 @@ export const getLocalExpenseTypes = (): Promise<string[]> => getCustomTypes(STOR
 export const deleteLocalExpenseType = (typeName: string): Promise<void> => deleteCustomType(STORE_EXPENSE_TYPES, typeName);
 
 
-export const seedInitialUsers = async () => {
+export const seedInitialUsers = async (): Promise<void> => {
     console.log("[seedInitialUsers] Attempting to seed initial users...");
     const dbInstance = await openDB();
     if (!dbInstance) {
         console.error("[seedInitialUsers] DB instance is null, cannot seed users.");
-        return;
+        throw new Error("DB instance is null for seeding.");
     }
 
-    // Step 1: Count existing users in a read-only transaction
     let userCount = 0;
     try {
         const countTransaction = dbInstance.transaction(STORE_USERS, 'readonly');
@@ -941,26 +940,21 @@ export const seedInitialUsers = async () => {
         const countRequest = countStore.count();
         userCount = await new Promise<number>((resolve, reject) => {
             countRequest.onsuccess = () => resolve(countRequest.result);
-            countRequest.onerror = () => {
-                console.error("[seedInitialUsers] Error counting users:", countRequest.error);
-                reject(countRequest.error);
-            };
+            countRequest.onerror = (event) => reject((event.target as IDBRequest).error);
         });
-        await new Promise((resolve, reject) => { // Wait for transaction to complete
+        await new Promise((resolve, reject) => {
             countTransaction.oncomplete = resolve;
-            countTransaction.onerror = reject;
-            countTransaction.onabort = reject;
+            countTransaction.onerror = (event) => reject((event.target as IDBTransaction).error);
+            countTransaction.onabort = (event) => reject((event.target as IDBTransaction).error || new Error("Count transaction aborted"));
         });
-         console.log(`[seedInitialUsers] Found ${userCount} existing users.`);
+        console.log(`[seedInitialUsers] Found ${userCount} existing users.`);
     } catch (error) {
         console.error("[seedInitialUsers] Error in read-only transaction for counting users:", error);
-        return; // Stop if we can't even count
+        throw error; // Propagate error
     }
-
 
     if (userCount === 0) {
         console.log("[seedInitialUsers] No users found, proceeding with seeding.");
-        // Step 2: Hash passwords asynchronously
         const usersToSeedWithHashedPasswords: LocalUser[] = [];
         try {
             for (const user of seedUsersData) {
@@ -975,69 +969,56 @@ export const seedInitialUsers = async () => {
                     role: user.role || 'driver',
                     base: user.role === 'admin' ? 'ALL' : (user.base || 'N/A'),
                     deleted: false,
-                    firebaseId: user.id || user.email, // Assuming seed users are pre-synced
+                    firebaseId: user.id || user.email,
                     syncStatus: 'synced',
                 });
             }
             console.log("[seedInitialUsers] Passwords hashed for seed users.");
         } catch (hashError) {
             console.error("[seedInitialUsers] Error hashing passwords for seed data:", hashError);
-            return; // Stop if hashing fails
+            throw hashError;
         }
 
-        // Step 3: Perform writes in a new read-write transaction
-        let writeTransaction: IDBTransaction | null = null;
-        try {
-            writeTransaction = dbInstance.transaction(STORE_USERS, 'readwrite');
+        return new Promise<void>((resolve, reject) => {
+            const writeTransaction = dbInstance.transaction(STORE_USERS, 'readwrite');
             const store = writeTransaction.objectStore(STORE_USERS);
-            const addUserPromises: Promise<void>[] = [];
 
-            usersToSeedWithHashedPasswords.forEach(user => {
-                addUserPromises.push(new Promise<void>((resolveAdd, rejectAdd) => {
-                    const addReq = store.add(user);
-                    addReq.onerror = () => {
-                        console.warn(`[seedInitialUsers] Error adding user ${user.email} (ID: ${user.id}), attempting update... Error:`, addReq.error);
-                        const updateReq = store.put(user); // Attempt to update if add failed (e.g., user already exists)
-                        updateReq.onerror = () => rejectAdd(updateReq.error);
-                        updateReq.onsuccess = () => resolveAdd();
-                    };
-                    addReq.onsuccess = () => resolveAdd();
-                }));
-            });
+            writeTransaction.oncomplete = () => {
+                console.log("[seedInitialUsers] Seeding transaction completed successfully.");
+                resolve();
+            };
+            writeTransaction.onerror = (event) => {
+                console.error("[seedInitialUsers] Seeding transaction error:", (event.target as IDBTransaction).error);
+                reject((event.target as IDBTransaction).error);
+            };
+            writeTransaction.onabort = (event) => {
+                console.warn("[seedInitialUsers] Seeding transaction aborted:", (event.target as IDBTransaction).error);
+                reject((event.target as IDBTransaction).error || new Error("Transaction aborted"));
+            };
 
-            await Promise.all(addUserPromises);
-            console.log("[seedInitialUsers] Add/Put requests queued.");
-
-            return new Promise<void>((resolve, reject) => {
-                if(!writeTransaction) { // Should not happen if we reached here
-                     console.error("[seedInitialUsers] Write transaction is unexpectedly null before completion setup.");
-                     reject(new Error("Write transaction became null unexpectedly."));
-                     return;
-                }
-                writeTransaction.oncomplete = () => {
-                    console.log("[seedInitialUsers] Seeding transaction completed successfully.");
-                    resolve();
-                };
-                writeTransaction.onerror = (event) => {
-                    console.error("[seedInitialUsers] Seeding transaction error:", (event.target as IDBTransaction).error);
-                    reject((event.target as IDBTransaction).error);
-                };
-                writeTransaction.onabort = (event) => {
-                    console.warn("[seedInitialUsers] Seeding transaction aborted:", (event.target as IDBTransaction).error);
-                    reject((event.target as IDBTransaction).error || new Error("Transaction aborted"));
-                };
-            });
-
-        } catch (error) {
-            console.error("[seedInitialUsers] Error during seeding write transaction setup:", error);
-            if (writeTransaction && writeTransaction.abort && (writeTransaction.readyState !== 'done' && writeTransaction.readyState !== 'committing')) {
-                console.log("[seedInitialUsers] Attempting to abort transaction due to error.");
-                writeTransaction.abort();
+            if (usersToSeedWithHashedPasswords.length === 0) {
+                 console.log("[seedInitialUsers] No users prepared to seed (after hashing).");
+                 // If there are no users to seed, the transaction will complete without any operations.
+                 // This is not an error state for this function, so we don't explicitly reject.
+                 // The oncomplete will handle resolving.
+                return;
             }
-            throw error; // Re-throw to be caught by the outer catch
-        }
+            
+            usersToSeedWithHashedPasswords.forEach(user => {
+                const request = store.put(user); // Using put for simplicity in seeding
+                request.onerror = () => {
+                    console.error(`[seedInitialUsers] Error putting user ${user.email} (ID: ${user.id}):`, request.error);
+                    // Do not reject here, let the transaction's onerror handle overall failure.
+                };
+                request.onsuccess = () => {
+                    console.log(`[seedInitialUsers] Successfully put user ${user.email} (ID: ${user.id}).`);
+                };
+            });
+        });
     } else {
         console.log("[seedInitialUsers] Users already exist, skipping seed.");
+        return Promise.resolve();
     }
 };
+// Initial call to open the DB and seed users when the service loads
 openDB().then(() => seedInitialUsers()).catch(error => console.error("Failed to initialize/seed IndexedDB on load:", error));
