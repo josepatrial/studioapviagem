@@ -1,7 +1,7 @@
 // src/lib/firebase.ts
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
-import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore'; // Keep enableIndexedDbPersistence
+import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
 
 // Ensure environment variables are correctly prefixed with NEXT_PUBLIC_
@@ -49,25 +49,24 @@ try {
   storage = getStorage(app);
   console.log(`Firebase services initialized. Firestore connected to database: ${DATABASE_ID}`);
 
-  // Enable offline persistence only after db is initialized
   // Enable offline persistence only in the browser environment
   if (typeof window !== 'undefined' && db) {
-    persistenceEnabledPromise = enableIndexedDbPersistence(db, { synchronizeTabs: true })
- .then(() => {
- console.log(`Firebase Firestore persistence enabled successfully for database: ${DATABASE_ID}.`);
- })
- .catch((err) => {
- if (err.code === 'failed-precondition') {
- console.warn(`Firestore persistence failed for database ${DATABASE_ID} (multiple tabs open or other issue).`);
- } else if (err.code === 'unimplemented') {
- console.warn(`Firestore persistence is not available in this browser for database ${DATABASE_ID}.`);
- } else {
- console.error(`Error enabling Firestore persistence for database ${DATABASE_ID}:`, err);
+    db.settings({
+ cache: {
+ kind: 'indexedDb',
+ synchronizeTabs: true,
  }
  });
+    console.log(`Firebase Firestore persistence configured for database: ${DATABASE_ID} with IndexedDB and synchronizeTabs.`);
+    // persistenceEnabledPromise is not needed with the settings method as it's synchronous
+    persistenceEnabledPromise = Promise.resolve();
   } else {
-    console.error(`Firestore DB instance for ${DATABASE_ID} is null, cannot enable persistence.`);
-    persistenceEnabledPromise = Promise.reject(new Error(`Firestore DB instance for ${DATABASE_ID} is null`));
+ if (typeof window === 'undefined') {
+ console.warn("Running in a non-browser environment, Firestore persistence is skipped.");
+ } else {
+ console.error(`Firestore DB instance for ${DATABASE_ID} is null, cannot configure persistence.`);
+ }
+    persistenceEnabledPromise = Promise.resolve(); // Resolve even if persistence isn't configured
   }
 
 } catch (error) {
