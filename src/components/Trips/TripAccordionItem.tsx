@@ -1,7 +1,7 @@
 // src/components/Trips/TripAccordionItem.tsx
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Button } from '@/components/ui/button';
 import { CardTitle, CardDescription } from '@/components/ui/card';
 import { AccordionItem, AccordionHeader, AccordionContent, AccordionTrigger as UiAccordionTrigger } from '../ui/accordion';
@@ -67,7 +67,7 @@ interface TripAccordionItemProps {
   getDriverName: (driverId: string) => string;
   getTripDescription: (trip: Trip) => string;
   openFinishModal: (trip: Trip, event: React.MouseEvent) => void;
-  
+
   currentTripForEdit: Trip | null;
   isEditModalOpenForThisTrip: boolean;
   openEditModalForThisTrip: () => void;
@@ -75,7 +75,7 @@ interface TripAccordionItemProps {
   handleEditTripSubmit: (e: React.FormEvent) => void;
   selectedVehicleIdForEdit: string;
   setSelectedVehicleIdForEdit: (id: string) => void;
-  
+
   tripToDelete: Trip | null;
   isDeleteModalOpenForThisTrip: boolean;
   openDeleteModalForThisTrip: (trip: Trip, event: React.MouseEvent) => void;
@@ -147,10 +147,30 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
         console.error(`[TripAccordionItem ${trip.localId}] Error fetching KM summary:`, err);
       });
     }
-  }, [isExpanded, trip.localId, getTripSummaryKmFunction, trip.status, trip.finalKm, visitCount]); 
+  }, [isExpanded, trip.localId, getTripSummaryKmFunction, trip.status, trip.finalKm, visitCount]);
 
   const isPending = trip.syncStatus === 'pending';
   const isError = trip.syncStatus === 'error';
+
+  const safeFormatDate = (dateInput: string | { toDate: () => Date } | Date | undefined | null): string => {
+    if (!dateInput) return 'N/A';
+    try {
+      if (typeof dateInput === 'string') {
+        return format(parseISO(dateInput), 'dd/MM/yyyy');
+      } else if (dateInput && typeof (dateInput as any).toDate === 'function') {
+        // It's a Firebase Timestamp object
+        return format((dateInput as any).toDate(), 'dd/MM/yyyy');
+      } else if (dateInput instanceof Date) {
+        // It's already a Date object
+        return format(dateInput, 'dd/MM/yyyy');
+      }
+      return 'Data inválida';
+    } catch (error) {
+      console.warn("Error formatting date:", dateInput, error);
+      return 'Data inválida';
+    }
+  };
+
 
   const handlePrintReport = async (event: React.MouseEvent) => {
     event.stopPropagation();
@@ -161,17 +181,24 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
     if (!reportData) {
       return;
     }
-    
+
     const formatCurrencyForReport = (value: number | undefined) => {
         if (value === undefined || value === null) return 'N/A';
         return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     };
-    
-    const formatDateForReport = (dateString: string | undefined | null, includeTime = true) => {
+
+    const formatDateForReportPrint = (dateString: string | { toDate: () => Date } | Date | undefined | null, includeTime = true) => {
         if (!dateString) return 'N/A';
         try {
             const formatString = includeTime ? 'dd/MM/yyyy HH:mm' : 'dd/MM/yyyy';
-            return format(parseISO(dateString), formatString);
+            if (typeof dateString === 'string') {
+                return format(parseISO(dateString), formatString);
+            } else if (dateString && typeof (dateString as any).toDate === 'function') {
+                return format((dateString as any).toDate(), formatString);
+            } else if (dateString instanceof Date) {
+                return format(dateString, formatString);
+            }
+            return 'Data Inválida';
         } catch {
             return 'Data Inválida';
         }
@@ -215,8 +242,8 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
             <p><strong>Motorista:</strong> ${reportData.driverName}</p>
             <p><strong>Veículo:</strong> ${reportData.vehicleDisplay}</p>
             <p><strong>Base:</strong> ${reportData.base || 'N/A'}</p>
-            <p><strong>Criada em:</strong> ${formatDateForReport(reportData.createdAt, false)}</p>
-            <p><strong>Atualizada em:</strong> ${formatDateForReport(reportData.updatedAt, false)}</p>
+            <p><strong>Criada em:</strong> ${formatDateForReportPrint(reportData.createdAt, false)}</p>
+            <p><strong>Atualizada em:</strong> ${formatDateForReportPrint(reportData.updatedAt, false)}</p>
             ${reportData.status === 'Finalizado' ? `<p><strong>KM Final:</strong> ${formatKm(reportData.finalKm)}</p>` : ''}
             ${reportData.status === 'Finalizado' && reportData.totalDistance != null ? `<p><strong>Distância Total:</strong> ${formatKm(reportData.totalDistance)}</p>` : ''}
           </div>
@@ -235,7 +262,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                         <td>${v.location}</td>
                         <td>${formatKm(v.initialKm)}</td>
                         <td>${v.reason}</td>
-                        <td>${formatDateForReport(v.timestamp)}</td>
+                        <td>${formatDateForReportPrint(v.timestamp)}</td>
                        </tr>`;
       });
       reportHtml += `</tbody></table>`;
@@ -254,7 +281,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                         <td>${e.description}</td>
                         <td>${e.expenseType}</td>
                         <td>${formatCurrencyForReport(e.value)}</td>
-                        <td>${formatDateForReport(e.expenseDate, false)}</td>
+                        <td>${formatDateForReportPrint(e.expenseDate, false)}</td>
                         <td>${e.receiptFilename || 'Nenhum'}</td>
                        </tr>`;
       });
@@ -271,7 +298,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
             <tbody>`;
       reportData.fuelings.forEach(f => {
         reportHtml += `<tr>
-                        <td>${formatDateForReport(f.date, false)}</td>
+                        <td>${formatDateForReportPrint(f.date, false)}</td>
                         <td>${f.liters.toFixed(2)} L</td>
                         <td>${formatCurrencyForReport(f.pricePerLiter)}</td>
                         <td>${formatCurrencyForReport(f.totalCost)}</td>
@@ -288,7 +315,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
 
     reportHtml += `
           <div class="footer">
-            Relatório gerado em ${formatDateForReport(new Date().toISOString())}
+            Relatório gerado em ${formatDateForReportPrint(new Date().toISOString())}
           </div>
           <div class="no-print" style="margin-top: 30px; text-align: center; padding-bottom: 20px;">
             <button onclick="window.print()">Imprimir Relatório</button>
@@ -307,19 +334,17 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
       alert("Seu navegador bloqueou a abertura da janela de impressão. Por favor, habilite pop-ups para este site.");
     }
   };
-  
+
 
   return (
     <AccordionItem key={trip.localId} value={trip.localId} className="border bg-card rounded-lg shadow-lg overflow-hidden group/item data-[state=open]:border-primary/50">
-       <AccordionHeader className="flex">
-        <div
-          className={cn(
-            "flex justify-between items-center w-full",
-            isPending && "bg-yellow-100 hover:bg-yellow-200/70 dark:bg-yellow-900/30 dark:hover:bg-yellow-900/50",
-            isError && "bg-destructive/20 hover:bg-destructive/30",
-            !isPending && !isError && "hover:bg-accent/50"
-          )}
-        >
+      <AccordionHeader className="flex"> {/* This renders the h3 */}
+        <div className={cn(
+          "flex justify-between items-center w-full",
+          isPending && "bg-yellow-100 hover:bg-yellow-200/70 dark:bg-yellow-900/30 dark:hover:bg-yellow-900/50",
+          isError && "bg-destructive/20 hover:bg-destructive/30",
+          !isPending && !isError && "hover:bg-accent/50"
+        )}>
           <UiAccordionTrigger className="flex-1 p-4 hover:no-underline focus-visible:ring-0 focus-visible:ring-offset-0">
             <div className="flex-1 mr-4 space-y-1 text-left">
               <div>
@@ -357,8 +382,8 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                   )}
                 </div>
                 <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground mt-1">
-                  <span>Início: {format(parseISO(trip.createdAt), 'dd/MM/yyyy')}</span>
-                  <span>Atualizado: {format(parseISO(trip.updatedAt), 'dd/MM/yyyy')}</span>
+                  <span>Início: {safeFormatDate(trip.createdAt)}</span>
+                  <span>Atualizado: {safeFormatDate(trip.updatedAt)}</span>
                 </div>
               </div>
             </div>
@@ -451,7 +476,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                   </DialogContent>
                 </Dialog>
 
-                <AlertDialog open={isDeleteModalOpenForThisTrip} onOpenChange={(isOpen) => { if (!isOpen) closeDeleteModal(); }}>
+                <AlertDialog open={isDeleteModalOpenForThisTrip && tripToDelete?.localId === trip.localId} onOpenChange={(isOpen) => { if (!isOpen) closeDeleteModal(); }}>
                   <AlertDialogTrigger asChild>
                     <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openDeleteModalForThisTrip(trip, e); }} className="text-muted-foreground hover:text-destructive h-8 w-8" disabled={isSaving || isDeleting}>
                       <Trash2 className="h-4 w-4" />
@@ -487,7 +512,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
             <div className="overflow-x-auto border-b bg-card">
                <TabsList className={cn(
                   "grid w-full rounded-none bg-transparent p-0 sm:w-auto sm:inline-flex",
-                  "grid-cols-3" 
+                  "grid-cols-3"
                )}>
                    <TabsTrigger value="visits" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
                      <MapPin className="mr-1 h-4 w-4 inline-block" />Visitas ({visitCount})
@@ -500,22 +525,20 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                    </TabsTrigger>
                </TabsList>
             </div>
-            
-            {isExpanded && ( // Render content only when expanded
-                <>
-                    <TabsContent value="visits">
-                        <VisitsComponent tripId={trip.localId} ownerUserId={trip.userId}/>
-                    </TabsContent>
-                    <TabsContent value="expenses">
-                        <ExpensesComponent tripId={trip.localId} ownerUserId={trip.userId} />
-                    </TabsContent>
-                    <TabsContent value="fuelings">
-                        <FuelingsComponent tripId={trip.localId} vehicleId={trip.vehicleId} ownerUserId={trip.userId} />
-                    </TabsContent>
-                </>
-            )}
+
+            {/* Conteúdo das abas */}
+            <TabsContent value="visits">
+                <VisitsComponent tripId={trip.localId} ownerUserId={trip.userId}/>
+            </TabsContent>
+            <TabsContent value="expenses">
+                <ExpensesComponent tripId={trip.localId} ownerUserId={trip.userId} />
+            </TabsContent>
+            <TabsContent value="fuelings">
+                <FuelingsComponent tripId={trip.localId} vehicleId={trip.vehicleId} ownerUserId={trip.userId} />
+            </TabsContent>
           </Tabs>
       </AccordionContent>
     </AccordionItem>
   );
 };
+
