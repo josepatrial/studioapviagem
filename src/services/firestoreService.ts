@@ -10,20 +10,21 @@ import {
   deleteDoc,
   query,
   where,
-  Timestamp, 
-  orderBy, 
-  type QueryConstraint, 
-  addDoc, 
-  writeBatch, 
+  Timestamp,
+  orderBy,
+  type QueryConstraint,
+  addDoc,
+  writeBatch,
+  type CollectionReference, // Import CollectionReference type
 } from 'firebase/firestore';
-import { db } from '@/lib/firebase'; 
+import { db } from '@/lib/firebase';
 import type { User, DriverInfo, UserRole } from '@/contexts/AuthContext';
 import type { VehicleInfo } from '@/components/Vehicle';
 import type { Trip } from '@/components/Trips/Trips';
-import type { Visit as BaseVisit } from '@/components/Trips/Visits'; 
+import type { Visit as BaseVisit } from '@/components/Trips/Visits';
 import type { Expense } from '@/components/Trips/Expenses';
-import type { Fueling as BaseFueling } from '@/components/Trips/Fuelings'; 
-import { deleteReceipt as deleteStorageReceipt } from './storageService'; 
+import type { Fueling as BaseFueling } from '@/components/Trips/Fuelings';
+import { deleteReceipt as deleteStorageReceipt } from './storageService';
 
 export interface Fueling extends BaseFueling {
  fuelType: string;
@@ -33,28 +34,55 @@ export interface Visit extends BaseVisit {
     visitType?: string;
 }
 
+// Define collection references globally
+let usersCollectionRef: CollectionReference | null = null;
+let vehiclesCollectionRef: CollectionReference | null = null;
+let tripsCollectionRef: CollectionReference | null = null;
+let visitsCollectionRef: CollectionReference | null = null;
+let expensesCollectionRef: CollectionReference | null = null;
+let fuelingsCollectionRef: CollectionReference | null = null;
+
+if (db) {
+    console.log(`[firestoreService] Initializing collection references for DB: ${db.databaseId}`);
+    usersCollectionRef = collection(db, 'users');
+    vehiclesCollectionRef = collection(db, 'vehicles');
+    tripsCollectionRef = collection(db, 'trips');
+    visitsCollectionRef = collection(db, 'visits');
+    expensesCollectionRef = collection(db, 'expenses');
+    fuelingsCollectionRef = collection(db, 'fuelings');
+} else {
+    console.warn("[firestoreService] Firestore DB is not initialized. Collection references will be null. Operations requiring these refs will fail.");
+}
+
+
 // Helper to clean undefined or null values from an object before sending to Firestore,
 // and ensure essential fields for 'users' collection.
 const cleanUserDataForFirestore = (data: Record<string, any>): Record<string, any> => {
     const cleanedData: Record<string, any> = {};
-    const coreUserFields = ['name', 'email', 'username', 'role', 'base']; // Fields specific to user data
+    // Fields specific to user data that should be preserved or defaulted
+    const coreUserFields: (keyof User)[] = ['name', 'email', 'username', 'role', 'base'];
 
     for (const key in data) {
         if (data[key] !== undefined && data[key] !== null) {
             cleanedData[key] = data[key];
         }
     }
-    
+
     // Ensure essential fields expected by Firestore for 'users' are present
-    if (!cleanedData.name) cleanedData.name = data.email?.split('@')[0] || 'Usuário Desconhecido'; // Default if missing
-    if (!cleanedData.email) cleanedData.email = 'unknown@example.com'; // Should always be there for users
+    if (!cleanedData.name && cleanedData.email) cleanedData.name = cleanedData.email.split('@')[0] || 'Usuário Desconhecido';
+    else if (!cleanedData.name) cleanedData.name = 'Usuário Desconhecido';
+
+    if (!cleanedData.email) cleanedData.email = 'unknown@example.com'; // Should ideally always be there for users
     if (!cleanedData.role) cleanedData.role = 'driver'; // Default role
+
     if (cleanedData.role === 'admin') {
-        cleanedData.base = 'ALL';
-    } else if (!cleanedData.base) {
-        cleanedData.base = 'N/A'; // Default base for non-admins
+        cleanedData.base = 'ALL'; // Admins always have 'ALL' base
+    } else if (!cleanedData.base || String(cleanedData.base).trim() === '') {
+        cleanedData.base = 'N/A'; // Default base for non-admins if empty or not provided
     }
-    if (!cleanedData.username) cleanedData.username = cleanedData.email.split('@')[0];
+
+    if (!cleanedData.username && cleanedData.email) cleanedData.username = cleanedData.email.split('@')[0];
+    else if (!cleanedData.username) cleanedData.username = `user_${Date.now()}`;
 
 
     // Remove fields that should not be directly written to Firestore user doc if they slipped in
@@ -69,7 +97,8 @@ const cleanUserDataForFirestore = (data: Record<string, any>): Record<string, an
 const cleanDataForFirestore = (data: Record<string, any>): Record<string, any> => {
     const cleanedData: Record<string, any> = {};
     for (const key in data) {
-        if (data[key] !== undefined) { // Allow null for explicit field deletion if Firestore supports it with merge, but not undefined
+        // Allow null for explicit field deletion if Firestore supports it with merge, but not undefined
+        if (data[key] !== undefined) {
             cleanedData[key] = data[key];
         }
     }
@@ -82,19 +111,19 @@ const cleanDataForFirestore = (data: Record<string, any>): Record<string, any> =
 
 export const getUserData = async (userId: string): Promise<User | null> => {
   const getUserStartTime = performance.now();
-  console.log(`[firestoreService getUserData ${getUserStartTime}] Getting user data for ID: ${userId} from database: ${db?.app?.options?.projectId}/${db?.databaseId}`);
- if (!db) {
- console.error(`[firestoreService getUserData ${getUserStartTime}] Firestore DB is not initialized. Cannot get user data.`);
+  console.log(`[firestoreService getUserData ${getUserStartTime}] Getting user data for ID: ${userId}`);
+ if (!db || !usersCollectionRef) {
+ console.error(`[firestoreService getUserData ${getUserStartTime}] Firestore DB or usersCollectionRef is not initialized. Cannot get user data.`);
  return null;
   }
   try {
-    const userDocRef = doc(db, 'users', userId);
+    const userDocRef = doc(usersCollectionRef, userId);
     const userDocSnap = await getDoc(userDocRef);
     const getUserEndTime = performance.now();
     if (userDocSnap.exists()) {
       const userDataFromSnap = userDocSnap.data();
-      const userData = { 
-        id: userDocSnap.id, 
+      const userData = {
+        id: userDocSnap.id,
         name: userDataFromSnap.name || `Usuário ${userDocSnap.id.substring(0,6)}`,
         email: userDataFromSnap.email || 'N/A',
         username: userDataFromSnap.username || userDataFromSnap.email?.split('@')[0] || `user_${userDocSnap.id.substring(0,6)}`,
@@ -120,13 +149,13 @@ export const getUserData = async (userId: string): Promise<User | null> => {
 
 export const setUserData = async (userId: string, data: Partial<Omit<User, 'id'>>) => {
     const setUserStartTime = performance.now();
-    const cleanedData = cleanUserDataForFirestore(data); // Use the user-specific cleaner
-    console.log(`[firestoreService setUserData ${setUserStartTime}] Setting/merging user data for ID: ${userId} in 'users' collection (DB: ${db?.databaseId}). Cleaned Data:`, cleanedData);
-    if (!db) {
- console.error(`[firestoreService setUserData ${setUserStartTime}] Firestore DB is not initialized. User data not set.`);
-        throw new Error("Firestore DB not initialized.");
+    const cleanedData = cleanUserDataForFirestore(data);
+    console.log(`[firestoreService setUserData ${setUserStartTime}] Setting/merging user data for ID: ${userId} in 'users' collection. Cleaned Data:`, cleanedData);
+    if (!db || !usersCollectionRef) {
+ console.error(`[firestoreService setUserData ${setUserStartTime}] Firestore DB or usersCollectionRef is not initialized. User data not set.`);
+        throw new Error("Firestore DB or usersCollectionRef not initialized.");
     }
-    const userDocRef = doc(db, 'users', userId);
+    const userDocRef = doc(usersCollectionRef, userId);
     try {
       await setDoc(userDocRef, cleanedData, { merge: true });
       const setUserEndTime = performance.now();
@@ -146,14 +175,13 @@ export const addUser = async (userId: string, userData: Omit<User, 'id'>): Promi
          base: userData.role === 'admin' ? 'ALL' : (userData.base || 'N/A')
      };
     const cleanedData = cleanUserDataForFirestore(finalUserData);
-    console.log(`[firestoreService addUser ${addUserStartTime}] Adding user document for ID: ${userId} to 'users' collection (DB: ${db?.databaseId}). Cleaned Data:`, cleanedData);
- if (!db) {
- console.error(`[firestoreService addUser ${addUserStartTime}] Firestore DB is not initialized. User not added.`);
- throw new Error("Firestore DB not initialized.");
+    console.log(`[firestoreService addUser ${addUserStartTime}] Adding user document for ID: ${userId} to 'users' collection. Cleaned Data:`, cleanedData);
+ if (!db || !usersCollectionRef) {
+ console.error(`[firestoreService addUser ${addUserStartTime}] Firestore DB or usersCollectionRef is not initialized. User not added.`);
+ throw new Error("Firestore DB or usersCollectionRef not initialized.");
     } try {
-        if (!db) throw new Error("Firestore DB not initialized.");
-        const userDocRef = doc(db, 'users', userId);
-        await setDoc(userDocRef, cleanedData); 
+        const userDocRef = doc(usersCollectionRef, userId);
+        await setDoc(userDocRef, cleanedData);
         const addUserEndTime = performance.now();
         console.log(`[firestoreService addUser ${addUserStartTime}] User document created successfully for ID: ${userId} in 'users'. Time: ${addUserEndTime - addUserStartTime} ms`);
     } catch (error) {
@@ -166,10 +194,10 @@ export const addUser = async (userId: string, userData: Omit<User, 'id'>): Promi
 export const updateUser = async (userId: string, data: Partial<DriverInfo>) => {
     const updateUserStartTime = performance.now();
     const cleanedData = cleanUserDataForFirestore(data);
-    console.log(`[firestoreService updateUser ${updateUserStartTime}] Updating user document for ID: ${userId} in 'users' collection (DB: ${db?.databaseId}). Cleaned Data:`, cleanedData);
- if (!db) { console.error(`[firestoreService updateUser ${updateUserStartTime}] Firestore DB is not initialized. User not updated.`); throw new Error("Firestore DB not initialized."); }
-    const userDocRef = doc(db, 'users', userId);
-    
+    console.log(`[firestoreService updateUser ${updateUserStartTime}] Updating user document for ID: ${userId} in 'users' collection. Cleaned Data:`, cleanedData);
+ if (!db || !usersCollectionRef) { console.error(`[firestoreService updateUser ${updateUserStartTime}] Firestore DB or usersCollectionRef is not initialized. User not updated.`); throw new Error("Firestore DB or usersCollectionRef not initialized."); }
+    const userDocRef = doc(usersCollectionRef, userId);
+
     try {
         await updateDoc(userDocRef, cleanedData);
         const updateUserEndTime = performance.now();
@@ -183,9 +211,9 @@ export const updateUser = async (userId: string, data: Partial<DriverInfo>) => {
 
 export const deleteUser = async (userId: string) => {
     const deleteUserStartTime = performance.now();
-    console.log(`[firestoreService deleteUser ${deleteUserStartTime}] Deleting user document for ID: ${userId} from 'users' collection (DB: ${db?.databaseId}).`);
- if (!db) { console.error(`[firestoreService deleteUser ${deleteUserStartTime}] Firestore DB is not initialized. User not deleted.`); throw new Error("Firestore DB not initialized."); }
-    const userDocRef = doc(db, 'users', userId);
+    console.log(`[firestoreService deleteUser ${deleteUserStartTime}] Deleting user document for ID: ${userId} from 'users' collection.`);
+ if (!db || !usersCollectionRef) { console.error(`[firestoreService deleteUser ${deleteUserStartTime}] Firestore DB or usersCollectionRef is not initialized. User not deleted.`); throw new Error("Firestore DB or usersCollectionRef not initialized."); }
+    const userDocRef = doc(usersCollectionRef, userId);
     try {
         await deleteDoc(userDocRef);
         const deleteUserEndTime = performance.now();
@@ -199,13 +227,12 @@ export const deleteUser = async (userId: string) => {
 
 export const getDrivers = async (): Promise<DriverInfo[]> => {
     const getDriversStartTime = performance.now();
-    console.log(`[firestoreService getDrivers ${getDriversStartTime}] Fetching drivers from 'users' collection (DB: ${db?.databaseId}) where role is 'driver'...`);
- if (!db) {
- console.error(`[firestoreService getDrivers ${getDriversStartTime}] Firestore DB is not initialized. Cannot get drivers.`);
+    console.log(`[firestoreService getDrivers ${getDriversStartTime}] Fetching drivers from 'users' collection where role is 'driver'...`);
+ if (!db || !usersCollectionRef) {
+ console.error(`[firestoreService getDrivers ${getDriversStartTime}] Firestore DB or usersCollectionRef is not initialized. Cannot get drivers.`);
  return [];
     }
  try {
- const usersCollectionRef = collection(db, 'users');
         const q = query(usersCollectionRef, where('role', '==', 'driver'));
         const querySnapshot = await getDocs(q);
         console.log(`[firestoreService getDrivers ${getDriversStartTime}] Query snapshot received. Found ${querySnapshot.docs.length} documents.`);
@@ -217,8 +244,8 @@ export const getDrivers = async (): Promise<DriverInfo[]> => {
                 email: data.email,
                 name: data.name || data.email || `Motorista ${docInstance.id.substring(0,6)}`,
                 username: data.username || data.email?.split('@')[0],
-                role: 'driver', 
-                base: data.base || 'N/A', 
+                role: 'driver',
+                base: data.base || 'N/A',
             } as DriverInfo;
         });
         const getDriversEndTime = performance.now();
@@ -238,8 +265,11 @@ export const getDrivers = async (): Promise<DriverInfo[]> => {
 export const getVehicles = async (): Promise<VehicleInfo[]> => {
     const getVehiclesStartTime = performance.now();
     console.log(`[firestoreService getVehicles ${getVehiclesStartTime}] Fetching vehicles from 'vehicles' collection (DB: ${db?.databaseId})...`);
- if (!db) { console.warn(`[firestoreService getVehicles ${getVehiclesStartTime}] Firestore is not connected. Returning empty array.`); return []; }
- try {
+    if (!db || !vehiclesCollectionRef) {
+        console.warn(`[firestoreService getVehicles ${getVehiclesStartTime}] Firestore DB or vehiclesCollectionRef is not initialized. Returning empty array.`);
+        return [];
+    }
+    try {
         const querySnapshot = await getDocs(vehiclesCollectionRef);
         const vehicles = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as VehicleInfo);
         const getVehiclesEndTime = performance.now();
@@ -258,8 +288,10 @@ export const getVehicles = async (): Promise<VehicleInfo[]> => {
 export const addVehicle = async (vehicleData: Omit<VehicleInfo, 'id'>): Promise<string> => {
     const addVehicleStartTime = performance.now();
     const cleanedData = cleanDataForFirestore(vehicleData);
- console.log(`[firestoreService addVehicle ${addVehicleStartTime}] Adding new vehicle to 'vehicles' collection (DB: ${db?.databaseId}). Cleaned Data:`, cleanedData); if (!db) {
- console.warn(`[firestoreService addVehicle ${addVehicleStartTime}] Firestore is not connected. Vehicle not added.`); throw new Error("Firestore DB not initialized.");
+    console.log(`[firestoreService addVehicle ${addVehicleStartTime}] Adding new vehicle to 'vehicles' collection. Cleaned Data:`, cleanedData);
+    if (!db || !vehiclesCollectionRef) {
+        console.warn(`[firestoreService addVehicle ${addVehicleStartTime}] Firestore DB or vehiclesCollectionRef is not initialized. Vehicle not added.`);
+        throw new Error("Firestore DB or vehiclesCollectionRef not initialized.");
     }
     try {
         const docRef = await addDoc(vehiclesCollectionRef, cleanedData);
@@ -276,12 +308,12 @@ export const addVehicle = async (vehicleData: Omit<VehicleInfo, 'id'>): Promise<
 export const updateVehicle = async (vehicleId: string, data: Partial<VehicleInfo>) => {
     const updateVehicleStartTime = performance.now();
     const cleanedData = cleanDataForFirestore(data);
-    console.log(`[firestoreService updateVehicle ${updateVehicleStartTime}] Updating vehicle ID: ${vehicleId} in 'vehicles' collection (DB: ${db?.databaseId}). Cleaned Data:`, cleanedData);
- if (!db) {
-        console.warn(`[firestoreService updateVehicle ${updateVehicleStartTime}] Firestore is not connected. Vehicle not updated.`);
-        throw new Error("Firestore DB not initialized.");
+    console.log(`[firestoreService updateVehicle ${updateVehicleStartTime}] Updating vehicle ID: ${vehicleId} in 'vehicles' collection. Cleaned Data:`, cleanedData);
+    if (!db || !vehiclesCollectionRef) {
+        console.warn(`[firestoreService updateVehicle ${updateVehicleStartTime}] Firestore DB or vehiclesCollectionRef is not initialized. Vehicle not updated.`);
+        throw new Error("Firestore DB or vehiclesCollectionRef not initialized.");
     }
-    const vehicleDocRef = doc(db, 'vehicles', vehicleId);
+    const vehicleDocRef = doc(vehiclesCollectionRef, vehicleId);
     try {
         await updateDoc(vehicleDocRef, cleanedData);
         const updateVehicleEndTime = performance.now();
@@ -295,12 +327,12 @@ export const updateVehicle = async (vehicleId: string, data: Partial<VehicleInfo
 
 export const deleteVehicle = async (vehicleId: string) => {
     const deleteVehicleStartTime = performance.now();
-    console.log(`[firestoreService deleteVehicle ${deleteVehicleStartTime}] Deleting vehicle ID: ${vehicleId} from 'vehicles' collection (DB: ${db?.databaseId}).`);
- if (!db) {
-     console.warn(`[firestoreService deleteVehicle ${deleteVehicleStartTime}] Firestore is not connected. Vehicle not deleted.`);
-     throw new Error("Firestore DB not initialized.");
+    console.log(`[firestoreService deleteVehicle ${deleteVehicleStartTime}] Deleting vehicle ID: ${vehicleId} from 'vehicles' collection.`);
+    if (!db || !vehiclesCollectionRef) {
+        console.warn(`[firestoreService deleteVehicle ${deleteVehicleStartTime}] Firestore DB or vehiclesCollectionRef is not initialized. Vehicle not deleted.`);
+        throw new Error("Firestore DB or vehiclesCollectionRef not initialized.");
     }
-    const vehicleDocRef = doc(db, 'vehicles', vehicleId);
+    const vehicleDocRef = doc(vehiclesCollectionRef, vehicleId);
     try {
         await deleteDoc(vehicleDocRef);
         const deleteVehicleEndTime = performance.now();
@@ -315,16 +347,18 @@ export const deleteVehicle = async (vehicleId: string) => {
 // --- Trip Service ---
 export interface TripFilter {
     userId?: string;
-    startDate?: string; 
-    endDate?: string; 
+    startDate?: string;
+    endDate?: string;
     base?: string;
 }
 
 export const getTrips = async (filters: TripFilter = {}): Promise<Trip[]> => {
     const getTripsStartTime = performance.now();
-    console.log(`[firestoreService getTrips ${getTripsStartTime}] Fetching trips from 'trips' collection (DB: ${db?.databaseId}) with filters:`, filters);
- if (!db) { console.warn(`[firestoreService getTrips ${getTripsStartTime}] Firestore is not connected. Returning empty array.`); return []; }
- const tripsCollectionRef = collection(db, 'trips');
+    console.log(`[firestoreService getTrips ${getTripsStartTime}] Fetching trips from 'trips' collection with filters:`, filters);
+    if (!db || !tripsCollectionRef) {
+        console.warn(`[firestoreService getTrips ${getTripsStartTime}] Firestore DB or tripsCollectionRef is not initialized. Returning empty array.`);
+        return [];
+    }
     try {
         const constraints: QueryConstraint[] = [];
         if (filters.userId) {
@@ -356,7 +390,7 @@ export const getTrips = async (filters: TripFilter = {}): Promise<Trip[]> => {
             trips.sort((a, b) => {
                 if (a.status === 'Andamento' && b.status !== 'Andamento') return -1;
                 if (a.status !== 'Andamento' && b.status === 'Andamento') return 1;
-                return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(); 
+                return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
             });
          }
 
@@ -377,8 +411,10 @@ export const getTrips = async (filters: TripFilter = {}): Promise<Trip[]> => {
 export const addTrip = async (tripData: Omit<Trip, 'id' | 'updatedAt' | 'createdAt' | 'firebaseId' | 'localId' | 'syncStatus'>): Promise<string> => {
     const addTripStartTime = performance.now();
     const cleanedData = cleanDataForFirestore(tripData);
- console.log(`[firestoreService addTrip ${addTripStartTime}] Adding new trip to 'trips' collection (DB: ${db?.databaseId}). Cleaned Data:`, cleanedData); if (!db) {
- console.warn(`[firestoreService addTrip ${addTripStartTime}] Firestore is not connected. Trip not added.`); throw new Error("Firestore DB not initialized.");
+    console.log(`[firestoreService addTrip ${addTripStartTime}] Adding new trip to 'trips' collection. Cleaned Data:`, cleanedData);
+    if (!db || !tripsCollectionRef) {
+        console.warn(`[firestoreService addTrip ${addTripStartTime}] Firestore DB or tripsCollectionRef is not initialized. Trip not added.`);
+        throw new Error("Firestore DB or tripsCollectionRef not initialized.");
     }
     try {
         const finalData = {
@@ -400,12 +436,12 @@ export const addTrip = async (tripData: Omit<Trip, 'id' | 'updatedAt' | 'created
 export const updateTrip = async (tripId: string, data: Partial<Omit<Trip, 'id' | 'createdAt' | 'firebaseId' | 'localId' | 'syncStatus'>>) => {
     const updateTripStartTime = performance.now();
     const cleanedData = cleanDataForFirestore(data);
-    console.log(`[firestoreService updateTrip ${updateTripStartTime}] Updating trip ID: ${tripId} in 'trips' collection (DB: ${db?.databaseId}). Cleaned Data:`, cleanedData);
- if (!db) {
-        console.warn(`[firestoreService updateTrip ${updateTripStartTime}] Firestore is not connected. Trip not updated.`);
-        throw new Error("Firestore DB not initialized.");
+    console.log(`[firestoreService updateTrip ${updateTripStartTime}] Updating trip ID: ${tripId} in 'trips' collection. Cleaned Data:`, cleanedData);
+    if (!db || !tripsCollectionRef) {
+        console.warn(`[firestoreService updateTrip ${updateTripStartTime}] Firestore DB or tripsCollectionRef is not initialized. Trip not updated.`);
+        throw new Error("Firestore DB or tripsCollectionRef not initialized.");
     }
-    const tripDocRef = doc(db, 'trips', tripId);
+    const tripDocRef = doc(tripsCollectionRef, tripId);
     try {
         const dataToUpdate = {
             ...cleanedData,
@@ -424,13 +460,12 @@ export const updateTrip = async (tripId: string, data: Partial<Omit<Trip, 'id' |
 // --- Visit Service ---
 export const getVisits = async (tripId: string): Promise<Visit[]> => {
     const getVisitsStartTime = performance.now();
-    console.log(`[firestoreService getVisits ${getVisitsStartTime}] Fetching visits from 'visits' collection (DB: ${db?.databaseId}) for trip ID: ${tripId}`);
- if (!db || !visitsCollectionRef) {
-     console.warn(`[firestoreService getVisits ${getVisitsStartTime}] Firestore is not connected. Returning empty array.`);
-     return [];
+    console.log(`[firestoreService getVisits ${getVisitsStartTime}] Fetching visits from 'visits' collection for trip ID: ${tripId}`);
+    if (!db || !visitsCollectionRef) {
+        console.warn(`[firestoreService getVisits ${getVisitsStartTime}] Firestore DB or visitsCollectionRef is not initialized. Returning empty array.`);
+        return [];
     }
- try {
- const visitsCollectionRef = collection(db, 'visits');
+    try {
         const q = query(visitsCollectionRef, where('tripId', '==', tripId), orderBy('timestamp', 'desc'));
         const querySnapshot = await getDocs(q);
         const visits = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Visit);
@@ -450,8 +485,10 @@ export const getVisits = async (tripId: string): Promise<Visit[]> => {
 export const addVisit = async (visitData: Omit<Visit, 'id' | 'firebaseId' | 'localId' | 'syncStatus'>): Promise<string> => {
     const addVisitStartTime = performance.now();
     const cleanedData = cleanDataForFirestore(visitData);
- console.log(`[firestoreService addVisit ${addVisitStartTime}] Adding new visit to 'visits' collection (DB: ${db?.databaseId}). Cleaned Data:`, cleanedData); if (!db) {
- console.warn(`[firestoreService addVisit ${addVisitStartTime}] Firestore is not connected. Visit not added.`); throw new Error("Firestore DB not initialized.");
+    console.log(`[firestoreService addVisit ${addVisitStartTime}] Adding new visit to 'visits' collection. Cleaned Data:`, cleanedData);
+    if (!db || !visitsCollectionRef) {
+        console.warn(`[firestoreService addVisit ${addVisitStartTime}] Firestore DB or visitsCollectionRef is not initialized. Visit not added.`);
+        throw new Error("Firestore DB or visitsCollectionRef not initialized.");
     }
     try {
         const dataWithTimestamp = { ...cleanedData, timestamp: Timestamp.fromDate(new Date(cleanedData.timestamp)) };
@@ -469,12 +506,12 @@ export const addVisit = async (visitData: Omit<Visit, 'id' | 'firebaseId' | 'loc
 export const updateVisit = async (visitId: string, data: Partial<Omit<Visit, 'id' | 'firebaseId' | 'localId' | 'syncStatus'>>) => {
     const updateVisitStartTime = performance.now();
     const cleanedData = cleanDataForFirestore(data);
-    console.log(`[firestoreService updateVisit ${updateVisitStartTime}] Updating visit ID: ${visitId} in 'visits' collection (DB: ${db?.databaseId}). Cleaned Data:`, cleanedData);
- if (!db) {
-     console.warn(`[firestoreService updateVisit ${updateVisitStartTime}] Firestore is not connected. Visit not updated.`);
-     throw new Error("Firestore DB not initialized.");
+    console.log(`[firestoreService updateVisit ${updateVisitStartTime}] Updating visit ID: ${visitId} in 'visits' collection. Cleaned Data:`, cleanedData);
+    if (!db || !visitsCollectionRef) {
+        console.warn(`[firestoreService updateVisit ${updateVisitStartTime}] Firestore DB or visitsCollectionRef is not initialized. Visit not updated.`);
+        throw new Error("Firestore DB or visitsCollectionRef not initialized.");
     }
-    const visitDocRef = doc(db, 'visits', visitId);
+    const visitDocRef = doc(visitsCollectionRef, visitId);
     try {
         const dataWithTimestamp = cleanedData.timestamp ? { ...cleanedData, timestamp: Timestamp.fromDate(new Date(cleanedData.timestamp)) } : cleanedData;
         await updateDoc(visitDocRef, dataWithTimestamp);
@@ -489,12 +526,12 @@ export const updateVisit = async (visitId: string, data: Partial<Omit<Visit, 'id
 
 export const deleteVisit = async (visitId: string) => {
     const deleteVisitStartTime = performance.now();
-    console.log(`[firestoreService deleteVisit ${deleteVisitStartTime}] Deleting visit ID: ${visitId} from 'visits' collection (DB: ${db?.databaseId}).`);
- if (!db) {
-     console.warn(`[firestoreService deleteVisit ${deleteVisitStartTime}] Firestore is not connected. Visit not deleted.`);
-     throw new Error("Firestore DB not initialized.");
+    console.log(`[firestoreService deleteVisit ${deleteVisitStartTime}] Deleting visit ID: ${visitId} from 'visits' collection.`);
+    if (!db || !visitsCollectionRef) {
+        console.warn(`[firestoreService deleteVisit ${deleteVisitStartTime}] Firestore DB or visitsCollectionRef is not initialized. Visit not deleted.`);
+        throw new Error("Firestore DB or visitsCollectionRef not initialized.");
     }
-    const visitDocRef = doc(db, 'visits', visitId);
+    const visitDocRef = doc(visitsCollectionRef, visitId);
     try {
         await deleteDoc(visitDocRef);
         const deleteVisitEndTime = performance.now();
@@ -509,13 +546,12 @@ export const deleteVisit = async (visitId: string) => {
 // --- Expense Service ---
 export const getExpenses = async (tripId: string): Promise<Expense[]> => {
     const getExpensesStartTime = performance.now();
-    console.log(`[firestoreService getExpenses ${getExpensesStartTime}] Fetching expenses from 'expenses' collection (DB: ${db?.databaseId}) for trip ID: ${tripId}`);
- if (!db || !expensesCollectionRef) {
-     console.warn(`[firestoreService getExpenses ${getExpensesStartTime}] Firestore is not connected. Returning empty array.`);
-     return [];
+    console.log(`[firestoreService getExpenses ${getExpensesStartTime}] Fetching expenses from 'expenses' collection for trip ID: ${tripId}`);
+    if (!db || !expensesCollectionRef) {
+        console.warn(`[firestoreService getExpenses ${getExpensesStartTime}] Firestore DB or expensesCollectionRef is not initialized. Returning empty array.`);
+        return [];
     }
- try {
- const expensesCollectionRef = collection(db, 'expenses');
+    try {
         const q = query(expensesCollectionRef, where('tripId', '==', tripId), orderBy('timestamp', 'desc'));
         const querySnapshot = await getDocs(q);
         const expenses = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Expense);
@@ -534,25 +570,28 @@ export const getExpenses = async (tripId: string): Promise<Expense[]> => {
 
 export const addExpense = async (expenseData: Omit<Expense, 'id' | 'firebaseId' | 'localId' | 'syncStatus'>): Promise<string> => {
     const addExpenseStartTime = performance.now();
-    const cleanedData = cleanDataForFirestore(expenseData); 
-    console.log(`[firestoreService addExpense ${addExpenseStartTime}] Adding new expense to 'expenses' collection (DB: ${db?.databaseId}). Initial Cleaned Data:`, cleanedData);
-    
+    let cleanedData = cleanDataForFirestore(expenseData);
+    console.log(`[firestoreService addExpense ${addExpenseStartTime}] Adding new expense to 'expenses' collection. Initial Cleaned Data:`, cleanedData);
+
     const dataForFirestore: any = {
         ...cleanedData,
         timestamp: Timestamp.fromDate(new Date(cleanedData.timestamp)),
         expenseDate: Timestamp.fromDate(new Date(cleanedData.expenseDate)),
     };
 
+    // Explicitly remove optional receipt fields if they are null or undefined to avoid Firestore errors
     const receiptFields = ['receiptFilename', 'receiptUrl', 'receiptPath'];
     receiptFields.forEach(field => {
         if (dataForFirestore[field] === null || dataForFirestore[field] === undefined) {
             delete dataForFirestore[field];
         }
     });
-    console.log(`[firestoreService addExpense ${addExpenseStartTime}] Data after receipt field cleaning:`, dataForFirestore);
+    console.log(`[firestoreService addExpense ${addExpenseStartTime}] Data after receipt field cleaning for Firestore:`, dataForFirestore);
 
- if (!db) { console.warn(`[firestoreService addExpense ${addExpenseStartTime}] Firestore is not connected. Expense not added.`); throw new Error("Firestore DB not initialized."); }
- const expensesCollectionRef = collection(db, 'expenses'); // Create ref here
+    if (!db || !expensesCollectionRef) {
+        console.warn(`[firestoreService addExpense ${addExpenseStartTime}] Firestore DB or expensesCollectionRef is not initialized. Expense not added.`);
+        throw new Error("Firestore DB or expensesCollectionRef not initialized.");
+    }
     try {
         const docRef = await addDoc(expensesCollectionRef, dataForFirestore);
         const addExpenseEndTime = performance.now();
@@ -567,27 +606,33 @@ export const addExpense = async (expenseData: Omit<Expense, 'id' | 'firebaseId' 
 
 export const updateExpense = async (expenseId: string, data: Partial<Omit<Expense, 'id' | 'firebaseId' | 'localId' | 'syncStatus'>>) => {
     const updateExpenseStartTime = performance.now();
-    const cleanedData = cleanDataForFirestore(data);
-    console.log(`[firestoreService updateExpense ${updateExpenseStartTime}] Updating expense ID: ${expenseId} in 'expenses' collection (DB: ${db?.databaseId}). Initial Cleaned Data:`, cleanedData);
-    
+    let cleanedData = cleanDataForFirestore(data);
+    console.log(`[firestoreService updateExpense ${updateExpenseStartTime}] Updating expense ID: ${expenseId} in 'expenses' collection. Initial Cleaned Data:`, cleanedData);
+
     const dataForFirestore: any = { ...cleanedData };
     if (cleanedData.timestamp) dataForFirestore.timestamp = Timestamp.fromDate(new Date(cleanedData.timestamp));
     if (cleanedData.expenseDate) dataForFirestore.expenseDate = Timestamp.fromDate(new Date(cleanedData.expenseDate));
 
     const receiptFields = ['receiptFilename', 'receiptUrl', 'receiptPath'];
     receiptFields.forEach(field => {
-        if (dataForFirestore.hasOwnProperty(field) && (dataForFirestore[field] === null || dataForFirestore[field] === undefined)) {
-            if (dataForFirestore[field] === undefined) delete dataForFirestore[field];
-        } else if (!dataForFirestore.hasOwnProperty(field) && data[field as keyof typeof data] === undefined) {
+        // If the field exists in the incoming `data` and is explicitly set to null, it means we want to remove it.
+        // If it's undefined in `data`, we don't include it in the update to avoid overwriting with undefined.
+        if (data.hasOwnProperty(field)) {
+            if (data[field as keyof typeof data] === null || data[field as keyof typeof data] === undefined) {
+                delete dataForFirestore[field]; // Remove if explicitly set to null/undefined in the partial update
+            }
+        } else {
+            // If not in partial `data`, don't touch it in dataForFirestore unless already cleaned
+             if (dataForFirestore[field] === undefined) delete dataForFirestore[field];
         }
     });
-    console.log(`[firestoreService updateExpense ${updateExpenseStartTime}] Data after receipt field cleaning:`, dataForFirestore);
-    
-    if (!db) {
- console.warn(`[firestoreService updateExpense ${updateExpenseStartTime}] Firestore is not connected. Expense not updated.`);
-     throw new Error("Firestore DB not initialized.");
+    console.log(`[firestoreService updateExpense ${updateExpenseStartTime}] Data after receipt field cleaning for Firestore:`, dataForFirestore);
+
+    if (!db || !expensesCollectionRef) {
+        console.warn(`[firestoreService updateExpense ${updateExpenseStartTime}] Firestore DB or expensesCollectionRef is not initialized. Expense not updated.`);
+        throw new Error("Firestore DB or expensesCollectionRef not initialized.");
     }
-    const expenseDocRef = doc(db, 'expenses', expenseId);
+    const expenseDocRef = doc(expensesCollectionRef, expenseId);
     try {
         await updateDoc(expenseDocRef, dataForFirestore);
         const updateExpenseEndTime = performance.now();
@@ -601,12 +646,12 @@ export const updateExpense = async (expenseId: string, data: Partial<Omit<Expens
 
 export const deleteExpense = async (expenseId: string) => {
     const deleteExpenseStartTime = performance.now();
-    console.log(`[firestoreService deleteExpense ${deleteExpenseStartTime}] Deleting expense ID: ${expenseId} from 'expenses' collection (DB: ${db?.databaseId}).`);
- if (!db) {
-     console.warn(`[firestoreService deleteExpense ${deleteExpenseStartTime}] Firestore is not connected. Expense not deleted.`);
-     throw new Error("Firestore DB not initialized.");
+    console.log(`[firestoreService deleteExpense ${deleteExpenseStartTime}] Deleting expense ID: ${expenseId} from 'expenses' collection.`);
+    if (!db || !expensesCollectionRef) {
+        console.warn(`[firestoreService deleteExpense ${deleteExpenseStartTime}] Firestore DB or expensesCollectionRef is not initialized. Expense not deleted.`);
+        throw new Error("Firestore DB or expensesCollectionRef not initialized.");
     }
-    const expenseDocRef = doc(db, 'expenses', expenseId);
+    const expenseDocRef = doc(expensesCollectionRef, expenseId);
     try {
         const expenseSnap = await getDoc(expenseDocRef);
         if (expenseSnap.exists()) {
@@ -633,13 +678,12 @@ export const deleteExpense = async (expenseId: string) => {
 // --- Fueling Service ---
 export const getFuelings = async (filter?: { tripId?: string; vehicleId?: string }): Promise<Fueling[]> => {
     const getFuelingsStartTime = performance.now();
-    console.log(`[firestoreService getFuelings ${getFuelingsStartTime}] Fetching fuelings from 'fuelings' collection (DB: ${db?.databaseId}) with filter:`, filter);
- if (!db || !fuelingsCollectionRef) {
-        console.warn(`[firestoreService getFuelings ${getFuelingsStartTime}] Firestore is not connected. Returning empty array.`);
+    console.log(`[firestoreService getFuelings ${getFuelingsStartTime}] Fetching fuelings from 'fuelings' collection with filter:`, filter);
+    if (!db || !fuelingsCollectionRef) {
+        console.warn(`[firestoreService getFuelings ${getFuelingsStartTime}] Firestore DB or fuelingsCollectionRef is not initialized. Returning empty array.`);
         return [];
     }
- try {
- const fuelingsCollectionRef = collection(db, 'fuelings');
+    try {
         const constraints: QueryConstraint[] = [];
         if (filter?.tripId) {
             constraints.push(where('tripId', '==', filter.tripId));
@@ -667,9 +711,9 @@ export const getFuelings = async (filter?: { tripId?: string; vehicleId?: string
 
 export const addFueling = async (fuelingData: Omit<Fueling, 'id' | 'firebaseId' | 'localId' | 'syncStatus'>): Promise<string> => {
     const addFuelingStartTime = performance.now();
-    const cleanedData = cleanDataForFirestore(fuelingData);
-    console.log(`[firestoreService addFueling ${addFuelingStartTime}] Adding new fueling to 'fuelings' collection (DB: ${db?.databaseId}). Initial Cleaned Data:`, cleanedData);
-    
+    let cleanedData = cleanDataForFirestore(fuelingData);
+    console.log(`[firestoreService addFueling ${addFuelingStartTime}] Adding new fueling to 'fuelings' collection. Initial Cleaned Data:`, cleanedData);
+
     const dataForFirestore: any = {
         ...cleanedData,
         date: Timestamp.fromDate(new Date(cleanedData.date)),
@@ -681,10 +725,12 @@ export const addFueling = async (fuelingData: Omit<Fueling, 'id' | 'firebaseId' 
             delete dataForFirestore[field];
         }
     });
-    console.log(`[firestoreService addFueling ${addFuelingStartTime}] Data after receipt field cleaning:`, dataForFirestore);
+    console.log(`[firestoreService addFueling ${addFuelingStartTime}] Data after receipt field cleaning for Firestore:`, dataForFirestore);
 
- if (!db) { console.warn(`[firestoreService addFueling ${addFuelingStartTime}] Firestore is not connected. Fueling not added.`); throw new Error("Firestore DB not initialized."); }
- const fuelingsCollectionRef = collection(db, 'fuelings');
+    if (!db || !fuelingsCollectionRef) {
+        console.warn(`[firestoreService addFueling ${addFuelingStartTime}] Firestore DB or fuelingsCollectionRef is not initialized. Fueling not added.`);
+        throw new Error("Firestore DB or fuelingsCollectionRef not initialized.");
+    }
     try {
         const docRef = await addDoc(fuelingsCollectionRef, dataForFirestore);
         const addFuelingEndTime = performance.now();
@@ -699,26 +745,29 @@ export const addFueling = async (fuelingData: Omit<Fueling, 'id' | 'firebaseId' 
 
 export const updateFueling = async (fuelingId: string, data: Partial<Omit<Fueling, 'id' | 'firebaseId' | 'localId' | 'syncStatus'>>) => {
     const updateFuelingStartTime = performance.now();
-    const cleanedData = cleanDataForFirestore(data);
-    console.log(`[firestoreService updateFueling ${updateFuelingStartTime}] Updating fueling ID: ${fuelingId} in 'fuelings' collection (DB: ${db?.databaseId}). Initial Cleaned Data:`, cleanedData);
+    let cleanedData = cleanDataForFirestore(data);
+    console.log(`[firestoreService updateFueling ${updateFuelingStartTime}] Updating fueling ID: ${fuelingId} in 'fuelings' collection. Initial Cleaned Data:`, cleanedData);
 
     const dataForFirestore: any = { ...cleanedData };
     if (cleanedData.date) dataForFirestore.date = Timestamp.fromDate(new Date(cleanedData.date));
 
     const receiptFields = ['receiptFilename', 'receiptUrl', 'receiptPath'];
     receiptFields.forEach(field => {
-        if (dataForFirestore.hasOwnProperty(field) && (dataForFirestore[field] === null || dataForFirestore[field] === undefined)) {
-            if (dataForFirestore[field] === undefined) delete dataForFirestore[field];
-        } else if (!dataForFirestore.hasOwnProperty(field) && data[field as keyof typeof data] === undefined) {
+        if (data.hasOwnProperty(field)) {
+            if (data[field as keyof typeof data] === null || data[field as keyof typeof data] === undefined) {
+                delete dataForFirestore[field];
+            }
+        } else {
+             if (dataForFirestore[field] === undefined) delete dataForFirestore[field];
         }
     });
-    console.log(`[firestoreService updateFueling ${updateFuelingStartTime}] Data after receipt field cleaning:`, dataForFirestore);
+    console.log(`[firestoreService updateFueling ${updateFuelingStartTime}] Data after receipt field cleaning for Firestore:`, dataForFirestore);
 
-    if (!db) {
- console.warn(`[firestoreService updateFueling ${updateFuelingStartTime}] Firestore is not connected. Fueling not updated.`);
-        throw new Error("Firestore DB not initialized.");
+    if (!db || !fuelingsCollectionRef) {
+        console.warn(`[firestoreService updateFueling ${updateFuelingStartTime}] Firestore DB or fuelingsCollectionRef is not initialized. Fueling not updated.`);
+        throw new Error("Firestore DB or fuelingsCollectionRef not initialized.");
     }
-    const fuelingDocRef = doc(db, 'fuelings', fuelingId);
+    const fuelingDocRef = doc(fuelingsCollectionRef, fuelingId);
     try {
         await updateDoc(fuelingDocRef, dataForFirestore);
         const updateFuelingEndTime = performance.now();
@@ -732,12 +781,12 @@ export const updateFueling = async (fuelingId: string, data: Partial<Omit<Fuelin
 
 export const deleteFueling = async (fuelingId: string) => {
     const deleteFuelingStartTime = performance.now();
-    console.log(`[firestoreService deleteFueling ${deleteFuelingStartTime}] Deleting fueling ID: ${fuelingId} from 'fuelings' collection (DB: ${db?.databaseId}).`);
- if (!db) {
-     console.warn(`[firestoreService deleteFueling ${deleteFuelingStartTime}] Firestore is not connected. Fueling not deleted.`);
-     throw new Error("Firestore DB not initialized.");
+    console.log(`[firestoreService deleteFueling ${deleteFuelingStartTime}] Deleting fueling ID: ${fuelingId} from 'fuelings' collection.`);
+    if (!db || !fuelingsCollectionRef) {
+        console.warn(`[firestoreService deleteFueling ${deleteFuelingStartTime}] Firestore DB or fuelingsCollectionRef is not initialized. Fueling not deleted.`);
+        throw new Error("Firestore DB or fuelingsCollectionRef not initialized.");
     }
-    const fuelingDocRef = doc(db, 'fuelings', fuelingId);
+    const fuelingDocRef = doc(fuelingsCollectionRef, fuelingId);
     try {
         const fuelingSnap = await getDoc(fuelingDocRef);
         if (fuelingSnap.exists()) {
@@ -764,39 +813,39 @@ export const deleteFueling = async (fuelingId: string) => {
 // --- Batch Delete for Trip Deletion ---
 export const deleteTripAndRelatedData = async (tripId: string) => {
     const deleteBatchStartTime = performance.now();
-    console.log(`[firestoreService deleteTripAndRelatedData ${deleteBatchStartTime}] Starting batch delete for trip ID: ${tripId} in database (DB: ${db?.databaseId})`);
- if (!db) {
-        console.warn(`[firestoreService deleteTripAndRelatedData ${deleteBatchStartTime}] Firestore is not connected. Trip and related data not deleted.`);
-        throw new Error("Firestore DB not initialized.");
+    console.log(`[firestoreService deleteTripAndRelatedData ${deleteBatchStartTime}] Starting batch delete for trip ID: ${tripId}`);
+    if (!db || !tripsCollectionRef || !visitsCollectionRef || !expensesCollectionRef || !fuelingsCollectionRef) {
+        console.warn(`[firestoreService deleteTripAndRelatedData ${deleteBatchStartTime}] Firestore DB or one of the collection references is not initialized. Trip and related data not deleted.`);
+        throw new Error("Firestore DB or required collection references not initialized.");
     }
     const batch = writeBatch(db);
     const relatedReceiptPaths: string[] = [];
 
     try {
         console.log(`[deleteTripAndRelatedData] Preparing to delete trip: ${tripId}`);
-        const tripDocRef = doc(db, 'trips', tripId);
+        const tripDocRef = doc(tripsCollectionRef, tripId);
         batch.delete(tripDocRef);
 
-        const visitsQuery = query(collection(db, 'visits'), where('tripId', '==', tripId));
+        const visitsQuery = query(visitsCollectionRef, where('tripId', '==', tripId));
         const visitsSnapshot = await getDocs(visitsQuery);
         console.log(`[deleteTripAndRelatedData] Found ${visitsSnapshot.docs.length} visits to delete for trip ${tripId}.`);
         visitsSnapshot.docs.forEach(doc => batch.delete(doc.ref));
 
-        const expensesQuery = query(collection(db, 'expenses'), where('tripId', '==', tripId));
+        const expensesQuery = query(expensesCollectionRef, where('tripId', '==', tripId));
         const expensesSnapshot = await getDocs(expensesQuery);
         console.log(`[deleteTripAndRelatedData] Found ${expensesSnapshot.docs.length} expenses to delete for trip ${tripId}.`);
         expensesSnapshot.docs.forEach(expenseDoc => {
             batch.delete(expenseDoc.ref);
-            const expenseData = expenseDoc.data() as Expense; 
+            const expenseData = expenseDoc.data() as Expense;
             if (expenseData.receiptPath) relatedReceiptPaths.push(expenseData.receiptPath);
         });
 
-        const fuelingsQuery = query(collection(db, 'fuelings'), where('tripId', '==', tripId));
+        const fuelingsQuery = query(fuelingsCollectionRef, where('tripId', '==', tripId));
         const fuelingsSnapshot = await getDocs(fuelingsQuery);
          console.log(`[deleteTripAndRelatedData] Found ${fuelingsSnapshot.docs.length} fuelings to delete for trip ${tripId}.`);
          fuelingsSnapshot.docs.forEach(fuelingDoc => {
             batch.delete(fuelingDoc.ref);
-            const fuelingData = fuelingDoc.data() as Fueling; 
+            const fuelingData = fuelingDoc.data() as Fueling;
             if (fuelingData.receiptPath) relatedReceiptPaths.push(fuelingData.receiptPath);
         });
 
@@ -825,17 +874,19 @@ export const deleteTripAndRelatedData = async (tripId: string) => {
 
 export const getUserByEmail = async (email: string): Promise<User | null> => {
     const getUserByEmailStartTime = performance.now();
-    console.log(`[firestoreService getUserByEmail ${getUserByEmailStartTime}] Getting user by email: ${email} from 'users' collection (DB: ${db?.databaseId})`);
- if (!db) { console.warn(`[firestoreService getUserByEmail ${getUserByEmailStartTime}] Firestore DB is not initialized. Cannot get user by email.`); return null; }
- const usersCollectionRef = collection(db, 'users');
+    console.log(`[firestoreService getUserByEmail ${getUserByEmailStartTime}] Getting user by email: ${email} from 'users' collection`);
+    if (!db || !usersCollectionRef) {
+        console.warn(`[firestoreService getUserByEmail ${getUserByEmailStartTime}] Firestore DB or usersCollectionRef is not initialized. Cannot get user by email.`);
+        return null;
+    }
     const q = query(usersCollectionRef, where('email', '==', email));
     try {
         const querySnapshot = await getDocs(q);
         if (!querySnapshot.empty) {
             const userDoc = querySnapshot.docs[0];
             const userDataFromSnap = userDoc.data();
-            const userData = { 
-                id: userDoc.id, 
+            const userData = {
+                id: userDoc.id,
                 name: userDataFromSnap.name || `Usuário ${userDoc.id.substring(0,6)}`,
                 email: userDataFromSnap.email || 'N/A',
                 username: userDataFromSnap.username || userDataFromSnap.email?.split('@')[0] || `user_${userDoc.id.substring(0,6)}`,
@@ -858,9 +909,11 @@ export const getUserByEmail = async (email: string): Promise<User | null> => {
 
 export const getVehicleByLicensePlate = async (licensePlate: string): Promise<VehicleInfo | null> => {
     const getVehicleByPlateStartTime = performance.now();
-    console.log(`[firestoreService getVehicleByLicensePlate ${getVehicleByPlateStartTime}] Getting vehicle by license plate: ${licensePlate} from 'vehicles' collection (DB: ${db?.databaseId})`);
- if (!db) { console.warn(`[firestoreService getVehicleByLicensePlate ${getVehicleByPlateStartTime}] Firestore DB is not initialized. Cannot get vehicle by license plate.`); return null; }
- const vehiclesCollectionRef = collection(db, 'vehicles');
+    console.log(`[firestoreService getVehicleByLicensePlate ${getVehicleByPlateStartTime}] Getting vehicle by license plate: ${licensePlate} from 'vehicles' collection`);
+    if (!db || !vehiclesCollectionRef) {
+        console.warn(`[firestoreService getVehicleByLicensePlate ${getVehicleByPlateStartTime}] Firestore DB or vehiclesCollectionRef is not initialized. Cannot get vehicle by license plate.`);
+        return null;
+    }
     const q = query(vehiclesCollectionRef, where('licensePlate', '==', licensePlate.toUpperCase()));
     try {
         const querySnapshot = await getDocs(q);
