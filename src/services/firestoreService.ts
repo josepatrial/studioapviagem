@@ -1,4 +1,3 @@
-
 // src/services/firestoreService.ts
 import {
   collection,
@@ -15,7 +14,7 @@ import {
   type QueryConstraint,
   addDoc,
   writeBatch,
-  type CollectionReference, // Import CollectionReference type
+  type CollectionReference,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { User, DriverInfo, UserRole } from '@/contexts/AuthContext';
@@ -26,6 +25,7 @@ import type { Expense } from '@/components/Trips/Expenses';
 import type { Fueling as BaseFueling } from '@/components/Trips/Fuelings';
 import { deleteReceipt as deleteStorageReceipt } from './storageService';
 import type { DateRange } from 'react-day-picker';
+import type { CustomType as LocalCustomType } from './localDbService'; // Renamed to avoid conflict
 
 export interface Fueling extends BaseFueling {
  fuelType: string;
@@ -35,6 +35,13 @@ export interface Visit extends BaseVisit {
     visitType?: string;
 }
 
+// Define CustomType for Firestore (id is Firestore-generated)
+export interface FirestoreCustomType {
+    id: string; // Firestore document ID
+    name: string;
+}
+
+
 // Define collection references globally
 let usersCollectionRef: CollectionReference | null = null;
 let vehiclesCollectionRef: CollectionReference | null = null;
@@ -42,6 +49,9 @@ let tripsCollectionRef: CollectionReference | null = null;
 let visitsCollectionRef: CollectionReference | null = null;
 let expensesCollectionRef: CollectionReference | null = null;
 let fuelingsCollectionRef: CollectionReference | null = null;
+let visitTypesCollectionRef: CollectionReference | null = null;
+let expenseTypesCollectionRef: CollectionReference | null = null;
+
 
 if (db) {
     console.log(`[firestoreService] Initializing collection references for DB: ${db.databaseId}`);
@@ -51,16 +61,16 @@ if (db) {
     visitsCollectionRef = collection(db, 'visits');
     expensesCollectionRef = collection(db, 'expenses');
     fuelingsCollectionRef = collection(db, 'fuelings');
+    visitTypesCollectionRef = collection(db, 'visitTypes');
+    expenseTypesCollectionRef = collection(db, 'expenseTypes');
+
 } else {
     console.warn("[firestoreService] Firestore DB is not initialized. Collection references will be null. Operations requiring these refs will fail.");
 }
 
 
-// Helper to clean undefined or null values from an object before sending to Firestore,
-// and ensure essential fields for 'users' collection.
 const cleanUserDataForFirestore = (data: Record<string, any>): Record<string, any> => {
     const cleanedData: Record<string, any> = {};
-    // Fields specific to user data that should be preserved or defaulted
     const coreUserFields: (keyof User)[] = ['name', 'email', 'username', 'role', 'base'];
 
     for (const key in data) {
@@ -69,24 +79,22 @@ const cleanUserDataForFirestore = (data: Record<string, any>): Record<string, an
         }
     }
 
-    // Ensure essential fields expected by Firestore for 'users' are present
     if (!cleanedData.name && cleanedData.email) cleanedData.name = cleanedData.email.split('@')[0] || 'Usuário Desconhecido';
     else if (!cleanedData.name) cleanedData.name = 'Usuário Desconhecido';
 
-    if (!cleanedData.email) cleanedData.email = 'unknown@example.com'; // Should ideally always be there for users
-    if (!cleanedData.role) cleanedData.role = 'driver'; // Default role
+    if (!cleanedData.email) cleanedData.email = 'unknown@example.com';
+    if (!cleanedData.role) cleanedData.role = 'driver'; 
 
     if (cleanedData.role === 'admin') {
-        cleanedData.base = 'ALL'; // Admins always have 'ALL' base
+        cleanedData.base = 'ALL'; 
     } else if (!cleanedData.base || String(cleanedData.base).trim() === '') {
-        cleanedData.base = 'N/A'; // Default base for non-admins if empty or not provided
+        cleanedData.base = 'N/A'; 
     }
 
     if (!cleanedData.username && cleanedData.email) cleanedData.username = cleanedData.email.split('@')[0];
     else if (!cleanedData.username) cleanedData.username = `user_${Date.now()}`;
 
 
-    // Remove fields that should not be directly written to Firestore user doc if they slipped in
     const internalFields = ['passwordHash', 'lastLogin', 'syncStatus', 'deleted', 'firebaseId', 'localId', 'id'];
     internalFields.forEach(field => delete cleanedData[field]);
 
@@ -94,16 +102,13 @@ const cleanUserDataForFirestore = (data: Record<string, any>): Record<string, an
 };
 
 
-// Generic cleaner for other collections (trips, vehicles, etc.)
 const cleanDataForFirestore = (data: Record<string, any>): Record<string, any> => {
     const cleanedData: Record<string, any> = {};
     for (const key in data) {
-        // Allow null for explicit field deletion if Firestore supports it with merge, but not undefined
         if (data[key] !== undefined) {
             cleanedData[key] = data[key];
         }
     }
-    // Remove internal app-specific fields not meant for Firestore
     const internalFields = ['syncStatus', 'deleted', 'firebaseId', 'localId', 'id'];
     internalFields.forEach(field => delete cleanedData[field]);
     return cleanedData;
@@ -125,9 +130,9 @@ export const getUserData = async (userId: string): Promise<User | null> => {
       const userDataFromSnap = userDocSnap.data();
       const userData = {
         id: userDocSnap.id,
-        name: userDataFromSnap.name || `Usuário ${userDocSnap.id.substring(0,6)}`,
+        name: userDataFromSnap.name || `Usuário ${userDoc.id.substring(0,6)}`,
         email: userDataFromSnap.email || 'N/A',
-        username: userDataFromSnap.username || userDataFromSnap.email?.split('@')[0] || `user_${userDocSnap.id.substring(0,6)}`,
+        username: userDataFromSnap.username || userDataFromSnap.email?.split('@')[0] || `user_${userDoc.id.substring(0,6)}`,
         role: userDataFromSnap.role || 'driver',
         base: (userDataFromSnap.role === 'admin' ? 'ALL' : userDataFromSnap.base) || 'N/A',
       } as User;
@@ -348,8 +353,8 @@ export const deleteVehicle = async (vehicleId: string) => {
 // --- Trip Service ---
 export interface TripFilter {
     userId?: string;
-    startDate?: string | Date; // Allow Date object
-    endDate?: string | Date;   // Allow Date object
+    startDate?: string | Date;
+    endDate?: string | Date;  
     base?: string;
 }
 
@@ -450,7 +455,7 @@ export const updateTrip = async (tripId: string, data: Partial<Omit<Trip, 'id' |
 // --- Visit Service ---
 export interface VisitFilter {
     userId?: string;
-    tripId?: string; // Keep if you need to fetch by specific tripId sometimes
+    tripId?: string; 
     startDate?: Date;
     endDate?: Date;
 }
@@ -478,7 +483,7 @@ export const getVisits = async (filters: VisitFilter = {}): Promise<Visit[]> => 
             endDatePlusOne.setDate(endDatePlusOne.getDate() + 1);
             constraints.push(where('timestamp', '<', Timestamp.fromDate(endDatePlusOne)));
         }
-        constraints.push(orderBy('timestamp', 'desc')); // Common default order
+        constraints.push(orderBy('timestamp', 'desc')); 
 
         const q = query(visitsCollectionRef, ...constraints);
         const querySnapshot = await getDocs(q);
@@ -582,14 +587,14 @@ export const getExpenses = async (filters: ExpenseFilter = {}): Promise<Expense[
             constraints.push(where('tripId', '==', filters.tripId));
         }
         if (filters.startDate) {
-            constraints.push(where('timestamp', '>=', Timestamp.fromDate(filters.startDate))); // Assuming 'timestamp' for general date filtering
+            constraints.push(where('expenseDate', '>=', Timestamp.fromDate(filters.startDate))); 
         }
         if (filters.endDate) {
             const endDatePlusOne = new Date(filters.endDate);
             endDatePlusOne.setDate(endDatePlusOne.getDate() + 1);
-            constraints.push(where('timestamp', '<', Timestamp.fromDate(endDatePlusOne)));
+            constraints.push(where('expenseDate', '<', Timestamp.fromDate(endDatePlusOne)));
         }
-        constraints.push(orderBy('timestamp', 'desc')); // Common default order
+        constraints.push(orderBy('expenseDate', 'desc')); 
 
         const q = query(expensesCollectionRef, ...constraints);
         const querySnapshot = await getDocs(q);
@@ -609,59 +614,57 @@ export const getExpenses = async (filters: ExpenseFilter = {}): Promise<Expense[
 
 export const addExpense = async (expenseData: Omit<Expense, 'id' | 'firebaseId' | 'localId' | 'syncStatus'>): Promise<string> => {
     const addExpenseStartTime = performance.now();
-    let cleanedData = cleanDataForFirestore(expenseData);
-    console.log(`[firestoreService addExpense ${addExpenseStartTime}] Adding new expense to 'expenses' collection. Initial Cleaned Data:`, cleanedData);
-
-    const dataForFirestore: any = {
-        ...cleanedData,
-        timestamp: Timestamp.fromDate(new Date(cleanedData.timestamp)),
-        expenseDate: Timestamp.fromDate(new Date(cleanedData.expenseDate)),
-    };
+    const dataToFirestore = { ...cleanDataForFirestore(expenseData) };
+    
+    if (dataToFirestore.timestamp) dataToFirestore.timestamp = Timestamp.fromDate(new Date(dataToFirestore.timestamp));
+    if (dataToFirestore.expenseDate) dataToFirestore.expenseDate = Timestamp.fromDate(new Date(dataToFirestore.expenseDate));
 
     const receiptFields = ['receiptFilename', 'receiptUrl', 'receiptPath'];
     receiptFields.forEach(field => {
-        if (dataForFirestore[field] === null || dataForFirestore[field] === undefined) {
-            delete dataForFirestore[field];
+        if (dataToFirestore[field] === null || dataToFirestore[field] === undefined) {
+            delete dataToFirestore[field];
         }
     });
-    console.log(`[firestoreService addExpense ${addExpenseStartTime}] Data after receipt field cleaning for Firestore:`, dataForFirestore);
+    console.log(`[firestoreService addExpense ${addExpenseStartTime}] Adding new expense to 'expenses' collection. Data for Firestore:`, dataToFirestore);
+
 
     if (!db || !expensesCollectionRef) {
         console.warn(`[firestoreService addExpense ${addExpenseStartTime}] Firestore DB or expensesCollectionRef is not initialized. Expense not added.`);
         throw new Error("Firestore DB or expensesCollectionRef not initialized.");
     }
     try {
-        const docRef = await addDoc(expensesCollectionRef, dataForFirestore);
+        const docRef = await addDoc(expensesCollectionRef, dataToFirestore);
         const addExpenseEndTime = performance.now();
         console.log(`[firestoreService addExpense ${addExpenseStartTime}] Expense added successfully to 'expenses' with ID: ${docRef.id}. Time: ${addExpenseEndTime - addExpenseStartTime} ms`);
         return docRef.id;
     } catch (error) {
          const addExpenseEndTime = performance.now();
-         console.error(`[firestoreService addExpense ${addExpenseStartTime}] Error adding expense. Time: ${addExpenseEndTime - addExpenseStartTime} ms. Payload:`, dataForFirestore, error);
+         console.error(`[firestoreService addExpense ${addExpenseStartTime}] Error adding expense. Time: ${addExpenseEndTime - addExpenseStartTime} ms. Payload:`, dataToFirestore, error);
          throw error;
     }
 };
 
 export const updateExpense = async (expenseId: string, data: Partial<Omit<Expense, 'id' | 'firebaseId' | 'localId' | 'syncStatus'>>) => {
     const updateExpenseStartTime = performance.now();
-    let cleanedData = cleanDataForFirestore(data);
-    console.log(`[firestoreService updateExpense ${updateExpenseStartTime}] Updating expense ID: ${expenseId} in 'expenses' collection. Initial Cleaned Data:`, cleanedData);
+    const dataToFirestore = { ...cleanDataForFirestore(data) };
 
-    const dataForFirestore: any = { ...cleanedData };
-    if (cleanedData.timestamp) dataForFirestore.timestamp = Timestamp.fromDate(new Date(cleanedData.timestamp));
-    if (cleanedData.expenseDate) dataForFirestore.expenseDate = Timestamp.fromDate(new Date(cleanedData.expenseDate));
+    if (dataToFirestore.timestamp) dataToFirestore.timestamp = Timestamp.fromDate(new Date(dataToFirestore.timestamp));
+    if (dataToFirestore.expenseDate) dataToFirestore.expenseDate = Timestamp.fromDate(new Date(dataToFirestore.expenseDate));
 
     const receiptFields = ['receiptFilename', 'receiptUrl', 'receiptPath'];
-    receiptFields.forEach(field => {
-        if (data.hasOwnProperty(field)) {
+     receiptFields.forEach(field => {
+        if (data.hasOwnProperty(field)) { 
             if (data[field as keyof typeof data] === null || data[field as keyof typeof data] === undefined) {
-                delete dataForFirestore[field];
+                delete dataToFirestore[field]; 
             }
         } else {
-             if (dataForFirestore[field] === undefined) delete dataForFirestore[field];
+            // If the field is not in the partial update `data`, we don't want to accidentally send `undefined`
+            // if `cleanedDataForFirestore` didn't have it.
+            if (dataToFirestore[field] === undefined) delete dataToFirestore[field];
         }
     });
-    console.log(`[firestoreService updateExpense ${updateExpenseStartTime}] Data after receipt field cleaning for Firestore:`, dataForFirestore);
+    console.log(`[firestoreService updateExpense ${updateExpenseStartTime}] Updating expense ID: ${expenseId} in 'expenses' collection. Data for Firestore:`, dataToFirestore);
+
 
     if (!db || !expensesCollectionRef) {
         console.warn(`[firestoreService updateExpense ${updateExpenseStartTime}] Firestore DB or expensesCollectionRef is not initialized. Expense not updated.`);
@@ -669,12 +672,12 @@ export const updateExpense = async (expenseId: string, data: Partial<Omit<Expens
     }
     const expenseDocRef = doc(expensesCollectionRef, expenseId);
     try {
-        await updateDoc(expenseDocRef, dataForFirestore);
+        await updateDoc(expenseDocRef, dataToFirestore);
         const updateExpenseEndTime = performance.now();
         console.log(`[firestoreService updateExpense ${updateExpenseStartTime}] Expense updated successfully for ID: ${expenseId}. Time: ${updateExpenseEndTime - updateExpenseStartTime} ms`);
     } catch (error) {
          const updateExpenseEndTime = performance.now();
-         console.error(`[firestoreService updateExpense ${updateExpenseStartTime}] Error updating expense for ID: ${expenseId}. Time: ${updateExpenseEndTime - updateExpenseStartTime} ms. Payload:`, dataForFirestore, error);
+         console.error(`[firestoreService updateExpense ${updateExpenseStartTime}] Error updating expense for ID: ${expenseId}. Time: ${updateExpenseEndTime - updateExpenseStartTime} ms. Payload:`, dataToFirestore, error);
          throw error;
     }
 };
@@ -764,57 +767,52 @@ export const getFuelings = async (filter?: FuelingFilter): Promise<Fueling[]> =>
 
 export const addFueling = async (fuelingData: Omit<Fueling, 'id' | 'firebaseId' | 'localId' | 'syncStatus'>): Promise<string> => {
     const addFuelingStartTime = performance.now();
-    let cleanedData = cleanDataForFirestore(fuelingData);
-    console.log(`[firestoreService addFueling ${addFuelingStartTime}] Adding new fueling to 'fuelings' collection. Initial Cleaned Data:`, cleanedData);
+    const dataToFirestore = { ...cleanDataForFirestore(fuelingData) };
 
-    const dataForFirestore: any = {
-        ...cleanedData,
-        date: Timestamp.fromDate(new Date(cleanedData.date)),
-    };
-
+    if (dataToFirestore.date) dataToFirestore.date = Timestamp.fromDate(new Date(dataToFirestore.date));
+    
     const receiptFields = ['receiptFilename', 'receiptUrl', 'receiptPath'];
     receiptFields.forEach(field => {
-        if (dataForFirestore[field] === null || dataForFirestore[field] === undefined) {
-            delete dataForFirestore[field];
+        if (dataToFirestore[field] === null || dataToFirestore[field] === undefined) {
+            delete dataToFirestore[field];
         }
     });
-    console.log(`[firestoreService addFueling ${addFuelingStartTime}] Data after receipt field cleaning for Firestore:`, dataForFirestore);
+    console.log(`[firestoreService addFueling ${addFuelingStartTime}] Adding new fueling to 'fuelings' collection. Data for Firestore:`, dataToFirestore);
 
     if (!db || !fuelingsCollectionRef) {
         console.warn(`[firestoreService addFueling ${addFuelingStartTime}] Firestore DB or fuelingsCollectionRef is not initialized. Fueling not added.`);
         throw new Error("Firestore DB or fuelingsCollectionRef not initialized.");
     }
     try {
-        const docRef = await addDoc(fuelingsCollectionRef, dataForFirestore);
+        const docRef = await addDoc(fuelingsCollectionRef, dataToFirestore);
         const addFuelingEndTime = performance.now();
         console.log(`[firestoreService addFueling ${addFuelingStartTime}] Fueling added successfully to 'fuelings' with ID: ${docRef.id}. Time: ${addFuelingEndTime - addFuelingStartTime} ms`);
         return docRef.id;
     } catch (error) {
          const addFuelingEndTime = performance.now();
-         console.error(`[firestoreService addFueling ${addFuelingStartTime}] Error adding fueling. Time: ${addFuelingEndTime - addFuelingStartTime} ms. Payload:`, dataForFirestore, error);
+         console.error(`[firestoreService addFueling ${addFuelingStartTime}] Error adding fueling. Time: ${addFuelingEndTime - addFuelingStartTime} ms. Payload:`, dataToFirestore, error);
          throw error;
     }
 };
 
 export const updateFueling = async (fuelingId: string, data: Partial<Omit<Fueling, 'id' | 'firebaseId' | 'localId' | 'syncStatus'>>) => {
     const updateFuelingStartTime = performance.now();
-    let cleanedData = cleanDataForFirestore(data);
-    console.log(`[firestoreService updateFueling ${updateFuelingStartTime}] Updating fueling ID: ${fuelingId} in 'fuelings' collection. Initial Cleaned Data:`, cleanedData);
+    const dataToFirestore = { ...cleanDataForFirestore(data) };
 
-    const dataForFirestore: any = { ...cleanedData };
-    if (cleanedData.date) dataForFirestore.date = Timestamp.fromDate(new Date(cleanedData.date));
+    if (dataToFirestore.date) dataToFirestore.date = Timestamp.fromDate(new Date(dataToFirestore.date));
 
     const receiptFields = ['receiptFilename', 'receiptUrl', 'receiptPath'];
     receiptFields.forEach(field => {
         if (data.hasOwnProperty(field)) {
             if (data[field as keyof typeof data] === null || data[field as keyof typeof data] === undefined) {
-                delete dataForFirestore[field];
+                delete dataToFirestore[field];
             }
         } else {
-             if (dataForFirestore[field] === undefined) delete dataForFirestore[field];
+             if (dataToFirestore[field] === undefined) delete dataToFirestore[field];
         }
     });
-    console.log(`[firestoreService updateFueling ${updateFuelingStartTime}] Data after receipt field cleaning for Firestore:`, dataForFirestore);
+    console.log(`[firestoreService updateFueling ${updateFuelingStartTime}] Updating fueling ID: ${fuelingId} in 'fuelings' collection. Data for Firestore:`, dataToFirestore);
+
 
     if (!db || !fuelingsCollectionRef) {
         console.warn(`[firestoreService updateFueling ${updateFuelingStartTime}] Firestore DB or fuelingsCollectionRef is not initialized. Fueling not updated.`);
@@ -822,12 +820,12 @@ export const updateFueling = async (fuelingId: string, data: Partial<Omit<Fuelin
     }
     const fuelingDocRef = doc(fuelingsCollectionRef, fuelingId);
     try {
-        await updateDoc(fuelingDocRef, dataForFirestore);
+        await updateDoc(fuelingDocRef, dataToFirestore);
         const updateFuelingEndTime = performance.now();
         console.log(`[firestoreService updateFueling ${updateFuelingStartTime}] Fueling updated successfully for ID: ${fuelingId}. Time: ${updateFuelingEndTime - updateFuelingStartTime} ms`);
     } catch (error) {
          const updateFuelingEndTime = performance.now();
-         console.error(`[firestoreService updateFueling ${updateFuelingStartTime}] Error updating fueling for ID: ${fuelingId}. Time: ${updateFuelingEndTime - updateFuelingStartTime} ms. Payload:`, dataForFirestore, error);
+         console.error(`[firestoreService updateFueling ${updateFuelingStartTime}] Error updating fueling for ID: ${fuelingId}. Time: ${updateFuelingEndTime - updateFuelingStartTime} ms. Payload:`, dataToFirestore, error);
          throw error;
     }
 };
@@ -862,6 +860,90 @@ export const deleteFueling = async (fuelingId: string) => {
          throw error;
     }
 };
+
+// --- Custom Type Services (Visit Types, Expense Types) ---
+const addCustomTypeToFirestore = async (
+    collectionRef: CollectionReference | null,
+    typeName: string
+): Promise<string> => {
+    const addTypeStartTime = performance.now();
+    if (!db || !collectionRef) {
+        throw new Error(`Firestore DB or collection reference for custom types is not initialized.`);
+    }
+    // Check for existing type with the same name to prevent duplicates in Firestore directly
+    const q = query(collectionRef, where("name", "==", typeName));
+    const querySnapshot = await getDocs(q);
+    if (!querySnapshot.empty) {
+        const existingDoc = querySnapshot.docs[0];
+        console.warn(`[addCustomTypeToFirestore ${addTypeStartTime}] Type "${typeName}" already exists in Firestore with ID ${existingDoc.id}. Returning existing ID.`);
+        return existingDoc.id; // Return existing ID if name is already there
+    }
+
+    console.log(`[addCustomTypeToFirestore ${addTypeStartTime}] Adding new custom type "${typeName}" to collection ${collectionRef.id}.`);
+    try {
+        const docRef = await addDoc(collectionRef, { name: typeName });
+        console.log(`[addCustomTypeToFirestore ${addTypeStartTime}] Custom type "${typeName}" added with ID: ${docRef.id}.`);
+        return docRef.id;
+    } catch (error) {
+        console.error(`[addCustomTypeToFirestore ${addTypeStartTime}] Error adding custom type "${typeName}":`, error);
+        throw error;
+    }
+};
+
+export const addVisitTypeToFirestore = (name: string) => addCustomTypeToFirestore(visitTypesCollectionRef, name);
+export const addExpenseTypeToFirestore = (name: string) => addCustomTypeToFirestore(expenseTypesCollectionRef, name);
+
+
+const getCustomTypesFromFirestore = async (
+    collectionRef: CollectionReference | null
+): Promise<FirestoreCustomType[]> => {
+    const getTypesStartTime = performance.now();
+    if (!db || !collectionRef) {
+        console.warn(`[getCustomTypesFromFirestore] Firestore DB or collection reference is not initialized. Returning empty array.`);
+        return [];
+    }
+    console.log(`[getCustomTypesFromFirestore ${getTypesStartTime}] Fetching custom types from collection ${collectionRef.id}.`);
+    try {
+        const querySnapshot = await getDocs(query(collectionRef, orderBy("name")));
+        const types = querySnapshot.docs.map(doc => ({
+            id: doc.id,
+            name: doc.data().name,
+        } as FirestoreCustomType));
+        console.log(`[getCustomTypesFromFirestore ${getTypesStartTime}] Found ${types.length} types.`);
+        return types;
+    } catch (error) {
+        console.error(`[getCustomTypesFromFirestore ${getTypesStartTime}] Error fetching custom types:`, error);
+        return [];
+    }
+};
+
+export const getVisitTypesFromFirestore = () => getCustomTypesFromFirestore(visitTypesCollectionRef);
+export const getExpenseTypesFromFirestore = () => getCustomTypesFromFirestore(expenseTypesCollectionRef);
+
+
+const deleteCustomTypeFromFirestore = async (
+    collectionRef: CollectionReference | null,
+    firebaseId: string
+): Promise<void> => {
+    const deleteTypeStartTime = performance.now();
+    if (!db || !collectionRef) {
+        throw new Error(`Firestore DB or collection reference for custom types is not initialized.`);
+    }
+    console.log(`[deleteCustomTypeFromFirestore ${deleteTypeStartTime}] Deleting custom type with ID: ${firebaseId} from collection ${collectionRef.id}.`);
+    try {
+        const docRef = doc(collectionRef, firebaseId);
+        await deleteDoc(docRef);
+        console.log(`[deleteCustomTypeFromFirestore ${deleteTypeStartTime}] Custom type ${firebaseId} deleted.`);
+    } catch (error) {
+        console.error(`[deleteCustomTypeFromFirestore ${deleteTypeStartTime}] Error deleting custom type ${firebaseId}:`, error);
+        throw error;
+    }
+};
+
+export const deleteVisitTypeFromFirestore = (firebaseId: string) => deleteCustomTypeFromFirestore(visitTypesCollectionRef, firebaseId);
+export const deleteExpenseTypeFromFirestore = (firebaseId: string) => deleteCustomTypeFromFirestore(expenseTypesCollectionRef, firebaseId);
+
+
 
 // --- Batch Delete for Trip Deletion ---
 export const deleteTripAndRelatedData = async (tripId: string) => {
@@ -904,7 +986,7 @@ export const deleteTripAndRelatedData = async (tripId: string) => {
 
         console.log(`[deleteTripAndRelatedData] Committing Firestore batch delete for trip ${tripId}...`);
         await batch.commit();
-        console.log(`[firestoreService deleteTripAndRelatedData] Firestore batch delete committed for trip ${tripId}.`);
+        console.log(`[firestoreService deleteTripAndRelatedData ${deleteBatchStartTime}] Firestore batch delete committed for trip ${tripId}.`);
 
         if (relatedReceiptPaths.length > 0) {
              console.log(`[deleteTripAndRelatedData] Attempting to delete ${relatedReceiptPaths.length} related receipts from storage for trip ${tripId}...`);
@@ -986,3 +1068,4 @@ export const getVehicleByLicensePlate = async (licensePlate: string): Promise<Ve
         throw error;
     }
 };
+

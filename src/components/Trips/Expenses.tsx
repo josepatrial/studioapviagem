@@ -14,7 +14,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger, // Added AlertDialogTrigger
 } from '@/components/ui/alert-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -30,10 +29,13 @@ import {
     deleteLocalExpense,
     getLocalExpenses,
     LocalExpense,
-    getLocalExpenseTypes, // For fetching expense types
+    getLocalCustomTypes, 
+    STORE_EXPENSE_TYPES,
+    CustomType,
+    getLocalDbStore
 } from '@/services/localDbService';
-// import { uploadReceipt, deleteReceipt as deleteStorageReceipt } from '@/services/storageService'; // Commented out as per previous changes
 import { cn } from '@/lib/utils';
+import { getExpenseTypesFromFirestore } from '@/services/firestoreService';
 
 export interface Expense extends Omit<LocalExpense, 'localId' | 'tripLocalId'> {
   id: string;
@@ -71,7 +73,6 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
 
   const [attachment, setAttachment] = useState<File | string | null>(null);
   const [attachmentFilename, setAttachmentFilename] = useState<string | null>(null);
-  // const [isUploading, setIsUploading] = useState(false); // Commented out as not directly used with placeholders
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
 
@@ -89,7 +90,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
         }
         setLoading(true);
         try {
-            console.log(`[ExpensesComponent useEffect] Fetching local expenses for trip ${tripLocalId}`);
+            console.log(`[ExpensesComponent useEffect] Fetching local expenses for trip ${tripLocalId}, owner ${ownerUserId}`);
             const localExpenses = await getLocalExpenses(tripLocalId);
             console.log(`[ExpensesComponent useEffect] Fetched ${localExpenses.length} local expenses.`);
             const uiExpenses = localExpenses.map(le => ({
@@ -110,18 +111,56 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
     };
     fetchExpensesData();
 
-    setLoadingExpenseTypes(true);
-    getLocalExpenseTypes()
-        .then(types => {
-            setAvailableExpenseTypes(['Outro', ...types]);
-            console.log("[ExpensesComponent useEffect] Fetched expense types:", ['Outro', ...types]);
-        })
-        .catch(err => {
+    const loadAndCacheExpenseTypes = async () => {
+        setLoadingExpenseTypes(true);
+        try {
+            let typesToUse: CustomType[] = [];
+            if (navigator.onLine) {
+                console.log("[ExpensesComponent] Online: Fetching expense types from Firestore...");
+                const firestoreTypes = await getExpenseTypesFromFirestore();
+                 typesToUse = firestoreTypes.map(ft => ({
+                    localId: ft.id, 
+                    id: ft.id,
+                    name: ft.name,
+                    firebaseId: ft.id,
+                    syncStatus: 'synced',
+                    deleted: false,
+                }));
+                
+                const store = await getLocalDbStore(STORE_EXPENSE_TYPES, 'readwrite');
+                const transaction = store.transaction;
+                const typePromises = typesToUse.map(type => {
+                    return new Promise<void>((resolve, reject) => {
+                        const request = store.put(type); // Upsert
+                        request.onsuccess = () => resolve();
+                        request.onerror = () => {
+                            console.warn(`Failed to cache expense type "${type.name}" locally:`, request.error);
+                            resolve(); 
+                        };
+                    });
+                });
+                await Promise.all(typePromises);
+                await new Promise(resolve => transaction.oncomplete = resolve);
+                console.log("[ExpensesComponent] Cached/updated expense types from Firestore locally.");
+            } else {
+                console.log("[ExpensesComponent] Offline: Fetching expense types from LocalDB.");
+                typesToUse = await getLocalCustomTypes(STORE_EXPENSE_TYPES);
+            }
+            setAvailableExpenseTypes(['Outro', ...typesToUse.map(t => t.name).sort()]);
+        } catch (err) {
             console.error("[ExpensesComponent] Failed to load expense types:", err);
-            setAvailableExpenseTypes(['Outro']); // Fallback
-            toast({ variant: 'destructive', title: 'Erro ao carregar tipos de despesa' });
-        })
-        .finally(() => setLoadingExpenseTypes(false));
+            try {
+                const localTypes = await getLocalCustomTypes(STORE_EXPENSE_TYPES);
+                setAvailableExpenseTypes(['Outro', ...localTypes.map(t => t.name).sort()]);
+            } catch (localErr) {
+                setAvailableExpenseTypes(['Outro']); 
+                toast({ variant: 'destructive', title: 'Erro ao carregar tipos de despesa', description: (err as Error).message });
+            }
+        } finally {
+            setLoadingExpenseTypes(false);
+        }
+    };
+    loadAndCacheExpenseTypes();
 
   }, [tripLocalId, ownerUserId, toast]);
 
@@ -178,10 +217,10 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
         if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
             setAttachment(file);
             setAttachmentFilename(file.name);
-            setIsCameraOpen(false); // Close camera if file is selected
+            setIsCameraOpen(false); 
         } else {
             toast({ variant: "destructive", title: "Tipo de arquivo inválido", description: "Por favor, selecione um PDF ou imagem (JPG, PNG, GIF)." });
-            event.target.value = ''; // Clear the input
+            event.target.value = ''; 
         }
     }
   };
@@ -206,7 +245,6 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
   const clearAttachment = () => {
     setAttachment(null);
     setAttachmentFilename(null);
-    // Reset file inputs
     const fileInputCreate = document.getElementById('createExpenseReceipt') as HTMLInputElement | null;
     if (fileInputCreate) fileInputCreate.value = '';
     const fileInputEdit = document.getElementById('editExpenseReceipt') as HTMLInputElement | null;
@@ -232,11 +270,10 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
         description,
         value: numValue,
         expenseType,
-        expenseDate: new Date(expenseDate).toISOString(), // Ensure ISO string for consistency
+        expenseDate: new Date(expenseDate).toISOString(), 
         timestamp: new Date().toISOString(),
         comments,
         receiptFilename: attachmentFilename || undefined,
-        // receiptUrl and receiptPath will be handled by sync logic if 'attachment' is a File
     };
     setExpenseToConfirm(newExpenseData);
     setIsCreateModalOpen(false);
@@ -250,11 +287,13 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
     try {
         const localId = await addLocalExpense({
             ...expenseToConfirm,
+            userId: ownerUserId, // ensure ownerUserId is set
             receiptUrl: typeof attachment === 'string' && attachment.startsWith('data:') ? attachment : undefined,
         });
         const newUIExpense: Expense = {
-            ...expenseToConfirm,
-            id: localId, // Use returned localId
+            ...(expenseToConfirm as LocalExpense), // Cast for spreading
+            localId: localId, 
+            id: localId, 
             tripId: tripLocalId,
             userId: ownerUserId,
             receiptUrl: typeof attachment === 'string' && attachment.startsWith('data:') ? attachment : undefined,
@@ -296,11 +335,12 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
     setIsSaving(true);
     const updatedLocalExpenseData: LocalExpense = {
         ...originalLocalExpense,
+        userId: ownerUserId, // Ensure ownerUserId is set
         description,
         value: numValue,
         expenseType,
         expenseDate: new Date(expenseDate).toISOString(),
-        timestamp: new Date().toISOString(),
+        timestamp: new Date().toISOString(), // Update timestamp on edit
         comments,
         receiptFilename: attachmentFilename || (attachment === null ? undefined : originalLocalExpense.receiptFilename),
         receiptUrl: typeof attachment === 'string' ? attachment : (attachment === null ? undefined : originalLocalExpense.receiptUrl),
@@ -340,17 +380,16 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
 
   const confirmDeleteExpense = async () => {
     if (!expenseToDelete) return;
-    const localIdToDelete = expenseToDelete.id; // This is actually the localId or firebaseId used in UI
+    const localIdToDelete = expenseToDelete.id; 
     setIsSaving(true);
     try {
-        // Fetch by localId or firebaseId to ensure we get the primary localId for deletion
         const expensesInDb = await getLocalExpenses(tripLocalId);
         const expenseRecordToDelete = expensesInDb.find(ex => ex.localId === localIdToDelete || ex.firebaseId === localIdToDelete);
 
         if (!expenseRecordToDelete) {
             throw new Error("Registro local da despesa não encontrado para exclusão.");
         }
-        await deleteLocalExpense(expenseRecordToDelete.localId); // Use the primary localId
+        await deleteLocalExpense(expenseRecordToDelete.localId); 
         setExpenses(expenses.filter(ex => ex.id !== expenseToDelete.id));
         toast({ title: 'Despesa marcada para exclusão.' });
         closeDeleteConfirmation();
@@ -375,7 +414,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
     } else {
         clearAttachment();
     }
-    setIsCameraOpen(false); // Ensure camera is closed when edit modal opens
+    setIsCameraOpen(false); 
     setIsEditModalOpen(true);
   };
 
@@ -401,9 +440,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
 
   const closeConfirmModal = () => {
     setIsConfirmModalOpen(false);
-    // Do not clear expenseToConfirm here, it's needed for save
-    // Instead, re-open create modal or clear it if necessary
-    setIsCreateModalOpen(true); // Or resetForm() and close, depends on desired UX
+    setIsCreateModalOpen(true); 
   };
 
   const renderAttachmentInput = (idPrefix: string) => (
@@ -621,7 +658,6 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
                                         <DialogContent className="sm:max-w-lg">
                                             <DialogHeader><DialogTitle>Editar Despesa</DialogTitle></DialogHeader>
                                             <form onSubmit={handleEditExpense} className="grid gap-4 py-4">
-                                                {/* Form fields similar to create form */}
                                                 <div className="space-y-2">
                                                     <Label htmlFor="editExpenseDate">Data da Despesa*</Label>
                                                     <Input id="editExpenseDate" type="date" value={expenseDate} onChange={(e) => setExpenseDate(e.target.value)} required disabled={isSaving}/>
@@ -659,25 +695,11 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
                                             </form>
                                         </DialogContent>
                                     </Dialog>
-                                    <AlertDialog>
+                                     <AlertDialog>
                                         <AlertDialogTrigger asChild>
                                             <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => openDeleteConfirmation(expense)} disabled={isSaving}><Trash2 className="h-4 w-4" /></Button>
                                         </AlertDialogTrigger>
-                                        <AlertDialogContent> {/* Content needs to be here for trigger to work */}
-                                            <AlertDialogHeader>
-                                                <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
-                                                <AlertDialogDescription>
-                                                    Tem certeza que deseja marcar esta despesa de {expenseToDelete?.description || expense.description} para exclusão?
-                                                </AlertDialogDescription>
-                                            </AlertDialogHeader>
-                                            <AlertDialogFooter>
-                                                <AlertDialogCancel onClick={closeDeleteConfirmation} disabled={isSaving}>Cancelar</AlertDialogCancel>
-                                                <AlertDialogAction onClick={confirmDeleteExpense} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground" disabled={isSaving}>
-                                                    {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                                    Marcar para Excluir
-                                                </AlertDialogAction>
-                                            </AlertDialogFooter>
-                                        </AlertDialogContent>
+                                        {/* AlertDialogContent for delete moved outside map to ensure single instance */}
                                     </AlertDialog>
                                 </div>
                             </div>
@@ -705,3 +727,4 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
 };
 
 export default Expenses;
+

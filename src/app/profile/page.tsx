@@ -14,12 +14,12 @@ import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { useToast } from '@/hooks/use-toast';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-    addLocalVisitType,
-    getLocalVisitTypes,
-    deleteLocalVisitType,
-    addLocalExpenseType,
-    getLocalExpenseTypes,
-    deleteLocalExpenseType,
+    addLocalCustomType,
+    getLocalCustomTypes,
+    markLocalCustomTypeForDeletion,
+    CustomType,
+    STORE_VISIT_TYPES,
+    STORE_EXPENSE_TYPES
 } from '@/services/localDbService';
 import {
     AlertDialog,
@@ -53,19 +53,18 @@ const ProfilePage: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState('name');
 
-  // State for custom types
-  const [visitTypes, setVisitTypes] = useState<string[]>([]);
+  const [visitTypes, setVisitTypes] = useState<CustomType[]>([]);
   const [newVisitTypeInput, setNewVisitTypeInput] = useState('');
-  const [expenseTypes, setExpenseTypes] = useState<string[]>([]);
+  const [expenseTypes, setExpenseTypes] = useState<CustomType[]>([]);
   const [newExpenseTypeInput, setNewExpenseTypeInput] = useState('');
   const [loadingTypes, setLoadingTypes] = useState(false);
-  const [typeToDelete, setTypeToDelete] = useState<{ type: string; category: 'visit' | 'expense' } | null>(null);
+  const [typeToDelete, setTypeToDelete] = useState<{ type: CustomType; category: 'visit' | 'expense' } | null>(null);
 
 
   useEffect(() => {
     if (user?.role === 'admin') {
       setLoadingTypes(true);
-      Promise.all([getLocalVisitTypes(), getLocalExpenseTypes()])
+      Promise.all([getLocalCustomTypes(STORE_VISIT_TYPES), getLocalCustomTypes(STORE_EXPENSE_TYPES)])
         .then(([fetchedVisitTypes, fetchedExpenseTypes]) => {
           setVisitTypes(fetchedVisitTypes);
           setExpenseTypes(fetchedExpenseTypes);
@@ -158,7 +157,7 @@ const ProfilePage: React.FC = () => {
             toast({ variant: 'default', title: 'Nenhuma alteração', description: 'A base não foi alterada.'});
             return;
         }
-        if (isAdmin && user.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br') { // Stricter check for super admin
+        if (isAdmin && user.email.toLowerCase() === 'grupo2irmaos@grupo2irmaos.com.br') { 
             toast({ variant: 'destructive', title: 'Operação não permitida', description: 'A base do super administrador não pode ser alterada.'});
             return;
         }
@@ -176,20 +175,32 @@ const ProfilePage: React.FC = () => {
             toast({ variant: 'destructive', title: 'Nome Inválido', description: 'O nome do tipo não pode ser vazio.' });
             return;
         }
-        setIsUpdatingBase(true); // Re-use loading state for simplicity
+        // isUpdatingBase is used as a generic saving indicator for type operations
+        setIsUpdatingBase(true); 
         try {
+            const storeName = category === 'visit' ? STORE_VISIT_TYPES : STORE_EXPENSE_TYPES;
+            const existingTypes = category === 'visit' ? visitTypes : expenseTypes;
+            if (existingTypes.some(t => t.name === typeName && !t.deleted)) {
+                throw new Error(`Tipo "${typeName}" já existe.`);
+            }
+
+            const newLocalId = await addLocalCustomType(storeName, typeName);
+            const newType: CustomType = {
+                localId: newLocalId,
+                id: newLocalId, // for UI key consistency
+                name: typeName,
+                syncStatus: 'pending',
+                deleted: false,
+            };
+
             if (category === 'visit') {
-                if (visitTypes.includes(typeName)) throw new Error("Tipo de visita já existe.");
-                await addLocalVisitType(typeName);
-                setVisitTypes(prev => [...prev, typeName].sort());
+                setVisitTypes(prev => [...prev, newType].sort((a,b) => a.name.localeCompare(b.name)));
                 setNewVisitTypeInput('');
             } else {
-                if (expenseTypes.includes(typeName)) throw new Error("Tipo de despesa já existe.");
-                await addLocalExpenseType(typeName);
-                setExpenseTypes(prev => [...prev, typeName].sort());
+                setExpenseTypes(prev => [...prev, newType].sort((a,b) => a.name.localeCompare(b.name)));
                 setNewExpenseTypeInput('');
             }
-            toast({ title: 'Tipo Adicionado!', description: `"${typeName}" foi adicionado com sucesso.` });
+            toast({ title: 'Tipo Adicionado!', description: `"${typeName}" foi adicionado localmente e será sincronizado.` });
         } catch (error: any) {
             toast({ variant: 'destructive', title: 'Erro ao Adicionar', description: error.message || 'Não foi possível adicionar o tipo.' });
         } finally {
@@ -197,7 +208,7 @@ const ProfilePage: React.FC = () => {
         }
     };
 
-    const openDeleteTypeDialog = (type: string, category: 'visit' | 'expense') => {
+    const openDeleteTypeDialog = (type: CustomType, category: 'visit' | 'expense') => {
         setTypeToDelete({ type, category });
     };
 
@@ -205,14 +216,15 @@ const ProfilePage: React.FC = () => {
         if (!typeToDelete) return;
         setIsUpdatingBase(true);
         try {
+            const storeName = typeToDelete.category === 'visit' ? STORE_VISIT_TYPES : STORE_EXPENSE_TYPES;
+            await markLocalCustomTypeForDeletion(storeName, typeToDelete.type.localId);
+            
             if (typeToDelete.category === 'visit') {
-                await deleteLocalVisitType(typeToDelete.type);
-                setVisitTypes(prev => prev.filter(t => t !== typeToDelete.type));
+                setVisitTypes(prev => prev.filter(t => t.localId !== typeToDelete.type.localId));
             } else {
-                await deleteLocalExpenseType(typeToDelete.type);
-                setExpenseTypes(prev => prev.filter(t => t !== typeToDelete.type));
+                setExpenseTypes(prev => prev.filter(t => t.localId !== typeToDelete.type.localId));
             }
-            toast({ title: 'Tipo Removido!', description: `"${typeToDelete.type}" foi removido.` });
+            toast({ title: 'Tipo Removido!', description: `"${typeToDelete.type.name}" foi marcado para exclusão e será sincronizado.` });
         } catch (error: any) {
             toast({ variant: 'destructive', title: 'Erro ao Remover', description: error.message || 'Não foi possível remover o tipo.' });
         } finally {
@@ -333,8 +345,8 @@ const ProfilePage: React.FC = () => {
                   {loadingTypes ? <LoadingSpinner /> : visitTypes.length > 0 ? (
                     <ul className="space-y-2 rounded-md border p-2">
                       {visitTypes.map(type => (
-                        <li key={type} className="flex justify-between items-center p-2 hover:bg-muted/50 rounded-sm">
-                          <span>{type}</span>
+                        <li key={type.localId} className="flex justify-between items-center p-2 hover:bg-muted/50 rounded-sm">
+                          <span>{type.name}</span>
                           <Button variant="ghost" size="icon" onClick={() => openDeleteTypeDialog(type, 'visit')} className="h-7 w-7 text-destructive" disabled={isUpdatingBase}>
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -355,8 +367,8 @@ const ProfilePage: React.FC = () => {
                    {loadingTypes ? <LoadingSpinner /> : expenseTypes.length > 0 ? (
                     <ul className="space-y-2 rounded-md border p-2">
                       {expenseTypes.map(type => (
-                        <li key={type} className="flex justify-between items-center p-2 hover:bg-muted/50 rounded-sm">
-                          <span>{type}</span>
+                        <li key={type.localId} className="flex justify-between items-center p-2 hover:bg-muted/50 rounded-sm">
+                          <span>{type.name}</span>
                           <Button variant="ghost" size="icon" onClick={() => openDeleteTypeDialog(type, 'expense')} className="h-7 w-7 text-destructive" disabled={isUpdatingBase}>
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -377,7 +389,7 @@ const ProfilePage: React.FC = () => {
                     <AlertDialogHeader>
                         <AlertDialogTitle>Confirmar Remoção</AlertDialogTitle>
                         <AlertDialogDescription>
-                            Tem certeza que deseja remover o tipo "{typeToDelete.type}"? Esta ação não pode ser desfeita.
+                            Tem certeza que deseja remover o tipo "{typeToDelete.type.name}"? Esta ação não pode ser desfeita.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -395,3 +407,4 @@ const ProfilePage: React.FC = () => {
 };
 
 export default ProfilePage;
+

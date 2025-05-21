@@ -12,11 +12,13 @@ import { Textarea } from "@/components/ui/textarea";
 import { AlertDialog, AlertDialogTrigger, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { getCurrentLocation, getCurrentCity, Coordinate } from '@/services/geolocation';
 import { useToast } from "@/hooks/use-toast";
-import { LoadingSpinner } from '@/components/LoadingSpinner'; // Removed import as not used? Assuming it's used indirectly.
-import { addLocalVisit, updateLocalVisit, deleteLocalVisit, getLocalVisits, LocalVisit, getLocalVisitTypes } from '@/services/localDbService';
+import { LoadingSpinner } from '@/components/LoadingSpinner';
+import { addLocalVisit, updateLocalVisit, deleteLocalVisit, getLocalVisits, LocalVisit, getLocalCustomTypes, STORE_VISIT_TYPES, CustomType } from '@/services/localDbService';
 import { cn } from '@/lib/utils';
 import { formatKm } from '@/lib/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { getVisitTypesFromFirestore } from '@/services/firestoreService'; // For fetching from Firestore
+
 
 export interface Visit extends Omit<LocalVisit, 'localId' | 'tripLocalId'> {
   id: string;
@@ -31,7 +33,6 @@ interface VisitsProps {
   ownerUserId: string; 
 }
 
-// const visitTypes = ['Entrega', 'Coleta', 'Reunião', 'Manutenção', 'Visita Técnica', 'Outro']; // Removed hardcoded
 
 export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId }) => {
   console.log("[VisitsComponent props] tripId:", tripLocalId, "ownerUserId:", ownerUserId);
@@ -64,7 +65,9 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
       if (!tripLocalId) return;
       setLoading(true);
       try {
+        console.log(`[VisitsComponent useEffect] Fetching local visits for trip ${tripLocalId}, owner ${ownerUserId}`);
         const localVisits = await getLocalVisits(tripLocalId);
+        console.log(`[VisitsComponent useEffect] Fetched ${localVisits.length} local visits.`);
         const uiVisits = localVisits.map(lv => ({
             ...lv,
             id: lv.firebaseId || lv.localId,
@@ -74,6 +77,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
             visitType: lv.visitType,
         })).sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
         setVisits(uiVisits);
+        console.log(`[VisitsComponent useEffect] Mapped ${uiVisits.length} visits to UI state.`);
       } catch (error) {
         console.error(`Error fetching local visits for trip ${tripLocalId}:`, error);
         toast({ variant: "destructive", title: "Erro Local", description: "Não foi possível carregar as visitas locais." });
@@ -83,17 +87,57 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
     };
     fetchVisitsData();
 
-    setLoadingVisitTypes(true);
-    getLocalVisitTypes()
-      .then(types => {
-        setAvailableVisitTypes(['Outro', ...types]); // Ensure "Outro" is always an option
-      })
-      .catch(err => {
-        console.error("Failed to load visit types:", err);
-        setAvailableVisitTypes(['Outro']); // Fallback
-        toast({ variant: 'destructive', title: 'Erro ao carregar tipos de visita' });
-      })
-      .finally(() => setLoadingVisitTypes(false));
+    const loadAndCacheVisitTypes = async () => {
+        setLoadingVisitTypes(true);
+        try {
+            let typesToUse: CustomType[] = [];
+            if (navigator.onLine) {
+                console.log("[VisitsComponent] Online: Fetching visit types from Firestore...");
+                const firestoreTypes = await getVisitTypesFromFirestore();
+                typesToUse = firestoreTypes.map(ft => ({
+                    localId: ft.id, // Use Firestore ID as localId for these records
+                    id: ft.id,
+                    name: ft.name,
+                    firebaseId: ft.id,
+                    syncStatus: 'synced',
+                    deleted: false,
+                }));
+                // Cache/update local DB with Firestore types
+                const store = await getLocalDbStore(STORE_VISIT_TYPES, 'readwrite');
+                const transaction = store.transaction;
+                const typePromises = typesToUse.map(type => {
+                    return new Promise<void>((resolve, reject) => {
+                        const request = store.put(type); // Upsert
+                        request.onsuccess = () => resolve();
+                        request.onerror = () => {
+                            console.warn(`Failed to cache visit type "${type.name}" locally:`, request.error);
+                            resolve(); // Continue even if one fails
+                        };
+                    });
+                });
+                await Promise.all(typePromises);
+                await new Promise(resolve => transaction.oncomplete = resolve); // Ensure transaction completes
+                console.log("[VisitsComponent] Cached/updated visit types from Firestore locally.");
+            } else {
+                console.log("[VisitsComponent] Offline: Fetching visit types from LocalDB.");
+                typesToUse = await getLocalCustomTypes(STORE_VISIT_TYPES);
+            }
+            setAvailableVisitTypes(['Outro', ...typesToUse.map(t => t.name).sort()]);
+        } catch (err) {
+            console.error("[VisitsComponent] Failed to load visit types:", err);
+            // Fallback to local if online fetch fails but we are online
+            try {
+                const localTypes = await getLocalCustomTypes(STORE_VISIT_TYPES);
+                setAvailableVisitTypes(['Outro', ...localTypes.map(t => t.name).sort()]);
+            } catch (localErr) {
+                setAvailableVisitTypes(['Outro']); // Final fallback
+                 toast({ variant: 'destructive', title: 'Erro ao carregar tipos de visita', description: (err as Error).message });
+            }
+        } finally {
+            setLoadingVisitTypes(false);
+        }
+    };
+    loadAndCacheVisitTypes();
 
   }, [tripLocalId, ownerUserId, toast]);
 
@@ -149,7 +193,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
         return;
     }
 
-    const newVisitData: Omit<LocalVisit, 'localId' | 'syncStatus'> = {
+    const newVisitData: Omit<LocalVisit, 'localId' | 'syncStatus'| 'id' | 'deleted'> = { // Added id and deleted here as they are not part of creation form
       tripLocalId: tripLocalId,
       userId: ownerUserId, 
       clientName,
@@ -160,10 +204,9 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
       reason,
       timestamp: new Date().toISOString(),
       visitType,
-      deleted: false, 
     };
 
-    setVisitToConfirm(newVisitData);
+    setVisitToConfirm(newVisitData as Omit<LocalVisit, 'localId' | 'syncStatus'>); // Cast as per state type
     setIsCreateModalOpen(false);
     setIsConfirmModalOpen(true);
   };
@@ -173,9 +216,9 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
       console.log("[VisitsComponent] Attempting to save new visit locally:", visitToConfirm);
       setIsSaving(true);
       try {
-          const localId = await addLocalVisit(visitToConfirm);
+          const localId = await addLocalVisit({...visitToConfirm, userId: ownerUserId}); // Ensure ownerUserId is passed
           const newUIVisit: Visit = {
-             ...visitToConfirm,
+             ...(visitToConfirm as LocalVisit), // Cast to LocalVisit for spreading then type as Visit
              localId: localId,
              id: localId,
              tripId: tripLocalId,
@@ -227,7 +270,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
             reason,
             visitType,
             syncStatus: originalLocalVisit.syncStatus === 'synced' && !originalLocalVisit.deleted ? 'pending' : originalLocalVisit.syncStatus,
-            deleted: originalLocalVisit.deleted || false,
+            // deleted: originalLocalVisit.deleted || false, // Retain deleted status if it was already marked
       };
 
       setIsSaving(true);
@@ -322,7 +365,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
    const closeConfirmModal = () => {
         setIsConfirmModalOpen(false);
         setVisitToConfirm(null);
-        setIsCreateModalOpen(true); // Reopen create modal if confirmation is cancelled
+        setIsCreateModalOpen(true); 
     }
 
   return (
@@ -350,12 +393,11 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
                         <Label htmlFor="visitType">Tipo de Visita*</Label>
                         <Select onValueChange={setVisitType} value={visitType} required disabled={isSaving || loadingVisitTypes}>
                             <SelectTrigger id="visitType">
-                                <SelectValue placeholder={loadingVisitTypes ? "Carregando tipos..." : "Selecione o tipo de visita"} />
+                                <SelectValue placeholder={loadingVisitTypes ? "Carregando..." : "Selecione o tipo"} />
                             </SelectTrigger>
                             <SelectContent>
-                                {loadingVisitTypes ? (
-                                     <SelectItem value="loading" disabled><Loader2 className="mr-2 h-4 w-4 animate-spin inline-block"/> Carregando...</SelectItem>
-                                ) : availableVisitTypes.map((type) => (
+                                {loadingVisitTypes ? <SelectItem value="loading" disabled><Loader2 className="mr-2 h-4 w-4 animate-spin inline-block"/> Carregando...</SelectItem> :
+                                 availableVisitTypes.map((type) => (
                                     <SelectItem key={type} value={type}>{type}</SelectItem>
                                 ))}
                             </SelectContent>
@@ -399,36 +441,36 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
         )}
       </div>
 
-        <AlertDialog open={isConfirmModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeConfirmModal(); }}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle className="flex items-center gap-2">
-                 <AlertTriangle className="h-5 w-5 text-yellow-500" /> Confirmar Dados da Visita
-              </AlertDialogTitle>
-                <AlertDialogDescription>
-                    Por favor, revise os dados abaixo, especialmente a <strong>Quilometragem Inicial</strong>. Esta ação não pode ser facilmente desfeita.
-                </AlertDialogDescription>
-            </AlertDialogHeader>
-            <div className="py-2">
-                <ul className="list-disc list-inside space-y-1 text-sm text-foreground">
-                    <li><strong>Cliente:</strong> {visitToConfirm?.clientName}</li>
-                    <li><strong>Tipo de Visita:</strong> {visitToConfirm?.visitType}</li>
-                    <li><strong>Localização (Cidade):</strong> {visitToConfirm?.location}</li>
-                    <li><strong>KM Inicial:</strong> {visitToConfirm ? formatKm(visitToConfirm.initialKm) : 'N/A'}</li>
-                    <li><strong>Motivo:</strong> {visitToConfirm?.reason}</li>
-                </ul>
-            </div>
-            <AlertDialogFooter>
-              <AlertDialogCancel onClick={() => {
-                  setIsConfirmModalOpen(false);
-                  setIsCreateModalOpen(true);
-              }} disabled={isSaving}>Voltar e Editar</AlertDialogCancel>
-              <AlertDialogAction onClick={confirmAndSaveVisit} className="bg-primary hover:bg-primary/90" disabled={isSaving}>
-                 {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                 {isSaving ? 'Salvando...' : 'Salvar Visita Local'}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
+        <AlertDialog open={isConfirmModalOpen} onOpenChange={(isOpen) => { if(!isOpen) closeConfirmModal(); else setIsConfirmModalOpen(true); }}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                    <AlertDialogTitle className="flex items-center gap-2">
+                        <AlertTriangle className="h-5 w-5 text-yellow-500" /> Confirmar Dados da Visita
+                    </AlertDialogTitle>
+                    <AlertDialogDescription>
+                        Por favor, revise os dados abaixo, especialmente a <strong>Quilometragem Inicial</strong>. Esta ação não pode ser facilmente desfeita.
+                    </AlertDialogDescription>
+                </AlertDialogHeader>
+                <div className="py-2"> {/* Moved ul outside AlertDialogDescription */}
+                    <ul className="mt-3 list-disc list-inside space-y-1 text-sm text-foreground">
+                        <li><strong>Cliente:</strong> {visitToConfirm?.clientName}</li>
+                        <li><strong>Tipo de Visita:</strong> {visitToConfirm?.visitType}</li>
+                        <li><strong>Localização (Cidade):</strong> {visitToConfirm?.location}</li>
+                        <li><strong>KM Inicial:</strong> {visitToConfirm ? formatKm(visitToConfirm.initialKm) : 'N/A'}</li>
+                        <li><strong>Motivo:</strong> {visitToConfirm?.reason}</li>
+                    </ul>
+                </div>
+                <AlertDialogFooter>
+                    <AlertDialogCancel onClick={() => {
+                        setIsConfirmModalOpen(false);
+                        setIsCreateModalOpen(true);
+                    }} disabled={isSaving}>Voltar e Editar</AlertDialogCancel>
+                    <AlertDialogAction onClick={confirmAndSaveVisit} className="bg-primary hover:bg-primary/90" disabled={isSaving}>
+                        {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        {isSaving ? 'Salvando...' : 'Salvar Visita Local'}
+                    </AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
         </AlertDialog>
 
         {loading ? (
@@ -524,12 +566,11 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
                                         <Label htmlFor="editVisitType">Tipo de Visita*</Label>
                                         <Select onValueChange={setVisitType} value={visitType} required disabled={isSaving || loadingVisitTypes}>
                                             <SelectTrigger id="editVisitType">
-                                                <SelectValue placeholder={loadingVisitTypes ? "Carregando tipos..." : "Selecione o tipo"} />
+                                                <SelectValue placeholder={loadingVisitTypes ? "Carregando..." : "Selecione o tipo"} />
                                             </SelectTrigger>
                                             <SelectContent>
-                                                {loadingVisitTypes ? (
-                                                    <SelectItem value="loading" disabled><Loader2 className="mr-2 h-4 w-4 animate-spin inline-block"/> Carregando...</SelectItem>
-                                                ) : availableVisitTypes.map((type) => (
+                                                 {loadingVisitTypes ? <SelectItem value="loading" disabled><Loader2 className="mr-2 h-4 w-4 animate-spin inline-block"/> Carregando...</SelectItem> :
+                                                 availableVisitTypes.map((type) => (
                                                     <SelectItem key={type} value={type}>{type}</SelectItem>
                                                 ))}
                                             </SelectContent>
@@ -566,14 +607,28 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
                                 </form>
                             </DialogContent>
                         </Dialog>
-                        <AlertDialog open={isDeleteModalOpen && visitToDelete?.id === visit.id} onOpenChange={(isOpen) => { if(!isOpen) closeDeleteConfirmation();}}>
-
-                            <AlertDialogTrigger asChild>
+                        <AlertDialog open={isDeleteModalOpen && visitToDelete?.id === visit.id} onOpenChange={(isOpen) => { if(!isOpen) closeDeleteConfirmation(); else setIsDeleteModalOpen(true); }}>
+                             <AlertDialogTrigger asChild>
                                 <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => openDeleteConfirmation(visit)} disabled={isSaving}>
                                 <Trash2 className="h-4 w-4" />
                                 <span className="sr-only">Excluir</span>
                                 </Button>
                             </AlertDialogTrigger>
+                            <AlertDialogContent>
+                                <AlertDialogHeader>
+                                    <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                        Tem certeza que deseja marcar esta visita a {visitToDelete?.clientName || visit.clientName} para exclusão?
+                                    </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                    <AlertDialogCancel onClick={closeDeleteConfirmation} disabled={isSaving}>Cancelar</AlertDialogCancel>
+                                    <AlertDialogAction onClick={confirmDeleteVisit} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground" disabled={isSaving}>
+                                        {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                        Marcar para Excluir
+                                    </AlertDialogAction>
+                                </AlertDialogFooter>
+                            </AlertDialogContent>
                         </AlertDialog>
                         </div>
                     </div>
@@ -611,3 +666,4 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
   );
 };
 export default Visits;
+
