@@ -9,7 +9,6 @@ import {
   AlertDialog,
   AlertDialogTrigger,
   AlertDialogAction,
-  AlertDialogCancel,
   AlertDialogContent,
   AlertDialogDescription,
   AlertDialogFooter,
@@ -697,6 +696,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
                                         </DialogContent>
                                     </Dialog>
                                      <AlertDialog>
+                                        
                                         <AlertDialogTrigger asChild>
                                             <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => openDeleteConfirmation(expense)} disabled={isSaving}><Trash2 className="h-4 w-4" /></Button>
                                         </AlertDialogTrigger>
