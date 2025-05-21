@@ -4,15 +4,15 @@
 import React, { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
-import { PlusCircle, Eye, Edit, Trash2, MapPin, Milestone, Info, LocateFixed, AlertTriangle, Loader2, TrendingUp, Briefcase } from 'lucide-react';
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose } from "@/components/ui/dialog";
+import { PlusCircle, Eye, Edit, Trash2, MapPin, Milestone, Info, LocateFixed, AlertTriangle, Loader2, TrendingUp, Briefcase, Check } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose, } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"; // Removed AlertDialogTrigger as it's used inside a Dialog
+import { AlertDialog, AlertDialogTrigger, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { getCurrentLocation, getCurrentCity, Coordinate } from '@/services/geolocation';
 import { useToast } from "@/hooks/use-toast";
-import { LoadingSpinner } from '@/components/LoadingSpinner';
+import { LoadingSpinner } from '@/components/LoadingSpinner'; // Removed import as not used? Assuming it's used indirectly.
 import { addLocalVisit, updateLocalVisit, deleteLocalVisit, getLocalVisits, LocalVisit, getLocalVisitTypes } from '@/services/localDbService';
 import { cn } from '@/lib/utils';
 import { formatKm } from '@/lib/utils';
@@ -567,6 +567,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
                             </DialogContent>
                         </Dialog>
                         <AlertDialog open={isDeleteModalOpen && visitToDelete?.id === visit.id} onOpenChange={(isOpen) => { if(!isOpen) closeDeleteConfirmation();}}>
+
                             <AlertDialogTrigger asChild>
                                 <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => openDeleteConfirmation(visit)} disabled={isSaving}>
                                 <Trash2 className="h-4 w-4" />

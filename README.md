@@ -1,4 +1,5 @@
-# Firebase Studio
+# Firebase Studioimport { AlertDialog, AlertDialogTrigger, AlertDialogContent, ... } from "@/components/ui/alert-dialog";
+
 
 This is a NextJS starter in Firebase Studio.
 
