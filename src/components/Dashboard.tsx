@@ -1,3 +1,4 @@
+
 // src/components/Dashboard.tsx
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -85,30 +86,28 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
         console.log(`[Dashboard useEffect for data fetch ${initTime}] Running. AuthLoading: ${authContextLoading}, User: ${user?.id}, IsAdmin: ${isAdmin}`);
 
         if (authContextLoading) {
-            console.log(`[Dashboard useEffect for data fetch ${initTime}] Auth context still loading. Aborting data fetch.`);
+            console.log(`[Dashboard useEffect for data fetch ${initTime}] Auth context still loading. Waiting...`);
+            // No need to explicitly set initialLoading here as it's handled by the `if` block below
             return;
         }
-
+    
         if (!user && !isAdmin) {
             console.log(`[Dashboard useEffect for data fetch ${initTime}] Auth done, no user and not admin. Clearing data and stopping load.`);
             setTrips([]); setVisits([]); setExpenses([]); setFuelingsData([]); setVehicles([]); setDrivers([]);
-            setInitialLoading(false);
+            setInitialLoading(false); // Auth done, no user, stop loading
             setDataError(null);
             return;
         }
+    
+        // Only proceed if auth is NOT loading AND (there is a user OR it's an admin)
         initializeDashboardData();
-    }, [authContextLoading, user, isAdmin, filterDriverId, dateRange]);
+    
+    }, [authContextLoading, user, isAdmin, filterDriverId, dateRange]); // `initializeDashboardData` is memoized
 
 
     const initializeDashboardData = useCallback(async () => {
         const initFetchTime = Date.now();
-        console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Initializing... AuthContextLoading: ${authContextLoading}, InitialComponentLoading: ${initialLoading}`);
-
-        if (authContextLoading) {
-            console.log(`[Dashboard initializeDashboardData ${initFetchTime}] AuthContext still loading. Will retry when it's done.`);
-            setInitialLoading(true);
-            return;
-        }
+        console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Initializing...`);
 
         setInitialLoading(true);
         setDataError(null);
@@ -149,18 +148,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                 fetchPromises.push(tripsPromise);
 
                 // Online: Fetch Visits
-                const visitsPromise = fetchOnlineVisits(driverIdToFilter, dateRange)
+                const visitsPromise = fetchOnlineVisits({ userId: driverIdToFilter, startDate: dateRange?.from, endDate: dateRange?.to })
                     .then(data => {
                         setVisits(data);
                         console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched onlineVisits (${data.length}) for ${driverIdToFilter || 'all'}. Caching ${data.length} items...`);
                         data.forEach(v => {
-                            // Assuming v (from FirestoreVisit) has id, tripId, userId, visitType etc.
-                            // And LocalVisit expects localId, firebaseId, tripLocalId, etc.
                             const visitToCache: LocalVisit = {
                                 ...v,
-                                localId: v.id, // Assuming Firestore 'id' maps to local 'localId' for caching
+                                localId: v.id,
                                 firebaseId: v.id,
-                                tripLocalId: v.tripId, // Map Firestore tripId to local tripLocalId
+                                tripLocalId: v.tripId,
                                 userId: v.userId,
                                 visitType: v.visitType,
                                 syncStatus: 'synced',
@@ -174,7 +171,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                 fetchPromises.push(visitsPromise);
 
                 // Online: Fetch Expenses
-                const expensesPromise = fetchOnlineExpenses(driverIdToFilter, dateRange)
+                const expensesPromise = fetchOnlineExpenses({ userId: driverIdToFilter, startDate: dateRange?.from, endDate: dateRange?.to })
                     .then(data => {
                         setExpenses(data);
                         console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched onlineExpenses (${data.length}) for ${driverIdToFilter || 'all'}. Caching ${data.length} items...`);
@@ -242,13 +239,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                             data.forEach(d => {
                                 const userToCache: LocalUser = {
                                     ...d,
-                                    id: d.id, // Firestore 'id' is the primary key
+                                    id: d.id, 
                                     firebaseId: d.id,
                                     syncStatus: 'synced',
                                     deleted: false,
-                                    role: d.role || 'driver', // Ensure role is set
-                                    base: d.base || 'N/A', // Ensure base is set
-                                    lastLogin: new Date().toISOString() // Update last login for cached version
+                                    role: d.role || 'driver', 
+                                    base: d.base || 'N/A', 
+                                    lastLogin: new Date().toISOString() 
                                 };
                                 cachePromises.push(saveLocalUser(userToCache).catch(e => console.warn(`[Dashboard Cache Fail] Driver ${d.id}:`, e)));
                             });
@@ -271,6 +268,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
             }
 
             await Promise.all(fetchPromises);
+            console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Setting ${trips.length} trips, ${visits.length} visits, ${expenses.length} expenses, ${fuelingsData.length} fuelings, ${vehicles.length} vehicles, ${drivers.length} drivers to state after all fetches.`);
+
 
             if (navigator.onLine && cachePromises.length > 0) {
                 console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Caching ${cachePromises.length} Firestore items locally in background...`);
@@ -288,7 +287,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
             setInitialLoading(false);
             console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Initialization complete. Total time: ${Date.now() - initFetchTime}ms`);
         }
-    }, [isAdmin, user, filterDriverId, dateRange, authContextLoading, initialLoading]);
+    }, [isAdmin, user, filterDriverId, dateRange, authContextLoading]);
 
     const getDriverName = useCallback((driverId: string) => {
         const driver = drivers.find(d => (d.firebaseId || d.id) === driverId);
@@ -371,13 +370,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
                 const vTo = vehiclePerformanceDateRange.to || new Date();
                 vehicleFuelings = vehicleFuelings.filter(f => {
                     try {
-                        return isWithinInterval(parseISO(f.date), { start: vFrom, end: vTo });
+                        const fuelingDate = f.date instanceof Date ? f.date : parseISO(f.date);
+                        return isWithinInterval(fuelingDate, { start: vFrom, end: vTo });
                     } catch { return false; }
                 });
             }
 
             vehicleFuelings.sort((a, b) => {
-                 try { return new Date(a.date).getTime() - new Date(b.date).getTime(); } catch { return 0; }
+                 try { 
+                    const dateA = a.date instanceof Date ? a.date : parseISO(a.date);
+                    const dateB = b.date instanceof Date ? b.date : parseISO(b.date);
+                    return dateA.getTime() - dateB.getTime(); 
+                } catch { return 0; }
             });
 
             let totalKm = 0;

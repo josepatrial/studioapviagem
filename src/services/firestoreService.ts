@@ -25,6 +25,7 @@ import type { Visit as BaseVisit } from '@/components/Trips/Visits';
 import type { Expense } from '@/components/Trips/Expenses';
 import type { Fueling as BaseFueling } from '@/components/Trips/Fuelings';
 import { deleteReceipt as deleteStorageReceipt } from './storageService';
+import type { DateRange } from 'react-day-picker';
 
 export interface Fueling extends BaseFueling {
  fuelType: string;
@@ -347,8 +348,8 @@ export const deleteVehicle = async (vehicleId: string) => {
 // --- Trip Service ---
 export interface TripFilter {
     userId?: string;
-    startDate?: string;
-    endDate?: string;
+    startDate?: string | Date; // Allow Date object
+    endDate?: string | Date;   // Allow Date object
     base?: string;
 }
 
@@ -376,23 +377,12 @@ export const getTrips = async (filters: TripFilter = {}): Promise<Trip[]> => {
              constraints.push(where('createdAt', '<', Timestamp.fromDate(endDatePlusOne)));
         }
         constraints.push(orderBy('status', 'asc'));
-        if (filters.startDate || filters.endDate || (filters.base && filters.base !== 'ALL')) {
-            // No additional orderBy for createdAt here as we sort after fetching
-        } else {
-             constraints.push(orderBy('createdAt', 'desc'));
-        }
+        constraints.push(orderBy('createdAt', 'desc'));
+
 
         const q = query(tripsCollectionRef, ...constraints);
         const querySnapshot = await getDocs(q);
         let trips = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Trip);
-
-        if (filters.startDate || filters.endDate || (filters.base && filters.base !== 'ALL')) {
-            trips.sort((a, b) => {
-                if (a.status === 'Andamento' && b.status !== 'Andamento') return -1;
-                if (a.status !== 'Andamento' && b.status === 'Andamento') return 1;
-                return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-            });
-         }
 
         const getTripsEndTime = performance.now();
         console.log(`[firestoreService getTrips ${getTripsStartTime}] Found ${trips.length} trips. Time: ${getTripsEndTime - getTripsStartTime} ms`);
@@ -458,15 +448,39 @@ export const updateTrip = async (tripId: string, data: Partial<Omit<Trip, 'id' |
 };
 
 // --- Visit Service ---
-export const getVisits = async (tripId: string): Promise<Visit[]> => {
+export interface VisitFilter {
+    userId?: string;
+    tripId?: string; // Keep if you need to fetch by specific tripId sometimes
+    startDate?: Date;
+    endDate?: Date;
+}
+
+export const getVisits = async (filters: VisitFilter = {}): Promise<Visit[]> => {
     const getVisitsStartTime = performance.now();
-    console.log(`[firestoreService getVisits ${getVisitsStartTime}] Fetching visits from 'visits' collection for trip ID: ${tripId}`);
+    console.log(`[firestoreService getVisits ${getVisitsStartTime}] Fetching visits from 'visits' collection with filters:`, filters);
     if (!db || !visitsCollectionRef) {
         console.warn(`[firestoreService getVisits ${getVisitsStartTime}] Firestore DB or visitsCollectionRef is not initialized. Returning empty array.`);
         return [];
     }
     try {
-        const q = query(visitsCollectionRef, where('tripId', '==', tripId), orderBy('timestamp', 'desc'));
+        const constraints: QueryConstraint[] = [];
+        if (filters.userId) {
+            constraints.push(where('userId', '==', filters.userId));
+        }
+        if (filters.tripId) {
+            constraints.push(where('tripId', '==', filters.tripId));
+        }
+        if (filters.startDate) {
+            constraints.push(where('timestamp', '>=', Timestamp.fromDate(filters.startDate)));
+        }
+        if (filters.endDate) {
+            const endDatePlusOne = new Date(filters.endDate);
+            endDatePlusOne.setDate(endDatePlusOne.getDate() + 1);
+            constraints.push(where('timestamp', '<', Timestamp.fromDate(endDatePlusOne)));
+        }
+        constraints.push(orderBy('timestamp', 'desc')); // Common default order
+
+        const q = query(visitsCollectionRef, ...constraints);
         const querySnapshot = await getDocs(q);
         const visits = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Visit);
         const getVisitsEndTime = performance.now();
@@ -481,6 +495,7 @@ export const getVisits = async (tripId: string): Promise<Visit[]> => {
          return [];
     }
 };
+
 
 export const addVisit = async (visitData: Omit<Visit, 'id' | 'firebaseId' | 'localId' | 'syncStatus'>): Promise<string> => {
     const addVisitStartTime = performance.now();
@@ -544,15 +559,39 @@ export const deleteVisit = async (visitId: string) => {
 };
 
 // --- Expense Service ---
-export const getExpenses = async (tripId: string): Promise<Expense[]> => {
+export interface ExpenseFilter {
+    userId?: string;
+    tripId?: string;
+    startDate?: Date;
+    endDate?: Date;
+}
+
+export const getExpenses = async (filters: ExpenseFilter = {}): Promise<Expense[]> => {
     const getExpensesStartTime = performance.now();
-    console.log(`[firestoreService getExpenses ${getExpensesStartTime}] Fetching expenses from 'expenses' collection for trip ID: ${tripId}`);
+    console.log(`[firestoreService getExpenses ${getExpensesStartTime}] Fetching expenses from 'expenses' collection with filters:`, filters);
     if (!db || !expensesCollectionRef) {
         console.warn(`[firestoreService getExpenses ${getExpensesStartTime}] Firestore DB or expensesCollectionRef is not initialized. Returning empty array.`);
         return [];
     }
     try {
-        const q = query(expensesCollectionRef, where('tripId', '==', tripId), orderBy('timestamp', 'desc'));
+        const constraints: QueryConstraint[] = [];
+        if (filters.userId) {
+            constraints.push(where('userId', '==', filters.userId));
+        }
+        if (filters.tripId) {
+            constraints.push(where('tripId', '==', filters.tripId));
+        }
+        if (filters.startDate) {
+            constraints.push(where('timestamp', '>=', Timestamp.fromDate(filters.startDate))); // Assuming 'timestamp' for general date filtering
+        }
+        if (filters.endDate) {
+            const endDatePlusOne = new Date(filters.endDate);
+            endDatePlusOne.setDate(endDatePlusOne.getDate() + 1);
+            constraints.push(where('timestamp', '<', Timestamp.fromDate(endDatePlusOne)));
+        }
+        constraints.push(orderBy('timestamp', 'desc')); // Common default order
+
+        const q = query(expensesCollectionRef, ...constraints);
         const querySnapshot = await getDocs(q);
         const expenses = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Expense);
         const getExpensesEndTime = performance.now();
@@ -579,7 +618,6 @@ export const addExpense = async (expenseData: Omit<Expense, 'id' | 'firebaseId' 
         expenseDate: Timestamp.fromDate(new Date(cleanedData.expenseDate)),
     };
 
-    // Explicitly remove optional receipt fields if they are null or undefined to avoid Firestore errors
     const receiptFields = ['receiptFilename', 'receiptUrl', 'receiptPath'];
     receiptFields.forEach(field => {
         if (dataForFirestore[field] === null || dataForFirestore[field] === undefined) {
@@ -615,14 +653,11 @@ export const updateExpense = async (expenseId: string, data: Partial<Omit<Expens
 
     const receiptFields = ['receiptFilename', 'receiptUrl', 'receiptPath'];
     receiptFields.forEach(field => {
-        // If the field exists in the incoming `data` and is explicitly set to null, it means we want to remove it.
-        // If it's undefined in `data`, we don't include it in the update to avoid overwriting with undefined.
         if (data.hasOwnProperty(field)) {
             if (data[field as keyof typeof data] === null || data[field as keyof typeof data] === undefined) {
-                delete dataForFirestore[field]; // Remove if explicitly set to null/undefined in the partial update
+                delete dataForFirestore[field];
             }
         } else {
-            // If not in partial `data`, don't touch it in dataForFirestore unless already cleaned
              if (dataForFirestore[field] === undefined) delete dataForFirestore[field];
         }
     });
@@ -676,7 +711,14 @@ export const deleteExpense = async (expenseId: string) => {
 };
 
 // --- Fueling Service ---
-export const getFuelings = async (filter?: { tripId?: string; vehicleId?: string }): Promise<Fueling[]> => {
+export interface FuelingFilter {
+    userId?: string;
+    tripId?: string;
+    vehicleId?: string;
+    startDate?: Date;
+    endDate?: Date;
+}
+export const getFuelings = async (filter?: FuelingFilter): Promise<Fueling[]> => {
     const getFuelingsStartTime = performance.now();
     console.log(`[firestoreService getFuelings ${getFuelingsStartTime}] Fetching fuelings from 'fuelings' collection with filter:`, filter);
     if (!db || !fuelingsCollectionRef) {
@@ -690,6 +732,17 @@ export const getFuelings = async (filter?: { tripId?: string; vehicleId?: string
         }
         if (filter?.vehicleId) {
             constraints.push(where('vehicleId', '==', filter.vehicleId));
+        }
+        if (filter?.userId) {
+            constraints.push(where('userId', '==', filter.userId));
+        }
+        if (filter?.startDate) {
+            constraints.push(where('date', '>=', Timestamp.fromDate(filter.startDate)));
+        }
+        if (filter?.endDate) {
+            const endDatePlusOne = new Date(filter.endDate);
+            endDatePlusOne.setDate(endDatePlusOne.getDate() + 1);
+            constraints.push(where('date', '<', Timestamp.fromDate(endDatePlusOne)));
         }
         constraints.push(orderBy('date', 'desc'));
 
