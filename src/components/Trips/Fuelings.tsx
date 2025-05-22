@@ -508,7 +508,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
                 <PlusCircle className="mr-2 h-4 w-4" /> Registrar Abastecimento
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-lg">
+            <DialogContent className="sm:max-w-lg w-11/12 md:w-full">
               <DialogHeader>
                 <DialogTitle>Registrar Novo Abastecimento</DialogTitle>
               </DialogHeader>
@@ -612,7 +612,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
 
         <AlertDialog open={isDeleteModalOpen} onOpenChange={closeDeleteConfirmation}>
             <AlertDialogContent>
-                <AlertDialogHeader>
+                <AlertDialogHeader className="flex flex-col items-center text-center">
                     <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
                     <AlertDialogDescription>
                         Tem certeza que deseja marcar este abastecimento de {fuelingToDelete ? formatDateDisplay(fuelingToDelete.date) : 'N/A'} para exclusão? A exclusão definitiva ocorrerá na próxima sincronização.
@@ -703,7 +703,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
                             <span className="sr-only">Editar</span>
                           </Button>
                         </DialogTrigger>
-                        <DialogContent className="sm:max-w-lg">
+                        <DialogContent className="sm:max-w-lg w-11/12 md:w-full">
                           <DialogHeader>
                             <DialogTitle>Editar Abastecimento</DialogTitle>
                           </DialogHeader>
