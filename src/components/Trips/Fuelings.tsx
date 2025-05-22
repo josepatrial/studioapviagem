@@ -505,7 +505,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
     <canvas ref={canvasRef} style={{ display: 'none' }} />
 
     <div className="space-y-6">
-      <div className="flex justify-between items-center mb-4">
+      <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4 sm:gap-0">
         <h3 className="text-xl font-semibold">Histórico de Abastecimentos</h3>
         {tripLocalId && ( // Only show add button if in context of a trip
           <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
@@ -669,7 +669,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
                     </CardDescription>
                   </div>
                   {tripLocalId && // Only show edit/delete buttons if in context of a trip where actions are appropriate
-                    <div className="flex gap-1">
+                    <div className="flex gap-1 flex-shrink-0"> {/* Added flex-shrink-0 */}
                       <Dialog>
                          <DialogTrigger asChild>
                              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary h-8 w-8">

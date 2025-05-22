@@ -3,7 +3,7 @@
 
 import * as React from "react"
 import * as AccordionPrimitive from "@radix-ui/react-accordion"
-import { Slot } from "@radix-ui/react-slot"
+import { Slot } from "@radix-ui/react-slot" // Ensure Slot is imported
 import { ChevronDown } from "lucide-react"
 
 import { cn } from "@/lib/utils"
@@ -16,7 +16,7 @@ const AccordionItem = React.forwardRef<
 >(({ className, ...props }, ref) => (
   <AccordionPrimitive.Item
     ref={ref}
-    className={cn("border-b", className)}
+    className={cn("border-b", className)} // Standard ShadCN bottom border
     {...props}
   />
 ))
@@ -43,7 +43,6 @@ const AccordionTrigger = React.forwardRef<
 >(({ className, children, asChild = false, ...props }, ref) => {
   const Comp = asChild ? Slot : AccordionPrimitive.Trigger;
   return (
-    // Removed AccordionPrimitive.Header from here
     <Comp
       ref={ref}
       className={cn(
@@ -71,7 +70,7 @@ const AccordionContent = React.forwardRef<
     )}
     {...props}
   >
-    <div className={cn("pb-4 pt-0")}>{children}</div>
+    <div className={cn("p-4")}>{children}</div>
   </AccordionPrimitive.Content>
 ))
 
