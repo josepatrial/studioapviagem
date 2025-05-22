@@ -317,6 +317,26 @@ const markRecordForDeletion = (storeName: string, localId: string): Promise<void
     });
 };
 
+export const clearStore = async (storeName: string): Promise<void> => {
+    console.log(`[clearStore] Attempting to clear store: ${storeName}`);
+    return openDB().then(dbInstance => {
+        return new Promise<void>((resolve, reject) => {
+            try {
+                const transaction = dbInstance.transaction(storeName, 'readwrite');
+                const store = transaction.objectStore(storeName);
+                const request = store.clear();
+                request.onsuccess = () => {
+                    console.log(`[clearStore] Store cleared successfully: ${storeName}`);
+                    resolve();
+                };
+                request.onerror = () => reject(`Error clearing store ${storeName}: ${request.error?.message}`);
+            } catch (error) {
+                reject(`Error creating transaction to clear store ${storeName}: ${error}`);
+            }
+        });
+    });
+};
+
 const getAllLocalRecords = <T>(storeName: string): Promise<T[]> => {
     return getLocalDbStore(storeName, 'readonly').then(store => {
         return new Promise<T[]>((resolve, reject) => {
