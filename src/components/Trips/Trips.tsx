@@ -688,7 +688,6 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
                 <Filter className="h-5 w-5" /> Filtros de Viagens
              </CardTitle>
            </CardHeader>
-           <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end"> {/* Changed sm:grid-cols-2 to md:grid-cols-2 */}
                {isAdmin && (
                    <div className="space-y-1.5">
                        <Label htmlFor="driverFilter">Filtrar por Motorista</Label>
