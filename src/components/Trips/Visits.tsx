@@ -376,7 +376,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-xl font-semibold">Histórico de Visitas</h3>
+        <h3 className="text-lg sm:text-xl font-semibold">Histórico de Visitas</h3>
         {tripLocalId && (
             <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
                 <DialogTrigger asChild>
