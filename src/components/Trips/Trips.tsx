@@ -605,7 +605,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 px-4 sm:px-0"> {/* Added mobile padding */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h2 className="text-2xl font-semibold">
           {isAdmin ? 'Todas as Viagens' : 'Minhas Viagens'}
@@ -622,7 +622,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
                 <PlusCircle className="mr-2 h-4 w-4" /> Criar Nova Viagem
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-[425px]">
+            <DialogContent className="w-[calc(100%-2rem)] sm:max-w-[425px]">
               <DialogHeader>
                 <DialogTitle>Criar Nova Viagem</DialogTitle>
               </DialogHeader>
@@ -688,7 +688,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
                 <Filter className="h-5 w-5" /> Filtros de Viagens
              </CardTitle>
            </CardHeader>
-           <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+           <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end"> {/* Changed sm:grid-cols-2 to md:grid-cols-2 */}
                {isAdmin && (
                    <div className="space-y-1.5">
                        <Label htmlFor="driverFilter">Filtrar por Motorista</Label>
