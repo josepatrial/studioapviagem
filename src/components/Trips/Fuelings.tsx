@@ -411,7 +411,13 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
 
   const openEditModal = (fueling: Fueling) => {
     setCurrentFueling(fueling);
-    setDate(fueling.date.split('T')[0]);
+    // Ensure the date is formatted correctly for the date input (YYYY-MM-DD)
+    try {
+      setDate(new Date(fueling.date).toISOString().split('T')[0]);
+    } catch (e) {
+      console.error('Error parsing fueling date:', e);
+      setDate(''); // Set to empty string if date is invalid
+    }
     setLiters(fueling.liters);
     setPricePerLiter(fueling.pricePerLiter);
     setLocation(fueling.location);
@@ -503,7 +509,11 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
         <h3 className="text-xl font-semibold">Histórico de Abastecimentos</h3>
         {tripLocalId && ( // Only show add button if in context of a trip
           <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
-            <DialogTrigger asChild>
+            <DialogTrigger asChild onClick={() => {
+              // Initialize date with current date in YYYY-MM-DD format
+              const today = new Date();
+              setDate(today.toISOString().split('T')[0]);
+            }}>
               <Button onClick={() => { resetForm(); setDate(new Date().toISOString().split('T')[0]); console.log("[FuelingsComponent] Registrar Abastecimento button clicked, setting isCreateModalOpen to true."); setIsCreateModalOpen(true); }} className="bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isSaving}>
                 <PlusCircle className="mr-2 h-4 w-4" /> Registrar Abastecimento
               </Button>
