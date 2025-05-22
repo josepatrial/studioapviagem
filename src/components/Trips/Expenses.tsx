@@ -504,7 +504,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
                             <PlusCircle className="mr-2 h-4 w-4" /> Registrar Despesa
                         </Button>
                     </DialogTrigger>
-                    <DialogContent className="sm:max-w-lg">
+                    <DialogContent className="sm:max-w-lg w-[90%]">
                         <DialogHeader><DialogTitle>Registrar Nova Despesa</DialogTitle></DialogHeader>
                         <form onSubmit={handlePrepareExpenseForConfirmation} className="grid gap-4 py-4">
                             <div className="space-y-2">
@@ -548,7 +548,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
         </div>
 
         <AlertDialog open={isConfirmModalOpen} onOpenChange={(isOpen) => { if(!isOpen) closeConfirmModal(); else setIsConfirmModalOpen(true); }}>
-            <AlertDialogContent>
+            <AlertDialogContent className="w-[90%] rounded-lg">
                 <AlertDialogHeader>
                     <AlertDialogTitle>Confirmar Dados da Despesa</AlertDialogTitle>
                 </AlertDialogHeader>
@@ -575,7 +575,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
         </AlertDialog>
 
         <Dialog open={isCameraOpen} onOpenChange={setIsCameraOpen}>
-            <DialogContent className="sm:max-w-md">
+            <DialogContent className="sm:max-w-md w-[90%] rounded-lg">
                 <DialogHeader><DialogTitle>Escanear Comprovante</DialogTitle></DialogHeader>
                 <div className="py-4 space-y-4">
                     <div className="relative aspect-video bg-muted rounded-md overflow-hidden">
@@ -603,7 +603,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
         </Dialog>
 
         <AlertDialog open={isDeleteModalOpen} onOpenChange={(isOpen) => { if(!isOpen) closeDeleteConfirmation(); else setIsDeleteModalOpen(true); }}>
-            <AlertDialogContent>
+            <AlertDialogContent className="w-[90%] rounded-lg">
                 <AlertDialogHeader>
                     <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
                     <AlertDialogDescription>
@@ -645,7 +645,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
                                         <DialogTrigger asChild>
                                             <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary h-8 w-8"><Eye className="h-4 w-4" /></Button>
                                         </DialogTrigger>
-                                        <DialogContent>
+                                        <DialogContent className="w-[90%] rounded-lg">
                                             <DialogHeader><DialogTitle>Detalhes da Despesa</DialogTitle></DialogHeader>
                                             <div className="py-4 space-y-3">
                                                 <p><strong>Descrição:</strong> {expense.description}</p>
@@ -662,7 +662,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
                                         <DialogTrigger asChild>
                                             <Button variant="ghost" size="icon" onClick={() => openEditModal(expense)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving}><Edit className="h-4 w-4" /></Button>
                                         </DialogTrigger>
-                                        <DialogContent className="sm:max-w-lg">
+                                        <DialogContent className="sm:max-w-lg w-[90%]">
                                             <DialogHeader><DialogTitle>Editar Despesa</DialogTitle></DialogHeader>
                                             <form onSubmit={handleEditExpense} className="grid gap-4 py-4">
                                                 <div className="space-y-2">
@@ -711,11 +711,11 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
                             </div>
                         </CardHeader>
                         <CardContent className="space-y-2 text-sm">
-                            <div className="flex items-center gap-2 font-semibold">
+                            <div className="flex items-center gap-2 font-semibold break-words">
                                 <DollarSign className="h-4 w-4 flex-shrink-0 text-emerald-600" />
                                 <span>{formatCurrency(expense.value)}</span>
                             </div>
-                            {expense.comments && (<div className="flex items-start gap-2 text-muted-foreground"><span className="font-medium flex-shrink-0">Obs:</span> {expense.comments}</div>)}
+                            {expense.comments && (<div className="flex items-start gap-2 text-muted-foreground break-words"><span className="font-medium flex-shrink-0">Obs:</span> {expense.comments}</div>)}
                             {expense.receiptFilename && (
                                 <div className="flex items-center gap-2">
                                     {expense.receiptUrl?.startsWith('data:image') ? (<img src={expense.receiptUrl} alt="Preview" className="h-6 w-6 object-cover rounded"/>) : (<Paperclip className="h-4 w-4 flex-shrink-0 text-muted-foreground" />)}
