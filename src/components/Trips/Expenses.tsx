@@ -496,7 +496,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
       <canvas ref={canvasRef} style={{ display: 'none' }} />
       <div className="space-y-6">
         <div className="flex justify-between items-center mb-4">
-            <h3 className="text-xl font-semibold">Histórico de Despesas</h3>
+ <h3 className="text-lg md:text-xl font-semibold">Histórico de Despesas</h3>
             {tripLocalId && (
                 <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
                     <DialogTrigger asChild>
@@ -625,7 +625,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
         ) : expenses.length === 0 ? (
             <Card className="text-center py-10 bg-card border border-border shadow-sm rounded-lg">
                 <CardContent><p className="text-muted-foreground">Nenhuma despesa registrada.</p></CardContent>
-            </Card>
+ </Card>
         ) : (
             <div className="grid gap-4">
                 {expenses.map((expense) => (
@@ -634,8 +634,8 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
                             <div className="flex justify-between items-start">
                                 <div>
                                     <CardTitle>{expense.description}</CardTitle>
-                                    <CardDescription>
-                                        {expense.expenseType} - {formatDateDisplay(expense.expenseDate)}
+ <CardDescription className="text-sm md:text-base">
+ {expense.expenseType} - {formatDateDisplay(expense.expenseDate)}
                                         {expense.syncStatus === 'pending' && <span className="ml-2 text-xs text-yellow-600">(Pendente)</span>}
                                         {expense.syncStatus === 'error' && <span className="ml-2 text-xs text-destructive">(Erro Sinc)</span>}
                                     </CardDescription>
@@ -710,7 +710,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
                                 </div>
                             </div>
                         </CardHeader>
-                        <CardContent className="space-y-2 text-sm">
+ <CardContent className="space-y-2 text-sm md:text-base">
                             <div className="flex items-center gap-2 font-semibold break-words">
                                 <DollarSign className="h-4 w-4 flex-shrink-0 text-emerald-600" />
                                 <span>{formatCurrency(expense.value)}</span>
