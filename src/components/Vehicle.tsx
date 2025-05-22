@@ -542,13 +542,20 @@ export const Vehicle: React.FC = () => {
         if (vehicleFuelings.length > 1) {
             const firstOdometer = vehicleFuelings[0].odometerKm;
             const lastOdometer = vehicleFuelings[vehicleFuelings.length - 1].odometerKm;
-            if (typeof firstOdometer === 'number' && typeof lastOdometer === 'number' && lastOdometer > firstOdometer) {
+            if (typeof firstOdometer === 'number' && !isNaN(firstOdometer) && typeof lastOdometer === 'number' && !isNaN(lastOdometer) && lastOdometer > firstOdometer) {
                  totalKmDrivenFromFuelings = lastOdometer - firstOdometer;
             }
         }
 
         const totalLiters = vehicleFuelings.reduce((sum, f) => sum + f.liters, 0);
         const totalFuelCost = vehicleFuelings.reduce((sum, f) => sum + f.totalCost, 0);
+
+        console.log("[Vehicle Details] Fueling data for performance calculation:", {
+            vehicleFuelingsLength: vehicleFuelings.length,
+            firstOdometer: vehicleFuelings.length > 0 ? vehicleFuelings[0].odometerKm : 'N/A',
+            lastOdometer: vehicleFuelings.length > 0 ? vehicleFuelings[vehicleFuelings.length - 1].odometerKm : 'N/A',
+            totalKmDrivenFromFuelings,
+        });
 
         const avgKmPerLiter = totalLiters > 0 && totalKmDrivenFromFuelings > 0 ? totalKmDrivenFromFuelings / totalLiters : 0;
         const avgCostPerKm = totalKmDrivenFromFuelings > 0 ? totalFuelCost / totalKmDrivenFromFuelings : 0;
@@ -762,7 +769,7 @@ export const Vehicle: React.FC = () => {
                                     <TableBody>
                                         {vehicleDetails.fuelings.map(f => (
                                             <TableRow key={f.localId}>
-                                                <TableCell>{f.date ? formatDateFn(parseISO(f.date), 'dd/MM/yyyy') : 'N/A'}</TableCell>
+                                                <TableCell>{f.date && typeof f.date === 'string' ? formatDateFn(parseISO(f.date), 'dd/MM/yyyy') : 'N/A'}</TableCell>
                                                 <TableCell>{f.liters.toFixed(2)} L</TableCell>
                                                 <TableCell>{formatCurrency(f.pricePerLiter)}</TableCell>
                                                 <TableCell>{formatCurrency(f.totalCost)}</TableCell>
