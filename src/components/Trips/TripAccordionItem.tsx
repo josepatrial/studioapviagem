@@ -101,7 +101,7 @@ interface TripAccordionItemProps {
 export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
   trip,
   visitCount,
-  expenseCount,
+  expenseCount, 
   fuelingCount,
   isExpanded,
   activeSubTab,
@@ -338,7 +338,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
 
   return (
     <AccordionItem key={trip.localId} value={trip.localId} className="border bg-card rounded-lg shadow-lg overflow-hidden group/item data-[state=open]:border-primary/50">
-      <AccordionHeader className="flex"> {/* This renders the h3 */}
+      <AccordionHeader className="flex items-start"> {/* Changed from flex to flex items-start */}
         <div className={cn(
           "flex justify-between items-center w-full",
           isPending && "bg-yellow-100 hover:bg-yellow-200/70 dark:bg-yellow-900/30 dark:hover:bg-yellow-900/50",
@@ -346,10 +346,10 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
           !isPending && !isError && "hover:bg-accent/50"
         )}>
           <UiAccordionTrigger className="flex-1 p-4 hover:no-underline focus-visible:ring-0 focus-visible:ring-offset-0">
-            <div className="flex-1 mr-4 space-y-1 text-left">
+            <div className="flex-1 mr-2 sm:mr-4 space-y-1 text-left"> {/* Adjusted margin for smaller screens */}
               <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <CardTitle className="text-lg">{trip.name}</CardTitle>
+                <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 flex-wrap"> {/* Stacked title and badges on small screens */}
+                  <CardTitle className="text-base sm:text-lg">{trip.name}</CardTitle> {/* Adjusted font size */}
                   <Badge variant={trip.status === 'Andamento' ? 'default' : 'secondary'} className={cn('h-5 px-2 text-xs whitespace-nowrap', trip.status === 'Andamento' ? 'bg-emerald-500 hover:bg-emerald-500/80 dark:bg-emerald-600 dark:hover:bg-emerald-600/80 text-white' : '')}>
                     {trip.status === 'Andamento' ? <PlayCircle className="h-3 w-3 mr-1" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
                     {trip.status}
@@ -357,8 +357,8 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                   {isPending && <Badge variant="outline" className="h-5 px-2 text-xs whitespace-nowrap border-yellow-500 text-yellow-700 dark:text-yellow-400">Pendente</Badge>}
                   {isError && <Badge variant="destructive" className="h-5 px-2 text-xs whitespace-nowrap">Erro Sinc</Badge>}
                 </div>
-                <CardDescription className="text-sm flex items-center gap-1 mt-1">
-                  <Car className="h-4 w-4 text-muted-foreground" /> {getTripDescription(trip)}
+                <CardDescription className="text-xs sm:text-sm flex items-center gap-1 mt-1"> {/* Adjusted font size */}
+                  <Car className="h-3 w-3 sm:h-4 sm:w-4 text-muted-foreground" /> {getTripDescription(trip)}\
                 </CardDescription>
                 <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground mt-1">
                   <span className="inline-flex items-center gap-1">
@@ -381,15 +381,15 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                     </span>
                   )}
                 </div>
-                <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground mt-1">
-                  <span>Início: {safeFormatDate(trip.createdAt)}</span>
+                <div className="flex flex-col sm:flex-row sm:items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground mt-1"> {/* Stacked dates on small screens */}
+                  <span>Início: {safeFormatDate(trip.createdAt)}</span>\
                   <span>Atualizado: {safeFormatDate(trip.updatedAt)}</span>
                 </div>
               </div>
             </div>
           </UiAccordionTrigger>
 
-          <div className="flex items-center gap-1 flex-shrink-0 pr-4 py-4">
+          <div className="flex flex-col sm:flex-row items-center gap-1 flex-shrink-0 pr-4 py-4"> {/* Stacked buttons on small screens */}
             {trip.status === 'Andamento' && (isAdmin || trip.userId === user?.id) && (
               <Button
                 variant="outline"
@@ -407,7 +407,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                  <Button
                   variant="ghost"
                   size="icon"
-                  onClick={handlePrintReport}
+                  onClick={handlePrintReport}\
                   className="text-muted-foreground hover:text-accent-foreground h-8 w-8"
                   disabled={isSaving || isDeleting || isGeneratingReport}
                   title="Gerar Relatório da Viagem"
@@ -511,7 +511,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
           <Tabs defaultValue={activeSubTab || "visits"} className="w-full pt-4">
             <div className="overflow-x-auto border-b bg-card">
                <TabsList className={cn(
-                  "grid w-full rounded-none bg-transparent p-0 sm:w-auto sm:inline-flex",
+                  "grid w-full rounded-none bg-transparent p-0 sm:w-auto sm:inline-flex h-auto",\
                   "grid-cols-3"
                )}>
                    <TabsTrigger value="visits" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
