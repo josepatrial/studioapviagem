@@ -341,7 +341,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
       <AccordionHeader className="flex items-start"> {/* Changed from flex to flex items-start */}
         <div className={cn(
           "flex justify-between items-center w-full",
-          isPending && "bg-yellow-100 hover:bg-yellow-200/70 dark:bg-yellow-900/30 dark:hover:bg-yellow-900/50",
+          isPending && "bg-yellow-100/50 hover:bg-yellow-200/70 dark:bg-yellow-900/30 dark:hover:bg-yellow-900/50",
           isError && "bg-destructive/20 hover:bg-destructive/30",
           !isPending && !isError && "hover:bg-accent/50"
         )}>
@@ -389,7 +389,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
             </div>
           </UiAccordionTrigger>
 
-          <div className="flex flex-col sm:flex-row items-center gap-1 flex-shrink-0 pr-4 py-4"> {/* Stacked buttons on small screens */}
+          <div className="flex flex-col sm:flex-row items-center gap-2 flex-shrink-0 pr-4 py-4"> {/* Stacked buttons on small screens, increased gap */}
             {trip.status === 'Andamento' && (isAdmin || trip.userId === user?.id) && (
               <Button
                 variant="outline"
@@ -514,13 +514,13 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                   "grid w-full rounded-none bg-transparent p-0 sm:w-auto sm:inline-flex h-auto",\
                   "grid-cols-3"
                )}>
-                   <TabsTrigger value="visits" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
+                   <TabsTrigger value=\"visits\" className=\"rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none text-xs sm:text-sm px-2 sm:px-4\"> {/* Adjusted text size and padding */}
                      <MapPin className="mr-1 h-4 w-4 inline-block" />Visitas ({visitCount})
                    </TabsTrigger>
-                   <TabsTrigger value="expenses" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
+                   <TabsTrigger value=\"expenses\" className=\"rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none text-xs sm:text-sm px-2 sm:px-4\"> {/* Adjusted text size and padding */}
                      <Wallet className="mr-1 h-4 w-4 inline-block" />Despesas ({expenseCount})
                    </TabsTrigger>
-                   <TabsTrigger value="fuelings" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
+                   <TabsTrigger value=\"fuelings\" className=\"rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none text-xs sm:text-sm px-2 sm:px-4\"> {/* Adjusted text size and padding */}
                      <Fuel className="mr-1 h-4 w-4 inline-block" />Abastec. ({fuelingCount})
                    </TabsTrigger>
                </TabsList>
