@@ -30,7 +30,7 @@ import {
     deleteLocalExpense,
     getLocalExpenses,
     LocalExpense,
-    getLocalCustomTypes, 
+    getLocalCustomTypes,
     STORE_EXPENSE_TYPES,
     CustomType,
     getLocalDbStore
@@ -113,21 +113,24 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
     fetchExpensesData();
 
     const loadAndCacheExpenseTypes = async () => {
+        console.log("[ExpensesComponent loadAndCacheExpenseTypes] Starting...");
         setLoadingExpenseTypes(true);
         try {
             let typesToUse: CustomType[] = [];
             if (navigator.onLine) {
                 console.log("[ExpensesComponent] Online: Fetching expense types from Firestore...");
                 const firestoreTypes = await getExpenseTypesFromFirestore();
+                console.log(`[ExpensesComponent] Fetched ${firestoreTypes.length} types from Firestore.`);
                  typesToUse = firestoreTypes.map(ft => ({
-                    localId: ft.id, 
+                    localId: ft.id,
                     id: ft.id,
                     name: ft.name,
                     firebaseId: ft.id,
                     syncStatus: 'synced',
                     deleted: false,
                 }));
-                
+
+                console.log("[ExpensesComponent] Caching/updating Firestore types locally...");
                 const store = await getLocalDbStore(STORE_EXPENSE_TYPES, 'readwrite');
                 const transaction = store.transaction;
                 const typePromises = typesToUse.map(type => {
@@ -135,8 +138,8 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
                         const request = store.put(type); // Upsert
                         request.onsuccess = () => resolve();
                         request.onerror = () => {
-                            console.warn(`Failed to cache expense type "${type.name}" locally:`, request.error);
-                            resolve(); 
+                            console.warn(`[ExpensesComponent] Failed to cache expense type "${type.name}" (ID: ${type.localId}) locally:`, request.error);
+                            resolve();
                         };
                     });
                 });
@@ -146,19 +149,22 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
             } else {
                 console.log("[ExpensesComponent] Offline: Fetching expense types from LocalDB.");
                 typesToUse = await getLocalCustomTypes(STORE_EXPENSE_TYPES);
+                console.log(`[ExpensesComponent] Fetched ${typesToUse.length} types from LocalDB.`);
             }
             setAvailableExpenseTypes(['Outro', ...typesToUse.map(t => t.name).sort()]);
         } catch (err) {
             console.error("[ExpensesComponent] Failed to load expense types:", err);
             try {
+                console.log("[ExpensesComponent] Attempting fallback to local types after error.");
                 const localTypes = await getLocalCustomTypes(STORE_EXPENSE_TYPES);
                 setAvailableExpenseTypes(['Outro', ...localTypes.map(t => t.name).sort()]);
             } catch (localErr) {
-                setAvailableExpenseTypes(['Outro']); 
+                setAvailableExpenseTypes(['Outro']);
                 toast({ variant: 'destructive', title: 'Erro ao carregar tipos de despesa', description: (err as Error).message });
             }
         } finally {
             setLoadingExpenseTypes(false);
+            console.log("[ExpensesComponent loadAndCacheExpenseTypes] Finished.");
         }
     };
     loadAndCacheExpenseTypes();
@@ -218,10 +224,10 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
         if (file.type === 'application/pdf' || file.type.startsWith('image/')) {
             setAttachment(file);
             setAttachmentFilename(file.name);
-            setIsCameraOpen(false); 
+            setIsCameraOpen(false);
         } else {
             toast({ variant: "destructive", title: "Tipo de arquivo inválido", description: "Por favor, selecione um PDF ou imagem (JPG, PNG, GIF)." });
-            event.target.value = ''; 
+            event.target.value = '';
         }
     }
   };
@@ -271,7 +277,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
         description,
         value: numValue,
         expenseType,
-        expenseDate: new Date(expenseDate).toISOString(), 
+        expenseDate: new Date(expenseDate).toISOString(),
         timestamp: new Date().toISOString(),
         comments,
         receiptFilename: attachmentFilename || undefined,
@@ -293,8 +299,8 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
         });
         const newUIExpense: Expense = {
             ...(expenseToConfirm as LocalExpense), // Cast for spreading
-            localId: localId, 
-            id: localId, 
+            localId: localId,
+            id: localId,
             tripId: tripLocalId,
             userId: ownerUserId,
             receiptUrl: typeof attachment === 'string' && attachment.startsWith('data:') ? attachment : undefined,
@@ -381,7 +387,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
 
   const confirmDeleteExpense = async () => {
     if (!expenseToDelete) return;
-    const localIdToDelete = expenseToDelete.id; 
+    const localIdToDelete = expenseToDelete.id;
     setIsSaving(true);
     try {
         const expensesInDb = await getLocalExpenses(tripLocalId);
@@ -390,7 +396,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
         if (!expenseRecordToDelete) {
             throw new Error("Registro local da despesa não encontrado para exclusão.");
         }
-        await deleteLocalExpense(expenseRecordToDelete.localId); 
+        await deleteLocalExpense(expenseRecordToDelete.localId);
         setExpenses(expenses.filter(ex => ex.id !== expenseToDelete.id));
         toast({ title: 'Despesa marcada para exclusão.' });
         closeDeleteConfirmation();
@@ -415,7 +421,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
     } else {
         clearAttachment();
     }
-    setIsCameraOpen(false); 
+    setIsCameraOpen(false);
     setIsEditModalOpen(true);
   };
 
@@ -441,7 +447,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
 
   const closeConfirmModal = () => {
     setIsConfirmModalOpen(false);
-    setIsCreateModalOpen(true); 
+    setIsCreateModalOpen(true);
   };
 
   const renderAttachmentInput = (idPrefix: string) => (
@@ -697,11 +703,9 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
                                         </DialogContent>
                                     </Dialog>
                                      <AlertDialog>
-                                        
                                         <AlertDialogTrigger asChild>
                                             <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => openDeleteConfirmation(expense)} disabled={isSaving}><Trash2 className="h-4 w-4" /></Button>
                                         </AlertDialogTrigger>
-                                        {/* AlertDialogContent for delete moved outside map to ensure single instance */}
                                     </AlertDialog>
                                 </div>
                             </div>
@@ -729,4 +733,3 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
 };
 
 export default Expenses;
-
