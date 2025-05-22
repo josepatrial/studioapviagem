@@ -521,9 +521,9 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
 
     const openDeleteConfirmation = (trip: Trip, event: React.MouseEvent) => {
         event.stopPropagation();
-        setTripToDelete(trip);
-        setIsDeleteModalOpen(true);
-    };
+ setTripToDelete(trip);
+ setIsDeleteModalOpen(true);
+ };
 
     const closeDeleteConfirmation = () => {
         setTripToDelete(null);
@@ -796,7 +796,6 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
                 handleEditTripSubmit={handleEditTripSubmit}
                 selectedVehicleIdForEdit={selectedVehicleIdForEdit}
                 setSelectedVehicleIdForEdit={setSelectedVehicleIdForEdit}
-
                 tripToDelete={tripToDelete}
                 isDeleteModalOpenForThisTrip={isDeleteModalOpen && tripToDelete?.localId === trip.localId}
                 openDeleteModalForThisTrip={(tripToDeleteFromItem, event) => openDeleteConfirmation(tripToDeleteFromItem, event)}

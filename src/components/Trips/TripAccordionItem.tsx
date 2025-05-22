@@ -420,71 +420,71 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                     </Button>
                   </DialogTrigger>
                   <DialogContent className="sm:max-w-[425px]">
-                    <DialogHeader>
-                      <DialogTitle>Editar Viagem</DialogTitle>
-                    </DialogHeader>
-                    <form onSubmit={handleEditTripSubmit} className="grid gap-4 py-4">
-                      <div className="space-y-2">
-                        <Label>Nome da Viagem</Label>
-                        <p className="text-sm text-muted-foreground">{currentTripForEdit?.name}</p>
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="editVehicleId">Veículo*</Label>
-                        <Select value={selectedVehicleIdForEdit} onValueChange={setSelectedVehicleIdForEdit} required disabled={isSaving || loadingVehicles}>
-                          <SelectTrigger id="editVehicleId">
-                            <SelectValue placeholder={loadingVehicles ? "Carregando..." : "Selecione"} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {loadingVehicles ? (
-                              <SelectItem value="loading_vehicles_edit_trip" disabled>
-                                <div className="flex items-center justify-center py-2">
-                                  <LoadingSpinner className="h-4 w-4" />
-                                </div>
-                              </SelectItem>
-                            ) : vehicles.map((vehicle) => (
-                              <SelectItem key={vehicle.localId} value={vehicle.localId}>
-                                {vehicle.model} ({vehicle.licensePlate})
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Motorista</Label>
-                        <p className="text-sm text-muted-foreground">{getDriverName(trip.userId)}</p>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Base</Label>
-                        <p className="text-sm text-muted-foreground">{currentTripForEdit?.base || 'N/A'}</p>
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Status</Label>
-                        <p className="text-sm font-medium">{currentTripForEdit?.status}</p>
-                      </div>
-                      <DialogFooter>
-                        <DialogClose asChild>
-                          <Button type="button" variant="outline" onClick={closeEditModal} disabled={isSaving}>Cancelar</Button>
-                        </DialogClose>
-                        <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isSaving}>
-                          {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                          {isSaving ? 'Salvando...' : 'Salvar Alterações Locais'}
-                        </Button>
-                      </DialogFooter>
-                    </form>
+ <DialogHeader>
+ <DialogTitle>Editar Viagem</DialogTitle>
+ </DialogHeader>
+ <form onSubmit={handleEditTripSubmit} className="grid gap-4 py-4">
+ <div className="space-y-2">
+ <Label>Nome da Viagem</Label>
+ <p className="text-sm text-muted-foreground">{currentTripForEdit?.name}</p>
+ </div>
+ <div className="space-y-2">
+ <Label htmlFor="editVehicleId">Veículo*</Label>
+ <Select value={selectedVehicleIdForEdit} onValueChange={setSelectedVehicleIdForEdit} required disabled={isSaving || loadingVehicles}>
+ <SelectTrigger id="editVehicleId">
+ <SelectValue placeholder={loadingVehicles ? "Carregando..." : "Selecione"} />
+ </SelectTrigger>
+ <SelectContent>
+ {loadingVehicles ? (
+ <SelectItem value="loading_vehicles_edit_trip" disabled>
+ <div className="flex items-center justify-center py-2">
+ <LoadingSpinner className="h-4 w-4" />
+ </div>
+ </SelectItem>
+ ) : vehicles.map((vehicle) => (
+ <SelectItem key={vehicle.localId} value={vehicle.localId}>
+ {vehicle.model} ({vehicle.licensePlate})
+ </SelectItem>
+ ))}
+ </SelectContent>
+ </Select>
+ </div>
+ <div className="space-y-2">
+ <Label>Motorista</Label>
+ <p className="text-sm text-muted-foreground">{getDriverName(trip.userId)}</p>
+ </div>
+ <div className="space-y-2">
+ <Label>Base</Label>
+ <p className="text-sm text-muted-foreground">{currentTripForEdit?.base || 'N/A'}</p>
+ </div>
+ <div className="space-y-2">
+ <Label>Status</Label>
+ <p className="text-sm font-medium">{currentTripForEdit?.status}</p>
+ </div>
+ <DialogFooter>
+ <DialogClose asChild>
+ <Button type="button" variant="outline" onClick={closeEditModal} disabled={isSaving}>Cancelar</Button>
+ </DialogClose>
+ <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isSaving}>
+ {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+ {isSaving ? 'Salvando...' : 'Salvar Alterações Locais'}
+ </Button>
+ </DialogFooter>
+ </form>
                   </DialogContent>
                 </Dialog>
 
                 <AlertDialog open={isDeleteModalOpenForThisTrip && tripToDelete?.localId === trip.localId} onOpenChange={(isOpen) => { if (!isOpen) closeDeleteModal(); }}>
                   <AlertDialogTrigger asChild>
                     <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openDeleteModalForThisTrip(trip, e); }} className="text-muted-foreground hover:text-destructive h-8 w-8" disabled={isSaving || isDeleting}>
-                      <Trash2 className="h-4 w-4" />
+                      <Trash2 className="h-4 w-4" data-ai-hint="icon for delete action"/>
                     </Button>
                   </AlertDialogTrigger>
                   <AlertDialogContent>
                     <AlertDialogHeader>
                       <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
                       <AlertDialogDescUi>
-                        Tem certeza que deseja marcar a viagem "{tripToDelete?.name}" para exclusão? Itens relacionados (visitas, despesas, abastecimentos) também serão marcados.
+ Tem certeza que deseja marcar a viagem "{tripToDelete ? tripToDelete.name : ''}" para exclusão? Itens relacionados (visitas, despesas, abastecimentos) também serão marcados.
                       </AlertDialogDescUi>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
