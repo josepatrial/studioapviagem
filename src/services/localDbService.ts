@@ -40,9 +40,9 @@ export type LocalFueling = Omit<BaseFueling, 'id'> & LocalRecord & { localId: st
 export type LocalUser = User & { lastLogin?: string; passwordHash?: string; username?: string; deleted?: boolean; firebaseId?: string };
 
 export interface CustomType extends LocalRecord {
-  localId: string; // Primary key for IndexedDB
-  id?: string; // Alias for localId for generic functions if needed
-  name: string; // The actual type name, e.g., "Entrega", "Alimentação"
+  localId: string; 
+  id?: string; 
+  name: string; 
 }
 
 
@@ -204,7 +204,9 @@ export const openDB = (): Promise<IDBDatabase> => {
           openDBPromise = null;
       };
       db.onerror = (event) => {
-           console.error('[localDbService] IndexedDB connection error:', (event.target as IDBDatabase)?.error);
+           const target = event.target as IDBOpenDBRequest | IDBDatabase | null;
+           const error = target ? (target as any).error : 'Unknown DB error';
+           console.error('[localDbService] IndexedDB connection error:', error);
            db = null;
            openDBPromise = null;
       };
@@ -215,7 +217,11 @@ export const openDB = (): Promise<IDBDatabase> => {
       const transaction = (event.target as IDBOpenDBRequest).transaction;
       if (!transaction) {
            console.error("[onupgradeneeded] Upgrade transaction is null.");
-           request.onerror = () => reject("Upgrade transaction failed.");
+           if (request.error) {
+                reject("Upgrade transaction failed: " + request.error.message);
+           } else {
+                reject("Upgrade transaction failed for unknown reasons.");
+           }
            return;
        }
 
@@ -233,13 +239,18 @@ export const openDB = (): Promise<IDBDatabase> => {
       storesToUpgrade.forEach(storeInfo => {
           let objectStore: IDBObjectStore;
           if (!tempDb.objectStoreNames.contains(storeInfo.name)) {
+              console.log(`[onupgradeneeded] Creating store: ${storeInfo.name}`);
               objectStore = tempDb.createObjectStore(storeInfo.name, { keyPath: storeInfo.keyPath });
           } else {
+              console.log(`[onupgradeneeded] Store ${storeInfo.name} already exists. Accessing...`);
               objectStore = transaction.objectStore(storeInfo.name);
           }
           storeInfo.indices.forEach(indexInfo => {
               if (!objectStore.indexNames.contains(indexInfo.name)) {
+                  console.log(`[onupgradeneeded] Creating index '${indexInfo.name}' on store '${storeInfo.name}'.`);
                   objectStore.createIndex(indexInfo.name, indexInfo.name, { unique: indexInfo.unique });
+              } else {
+                  console.log(`[onupgradeneeded] Index '${indexInfo.name}' already exists on store '${storeInfo.name}'.`);
               }
           });
       });
@@ -255,6 +266,10 @@ export const openDB = (): Promise<IDBDatabase> => {
 
 export const getLocalDbStore = (storeName: string, mode: IDBTransactionMode): Promise<IDBObjectStore> => {
   return openDB().then(dbInstance => {
+    if (!dbInstance) {
+        console.error(`[getLocalDbStore] Failed to open DB, dbInstance is null for store ${storeName}.`);
+        throw new Error(`[getLocalDbStore] Failed to open DB for store ${storeName}.`);
+    }
     try {
       const transaction = dbInstance.transaction(storeName, mode);
       const store = transaction.objectStore(storeName);
@@ -262,8 +277,8 @@ export const getLocalDbStore = (storeName: string, mode: IDBTransactionMode): Pr
       transaction.onabort = (event) => console.warn(`[localDbService Tx Abort] ${storeName} (${mode}):`, (event.target as IDBTransaction)?.error);
       return store;
      } catch (error) {
-         console.error(`[getLocalDbStore] Error acquiring store ${storeName} (${mode})`, error);
-         throw error;
+         console.error(`[getLocalDbStore] Error acquiring store ${storeName} (${mode}). Potentially, store does not exist. Error:`, error);
+         throw error; // Re-throw to be caught by caller
      }
   });
 };
@@ -273,7 +288,7 @@ export const addLocalRecord = <T extends { localId: string }>(storeName: string,
       return new Promise<string>((resolve, reject) => {
         const request = store.add(record);
         request.onsuccess = () => resolve(record.localId);
-        request.onerror = () => reject(`Error adding record to ${storeName}: ${request.error?.message}`);
+        request.onerror = () => reject(new Error(`Error adding record to ${storeName}: ${request.error?.message}`));
       });
     });
 };
@@ -283,7 +298,7 @@ export const updateLocalRecord = <T extends { localId?: string; id?: string }>(s
         return new Promise<void>((resolve, reject) => {
             const request = store.put(record);
             request.onsuccess = () => resolve();
-            request.onerror = () => reject(`Error updating/adding record in ${storeName}: ${request.error?.message}`);
+            request.onerror = () => reject(new Error(`Error updating/adding record in ${storeName}: ${request.error?.message}`));
         });
     });
 };
@@ -293,7 +308,7 @@ const deleteLocalRecordByKey = (storeName: string, key: string): Promise<void> =
         return new Promise<void>((resolve, reject) => {
           const request = store.delete(key);
           request.onsuccess = () => resolve();
-          request.onerror = () => reject(`Error deleting record from ${storeName}: ${request.error?.message}`);
+          request.onerror = () => reject(new Error(`Error deleting record from ${storeName}: ${request.error?.message}`));
         });
     });
 };
@@ -307,12 +322,12 @@ const markRecordForDeletion = (storeName: string, localId: string): Promise<void
                     const recordToUpdate = { ...request.result, deleted: true, syncStatus: 'pending' as SyncStatus };
                     const updateRequest = store.put(recordToUpdate);
                     updateRequest.onsuccess = () => resolve();
-                    updateRequest.onerror = () => reject(`Error marking record ${localId} for deletion: ${updateRequest.error?.message}`);
+                    updateRequest.onerror = () => reject(new Error(`Error marking record ${localId} for deletion: ${updateRequest.error?.message}`));
                 } else {
-                    reject(`Record ${localId} not found to mark for deletion`);
+                    reject(new Error(`Record ${localId} not found to mark for deletion`));
                 }
             };
-            request.onerror = () => reject(`Error getting record ${localId} to mark for deletion: ${request.error?.message}`);
+            request.onerror = () => reject(new Error(`Error getting record ${localId} to mark for deletion: ${request.error?.message}`));
         });
     });
 };
@@ -320,6 +335,10 @@ const markRecordForDeletion = (storeName: string, localId: string): Promise<void
 export const clearStore = async (storeName: string): Promise<void> => {
     console.log(`[clearStore] Attempting to clear store: ${storeName}`);
     return openDB().then(dbInstance => {
+        if (!dbInstance) {
+            console.error(`[clearStore] Failed to open DB, dbInstance is null for store ${storeName}.`);
+            throw new Error(`[clearStore] Failed to open DB for store ${storeName}.`);
+        }
         return new Promise<void>((resolve, reject) => {
             try {
                 const transaction = dbInstance.transaction(storeName, 'readwrite');
@@ -329,9 +348,9 @@ export const clearStore = async (storeName: string): Promise<void> => {
                     console.log(`[clearStore] Store cleared successfully: ${storeName}`);
                     resolve();
                 };
-                request.onerror = () => reject(`Error clearing store ${storeName}: ${request.error?.message}`);
+                request.onerror = () => reject(new Error(`Error clearing store ${storeName}: ${request.error?.message}`));
             } catch (error) {
-                reject(`Error creating transaction to clear store ${storeName}: ${error}`);
+                reject(new Error(`Error creating transaction to clear store ${storeName}: ${String(error)}`));
             }
         });
     });
@@ -345,7 +364,7 @@ const getAllLocalRecords = <T>(storeName: string): Promise<T[]> => {
                 const results = (request.result as any[]).filter((item: any) => !item.deleted);
                 resolve(results as T[]);
             };
-            request.onerror = () => reject(`Error getting all records from ${storeName}: ${request.error?.message}`);
+            request.onerror = () => reject(new Error(`Error getting all records from ${storeName}: ${request.error?.message}`));
         });
     });
 };
@@ -354,6 +373,7 @@ const getLocalRecordsBySyncStatus = <T>(storeName: string, status: SyncStatus | 
     return getLocalDbStore(storeName, 'readonly').then(store => {
         return new Promise<T[]>((resolve, reject) => {
             if (!store.indexNames.contains('syncStatus')) {
+                 console.warn(`[getLocalRecordsBySyncStatus] Index 'syncStatus' not found on ${storeName}. Falling back to getAll and client-side filter.`);
                  const getAllRequest = store.getAll();
                  getAllRequest.onsuccess = () => {
                      const allRecords = getAllRequest.result as any[];
@@ -361,7 +381,7 @@ const getLocalRecordsBySyncStatus = <T>(storeName: string, status: SyncStatus | 
                      const filtered = allRecords.filter(item => !item.deleted && statusArray.includes(item.syncStatus));
                      resolve(filtered as T[]);
                  };
-                 getAllRequest.onerror = () => reject(`Fallback getAll failed for ${storeName}: ${getAllRequest.error?.message}`);
+                 getAllRequest.onerror = () => reject(new Error(`Fallback getAll failed for ${storeName}: ${getAllRequest.error?.message}`));
                  return;
              }
             const index = store.index('syncStatus');
@@ -376,7 +396,7 @@ const getLocalRecordsBySyncStatus = <T>(storeName: string, status: SyncStatus | 
                          combinedResults = combinedResults.concat(results as T[]);
                          res();
                      };
-                     request.onerror = () => rej(`Error getting records by status ${s}: ${request.error?.message}`);
+                     request.onerror = () => rej(new Error(`Error getting records by status ${s}: ${request.error?.message}`));
                 }));
             });
              Promise.all(promises).then(() => resolve(combinedResults)).catch(reject);
@@ -388,13 +408,14 @@ export const getLocalRecordsByRole = <T extends { role: UserRole }>(role: UserRo
     return getLocalDbStore(STORE_USERS, 'readonly').then(store => {
         return new Promise<T[]>((resolve, reject) => {
             if (!store.indexNames.contains('role')) {
+                console.warn(`[getLocalRecordsByRole] Index 'role' not found on ${STORE_USERS}. Falling back to getAll and client-side filter.`);
                 const getAllRequest = store.getAll();
                 getAllRequest.onsuccess = () => {
                     const allRecords = getAllRequest.result as T[];
                     const filtered = allRecords.filter(item => !(item as any).deleted && item.role === role);
                     resolve(filtered);
                 };
-                getAllRequest.onerror = () => reject(`Fallback getAll failed for ${STORE_USERS}: ${getAllRequest.error?.message}`);
+                getAllRequest.onerror = () => reject(new Error(`Fallback getAll failed for ${STORE_USERS}: ${getAllRequest.error?.message}`));
                 return;
             }
             const index = store.index('role');
@@ -403,7 +424,7 @@ export const getLocalRecordsByRole = <T extends { role: UserRole }>(role: UserRo
                 const results = (request.result as T[]).filter(item => !(item as any).deleted);
                 resolve(results);
             };
-            request.onerror = () => reject(`Error getting records by role ${role}: ${request.error?.message}`);
+            request.onerror = () => reject(new Error(`Error getting records by role ${role}: ${request.error?.message}`));
         });
     });
 };
@@ -413,7 +434,7 @@ export const getLocalUser = (userId: string): Promise<LocalUser | null> => {
         return new Promise<LocalUser | null>((resolve, reject) => {
             const request = store.get(userId);
             request.onsuccess = () => resolve(request.result as LocalUser | null);
-            request.onerror = () => reject(`Error getting user ${userId}: ${request.error?.message}`);
+            request.onerror = () => reject(new Error(`Error getting user ${userId}: ${request.error?.message}`));
         });
     });
 };
@@ -422,13 +443,14 @@ export const getLocalUserByEmail = (email: string): Promise<LocalUser | null> =>
     return getLocalDbStore(STORE_USERS, 'readonly').then(store => {
         return new Promise<LocalUser | null>((resolve, reject) => {
             if (!store.indexNames.contains('email')) {
-                 reject(`Index 'email' not found on ${STORE_USERS}`);
+                 console.error(`[getLocalUserByEmail] Index 'email' not found on ${STORE_USERS}.`);
+                 reject(new Error(`Index 'email' not found on ${STORE_USERS}. This is a critical schema issue.`));
                  return;
              }
             const index = store.index('email');
             const request = index.get(email);
             request.onsuccess = () => resolve(request.result as LocalUser | null);
-            request.onerror = () => reject(`Error getting user by email ${email}: ${request.error?.message}`);
+            request.onerror = () => reject(new Error(`Error getting user by email ${email}: ${request.error?.message}`));
         });
     });
 };
@@ -437,107 +459,101 @@ export const getLocalUserByUsername = (username: string): Promise<LocalUser | nu
     return getLocalDbStore(STORE_USERS, 'readonly').then(store => {
         return new Promise<LocalUser | null>((resolve, reject) => {
             if (!store.indexNames.contains('username')) {
-                 reject(`Index 'username' not found on ${STORE_USERS}.`);
+                 console.error(`[getLocalUserByUsername] Index 'username' not found on ${STORE_USERS}.`);
+                 reject(new Error(`Index 'username' not found on ${STORE_USERS}. This is a critical schema issue.`));
                  return;
              }
             const index = store.index('username');
             const request = index.get(username);
             request.onsuccess = () => resolve(request.result as LocalUser | null);
-            request.onerror = () => reject(`Error getting user by username ${username}: ${request.error?.message}`);
+            request.onerror = () => reject(new Error(`Error getting user by username ${username}: ${request.error?.message}`));
         });
     });
 };
 
 export const saveLocalUser = (user: DbUser): Promise<void> => {
-    console.log(`[saveLocalUser] Attempting to save/update user. ID: ${user.id}, Email: ${user.email}, FirebaseID: ${user.firebaseId}`);
+    console.log(`[saveLocalUser] Attempting to save user. ID: ${user.id}, Email: ${user.email}, FirebaseID: ${user.firebaseId}`);
     return new Promise<void>((resolve, reject) => {
         openDB().then(dbInstance => {
+            if (!dbInstance) {
+                const err = new Error("DB instance is null in saveLocalUser.");
+                console.error(err.message);
+                return reject(err);
+            }
             const transaction = dbInstance.transaction(STORE_USERS, 'readwrite');
             const store = transaction.objectStore(STORE_USERS);
             const emailIndex = store.index('email');
 
-            const txCompletionPromise = new Promise<void>((txResolve, txReject) => {
+            const txPromise = new Promise<void>((txResolve, txReject) => {
                 transaction.oncomplete = () => {
-                    console.log(`[saveLocalUser] Transaction completed successfully for user ID: ${user.id}`);
+                    console.log(`[saveLocalUser] Transaction completed for user ID: ${user.id}`);
                     txResolve();
                 };
                 transaction.onerror = (event) => {
-                    const error = (event.target as IDBTransaction)?.error || new Error("Unknown transaction error");
+                    const error = (event.target as IDBTransaction)?.error || new Error("Unknown transaction error in saveLocalUser");
                     console.error(`[saveLocalUser] Transaction error for user ID ${user.id}:`, error);
                     txReject(error);
                 };
                 transaction.onabort = (event) => {
-                    const error = (event.target as IDBTransaction)?.error || new Error("Transaction aborted");
+                    const error = (event.target as IDBTransaction)?.error || new Error("Transaction aborted in saveLocalUser");
                     console.warn(`[saveLocalUser] Transaction aborted for user ID ${user.id}:`, error);
                     txReject(error);
                 };
             });
 
-            // Step 1: Get all users with the same email
+            // Step 1: Find any existing records with the same email.
             const getByEmailRequest = emailIndex.getAll(user.email);
 
             getByEmailRequest.onsuccess = () => {
-                const existingRecords: DbUser[] = getByEmailRequest.result;
-                console.log(`[saveLocalUser] Found ${existingRecords.length} existing records for email ${user.email}. Record to save/update ID: ${user.id}`);
+                const existingRecordsWithEmail: DbUser[] = getByEmailRequest.result;
+                const operations: Promise<void>[] = [];
 
-                let operationsCompleted = 0;
-                const totalOperationsToWaitFor = existingRecords.filter(rec => rec.id !== user.id).length + 1; // +1 for the final put
-
-                const checkCompletion = () => {
-                    operationsCompleted++;
-                    if (operationsCompleted === totalOperationsToWaitFor) {
-                        console.log(`[saveLocalUser] All individual DB operations for ${user.id} (deletes & put) have had their success/error events. Transaction will now complete/fail.`);
-                    }
-                };
-
-                const operationErrorHandler = (opName: string, opError: DOMException | null) => {
-                    console.error(`[saveLocalUser] Error during '${opName}' for user ${user.id}:`, opError);
-                    // Don't reject here, let the transaction itself fail and be caught by txCompletionPromise
-                    checkCompletion();
-                };
-
-                // Step 2: Delete any conflicting records (same email, different ID)
-                existingRecords.forEach(existingRec => {
+                existingRecordsWithEmail.forEach(existingRec => {
                     if (existingRec.id !== user.id) {
-                        console.log(`[saveLocalUser] Queuing delete for conflicting record ID: ${existingRec.id} (email: ${existingRec.email})`);
-                        const deleteRequest = store.delete(existingRec.id);
-                        deleteRequest.onsuccess = () => {
-                            console.log(`[saveLocalUser] Successfully deleted conflicting record ID: ${existingRec.id}`);
-                            checkCompletion();
-                        };
-                        deleteRequest.onerror = () => operationErrorHandler(`delete ${existingRec.id}`, deleteRequest.error);
-                    } else {
-                        // This case means the record we are trying to "put" already exists with this ID and email.
-                        // No delete needed for this specific record.
-                        console.log(`[saveLocalUser] Record with ID ${user.id} and email ${user.email} already exists. Delete skipped for this, 'put' will update.`);
+                        console.log(`[saveLocalUser] Email conflict: '${user.email}' found with different ID '${existingRec.id}'. Current ID is '${user.id}'. Deleting conflicting record.`);
+                        operations.push(new Promise<void>((deleteResolve, deleteReject) => {
+                            const deleteRequest = store.delete(existingRec.id);
+                            deleteRequest.onsuccess = () => {
+                                console.log(`[saveLocalUser] Successfully deleted conflicting record ID: ${existingRec.id}`);
+                                deleteResolve();
+                            };
+                            deleteRequest.onerror = () => {
+                                console.error(`[saveLocalUser] Error deleting conflicting record ID ${existingRec.id}:`, deleteRequest.error);
+                                deleteReject(deleteRequest.error);
+                            };
+                        }));
                     }
                 });
 
-                // Step 3: Put the new/updated user record
-                console.log(`[saveLocalUser] Queuing put for user ID: ${user.id}`);
-                const putRequest = store.put(user);
-                putRequest.onsuccess = () => {
-                    console.log(`[saveLocalUser] Successfully put user ID: ${user.id}`);
-                    checkCompletion();
-                };
-                putRequest.onerror = () => operationErrorHandler(`put ${user.id}`, putRequest.error);
-
-                // If there were no conflicting records to delete, the only operation is the put.
-                if (existingRecords.filter(rec => rec.id !== user.id).length === 0) {
-                    operationsCompleted = totalOperationsToWaitFor -1; // Adjust because no delete ops were queued.
-                    checkCompletion();
-                }
-
+                // After attempting to delete all conflicts, put the new/updated user record.
+                Promise.all(operations)
+                    .then(() => {
+                        console.log(`[saveLocalUser] Proceeding to put user ID: ${user.id} after handling potential conflicts.`);
+                        const putRequest = store.put(user);
+                        putRequest.onerror = () => {
+                            console.error(`[saveLocalUser] Error in final put for user ID ${user.id}:`, putRequest.error);
+                            // If transaction is still active, try to abort it, though it might already be failing
+                            if (transaction.readyState === "active") transaction.abort();
+                        };
+                        putRequest.onsuccess = () => {
+                             console.log(`[saveLocalUser] Successfully put user ID: ${user.id}`);
+                        };
+                    })
+                    .catch(deleteError => {
+                        console.error(`[saveLocalUser] Error during delete operations for user ${user.id}:`, deleteError);
+                        if (transaction.readyState === "active") transaction.abort();
+                    });
             };
-            getByEmailRequest.onerror = () => {
-                console.error(`[saveLocalUser] Error in getByEmailRequest for email ${user.email}:`, getByEmailRequest.error);
-                // This error will likely cause the transaction to abort or error out.
-            };
 
-            txCompletionPromise.then(resolve).catch(reject);
+            getByEmailRequest.onerror = (event) => {
+                console.error(`[saveLocalUser] Error querying email index for ${user.email}:`, (event.target as IDBRequest).error);
+                if (transaction.readyState === "active") transaction.abort();
+            };
+            
+            txPromise.then(resolve).catch(reject);
 
         }).catch(dbOpenError => {
-            console.error("[saveLocalUser] Error opening DB:", dbOpenError);
+            console.error("[saveLocalUser] Error opening DB for saveLocalUser:", dbOpenError);
             reject(dbOpenError);
         });
     });
@@ -598,48 +614,55 @@ export const updateLocalTrip = (trip: LocalTrip): Promise<void> => {
 };
 
 export const deleteLocalTrip = (localId: string): Promise<void> => {
+    console.log(`[deleteLocalTrip] Attempting to mark trip ${localId} and its children for deletion.`);
     return Promise.all([
         markRecordForDeletion(STORE_TRIPS, localId),
         markChildrenForDeletion(STORE_VISITS, localId),
         markChildrenForDeletion(STORE_EXPENSES, localId),
         markChildrenForDeletion(STORE_FUELINGS, localId)
-    ]).then(() => {}).catch(err => {
+    ]).then(() => {
+        console.log(`[deleteLocalTrip] Successfully marked trip ${localId} and children for deletion.`);
+    }).catch(err => {
         console.error(`[deleteLocalTrip] Error marking trip ${localId} or children:`, err);
         throw err;
     });
 };
 
 const markChildrenForDeletion = async (storeName: string, tripLocalId: string): Promise<void> => {
+    console.log(`[markChildrenForDeletion] Marking children in ${storeName} for tripLocalId: ${tripLocalId}`);
     try {
         const store = await getLocalDbStore(storeName, 'readwrite');
         if (!store.indexNames.contains('tripLocalId')) {
-            console.warn(`[markChildren] Index 'tripLocalId' not found on store ${storeName}. Cannot mark children for trip ${tripLocalId}.`);
+            console.warn(`[markChildrenForDeletion] Index 'tripLocalId' not found on store ${storeName}. Cannot mark children for trip ${tripLocalId}.`);
             return;
         }
         const index = store.index('tripLocalId');
         let cursorReq = index.openCursor(IDBKeyRange.only(tripLocalId));
         return new Promise<void>((resolveCursor, rejectCursor) => {
              const transaction = store.transaction;
-             transaction.onerror = (event) => rejectCursor((event.target as IDBRequest).error);
+             transaction.onerror = (event) => rejectCursor(new Error(`Transaction error in markChildrenForDeletion for ${storeName}: ${(event.target as IDBRequest).error?.message}`));
              transaction.oncomplete = () => resolveCursor();
-             cursorReq.onerror = (event) => rejectCursor((event.target as IDBRequest).error);
+             transaction.onabort = (event) => rejectCursor(new Error(`Transaction aborted in markChildrenForDeletion for ${storeName}: ${(event.target as IDBRequest).error?.message}`));
+             
+             cursorReq.onerror = (event) => rejectCursor(new Error(`Cursor error in markChildrenForDeletion for ${storeName}: ${(event.target as IDBRequest).error?.message}`));
              cursorReq.onsuccess = (event) => {
-                 const cursor = (event.target as IDBRequest).result;
+                 const cursor = (event.target as IDBRequest).result as IDBCursorWithValue | null;
                  if (cursor) {
                      try {
                         const recordToUpdate = { ...cursor.value, deleted: true, syncStatus: 'pending' as SyncStatus };
                         const updateRequest = cursor.update(recordToUpdate);
-                        updateRequest.onerror = (errEvent) => console.error(`[markChildren] Error updating child ${cursor.primaryKey}:`, (errEvent.target as IDBRequest).error);
+                        updateRequest.onerror = (errEvent) => console.error(`[markChildrenForDeletion] Error updating child ${cursor.primaryKey} in ${storeName}:`, (errEvent.target as IDBRequest).error);
                      } catch (error) {
-                        console.error(`[markChildren] Error processing cursor value for ${cursor.primaryKey}:`, error);
-                        if(transaction.abort && transaction.readyState !== 'done') transaction.abort();
+                        console.error(`[markChildrenForDeletion] Error processing cursor value for ${cursor.primaryKey} in ${storeName}:`, error);
+                        if(transaction.readyState !== 'done') transaction.abort(); // Abort if something unexpected happens
                      }
                      cursor.continue();
                  }
+                 // Implicitly resolves when cursor is null and transaction completes
              };
         });
     } catch (error) {
-        console.error(`[markChildren] Error in ${storeName} for trip ${tripLocalId}:`, error);
+        console.error(`[markChildrenForDeletion] Outer error in ${storeName} for trip ${tripLocalId}:`, error);
         throw error;
     }
 };
@@ -656,7 +679,7 @@ export const getLocalTrips = (userId?: string, dateRange?: DateRange): Promise<L
                 }
                 if (dateRange?.from) {
                     const startDate = startOfDay(dateRange.from);
-                    const endDate = dateRange.to ? endOfDay(dateRange.to) : new Date(8640000000000000); // Far future date
+                    const endDate = dateRange.to ? endOfDay(dateRange.to) : new Date(8640000000000000); 
                     const interval = { start: startDate, end: endDate };
                     filteredRecords = filteredRecords.filter(trip => {
                         try {
@@ -670,7 +693,7 @@ export const getLocalTrips = (userId?: string, dateRange?: DateRange): Promise<L
             
             const getAllRequest = store.getAll();
             getAllRequest.onsuccess = () => processResults(getAllRequest.result as LocalTrip[]);
-            getAllRequest.onerror = () => reject(`Fallback/All getAll failed for ${STORE_TRIPS}: ${getAllRequest.error?.message}`);
+            getAllRequest.onerror = () => reject(new Error(`Fallback/All getAll failed for ${STORE_TRIPS}: ${getAllRequest.error?.message}`));
         });
     });
 };
@@ -686,7 +709,7 @@ export const getLocalVisits = (tripLocalId?: string): Promise<LocalVisit[]> => {
                      results.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
                      resolve(results);
                  };
-                 request.onerror = () => reject(`Error getting visits for trip ${tripLocalId}: ${request.error?.message}`);
+                 request.onerror = () => reject(new Error(`Error getting visits for trip ${tripLocalId}: ${request.error?.message}`));
              } else {
                  const getAllRequest = store.getAll();
                  getAllRequest.onsuccess = () => {
@@ -699,7 +722,7 @@ export const getLocalVisits = (tripLocalId?: string): Promise<LocalVisit[]> => {
                      allRecords.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
                      resolve(allRecords);
                   };
-                  getAllRequest.onerror = () => reject(`Fallback/All getAll failed for ${STORE_VISITS}: ${getAllRequest.error?.message}`);
+                  getAllRequest.onerror = () => reject(new Error(`Fallback/All getAll failed for ${STORE_VISITS}: ${getAllRequest.error?.message}`));
               }
          });
      });
@@ -739,7 +762,7 @@ export const getLocalExpenses = (tripLocalId?: string): Promise<LocalExpense[]> 
                       results.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
                       resolve(results);
                   };
-                  request.onerror = () => reject(`Error getting expenses for trip ${tripLocalId}: ${request.error?.message}`);
+                  request.onerror = () => reject(new Error(`Error getting expenses for trip ${tripLocalId}: ${request.error?.message}`));
               } else {
                  const getAllRequest = store.getAll();
                  getAllRequest.onsuccess = () => {
@@ -752,7 +775,7 @@ export const getLocalExpenses = (tripLocalId?: string): Promise<LocalExpense[]> 
                      allRecords.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
                      resolve(allRecords);
                   };
-                  getAllRequest.onerror = () => reject(`Fallback/All getAll failed for ${STORE_EXPENSES}: ${getAllRequest.error?.message}`);
+                  getAllRequest.onerror = () => reject(new Error(`Fallback/All getAll failed for ${STORE_EXPENSES}: ${getAllRequest.error?.message}`));
               }
          });
      });
@@ -796,7 +819,7 @@ export const getLocalFuelings = (tripLocalIdOrVehicleId?: string, filterBy: 'tri
                        });
                        resolve(results);
                    };
-                   request.onerror = () => reject(`Error getting fuelings for ${filterBy} ${tripLocalIdOrVehicleId}: ${request.error?.message}`);
+                   request.onerror = () => reject(new Error(`Error getting fuelings for ${filterBy} ${tripLocalIdOrVehicleId}: ${request.error?.message}`));
                } else {
                   const getAllRequest = store.getAll();
                   getAllRequest.onsuccess = () => {
@@ -813,7 +836,7 @@ export const getLocalFuelings = (tripLocalIdOrVehicleId?: string, filterBy: 'tri
                        });
                      resolve(allRecords);
                   };
-                  getAllRequest.onerror = () => reject(`Fallback/All getAll failed for ${STORE_FUELINGS}: ${getAllRequest.error?.message}`);
+                  getAllRequest.onerror = () => reject(new Error(`Fallback/All getAll failed for ${STORE_FUELINGS}: ${getAllRequest.error?.message}`));
               }
           });
       });
@@ -842,8 +865,6 @@ export const deleteLocalFueling = (localId: string): Promise<void> => {
       return markRecordForDeletion(STORE_FUELINGS, localId);
 };
 
-// --- Functions for Custom Types (Visit Types, Expense Types) ---
-
 export const addLocalCustomType = (storeName: string, typeName: string): Promise<string> => {
     return getLocalDbStore(storeName, 'readwrite').then(store => {
         return new Promise<string>((resolve, reject) => {
@@ -851,21 +872,12 @@ export const addLocalCustomType = (storeName: string, typeName: string): Promise
             const checkNameRequest = nameIndex.get(typeName);
 
             checkNameRequest.onsuccess = () => {
-                if (checkNameRequest.result) {
-                    // If type with this name already exists and is not marked deleted, reject.
-                    // If it exists but is marked deleted, we might allow re-adding it (effectively undeleting/replacing).
-                    // For simplicity, current behavior is to reject if name exists at all.
-                    // Consider more nuanced logic if undeleting/replacing is desired.
-                    if (!checkNameRequest.result.deleted) {
-                         console.warn(`[addLocalCustomType] Type with name "${typeName}" already exists in ${storeName} and is not deleted.`);
-                         reject(new Error(`O tipo "${typeName}" já existe.`));
-                         return;
-                    }
-                     // If it exists but is deleted, we can proceed to add a new one,
-                     // or update the existing one to not be deleted. Let's add a new one to keep it simple.
+                if (checkNameRequest.result && !checkNameRequest.result.deleted) {
+                     console.warn(`[addLocalCustomType] Type with name "${typeName}" already exists in ${storeName} and is not deleted.`);
+                     reject(new Error(`O tipo "${typeName}" já existe.`));
+                     return;
                 }
                 
-                // Proceed to add if name doesn't exist or the existing one was deleted
                 const localId = `local_${storeName.replace('Store', '').toLowerCase()}_type_${uuidv4()}`;
                 const newCustomType: CustomType = {
                     localId,
@@ -876,10 +888,10 @@ export const addLocalCustomType = (storeName: string, typeName: string): Promise
                 };
                 const addRequest = store.add(newCustomType);
                 addRequest.onsuccess = () => resolve(localId);
-                addRequest.onerror = () => reject(addRequest.error || new Error(`Falha ao adicionar tipo a ${storeName}`));
+                addRequest.onerror = () => reject(new Error(addRequest.error?.message || `Falha ao adicionar tipo a ${storeName}`));
 
             };
-            checkNameRequest.onerror = () => reject(checkNameRequest.error || new Error(`Falha ao verificar tipo existente em ${storeName}`));
+            checkNameRequest.onerror = () => reject(new Error(checkNameRequest.error?.message || `Falha ao verificar tipo existente em ${storeName}`));
         });
     });
 };
@@ -892,18 +904,6 @@ export const markLocalCustomTypeForDeletion = (storeName: string, localId: strin
     return markRecordForDeletion(storeName, localId);
 };
 
-// Specific functions for Visit Types
-export const addLocalVisitType = (typeName: string): Promise<string> => addLocalCustomType(STORE_VISIT_TYPES, typeName);
-export const getLocalVisitTypes = (): Promise<CustomType[]> => getLocalCustomTypes(STORE_VISIT_TYPES);
-export const deleteLocalVisitType = (localId: string): Promise<void> => markLocalCustomTypeForDeletion(STORE_VISIT_TYPES, localId);
-
-// Specific functions for Expense Types
-export const addLocalExpenseType = (typeName: string): Promise<string> => addLocalCustomType(STORE_EXPENSE_TYPES, typeName);
-export const getLocalExpenseTypes = (): Promise<CustomType[]> => getLocalCustomTypes(STORE_EXPENSE_TYPES);
-export const deleteLocalExpenseType = (localId: string): Promise<void> => markLocalCustomTypeForDeletion(STORE_EXPENSE_TYPES, localId);
-
-
-// --- Sync and Cleanup ---
 export const getPendingRecords = async (): Promise<{
   trips: LocalTrip[],
   visits: LocalVisit[],
@@ -946,23 +946,22 @@ export const updateSyncStatus = async (storeName: string, localId: string, fireb
                         ...additionalUpdates
                     };
                     if (status === 'synced' && !recordToUpdate.firebaseId && !recordToUpdate.deleted) {
-                         // Allow marking as synced if it's a deleted record without firebaseId (local only delete)
                         if(recordToUpdate.deleted) {
                             // console.log(`[updateSyncStatus] Record ${localId} in ${storeName} is deleted and has no firebaseId. Marking as synced for local cleanup.`);
                         } else {
                             console.error(`[updateSyncStatus] Cannot mark ${localId} in ${storeName} as synced without firebaseId unless it's marked for deletion.`);
-                            reject(`Cannot mark ${localId} as synced without firebaseId.`);
+                            reject(new Error(`Cannot mark ${localId} as synced without firebaseId.`));
                             return;
                         }
                     }
                     const updateRequest = store.put(recordToUpdate);
                     updateRequest.onsuccess = () => resolve();
-                    updateRequest.onerror = () => reject(`Error updating sync status for ${localId} in ${storeName}: ${updateRequest.error?.message}`);
+                    updateRequest.onerror = () => reject(new Error(`Error updating sync status for ${localId} in ${storeName}: ${updateRequest.error?.message}`));
                 } else {
-                    reject(`Record ${localId} not found in ${storeName} to update sync status`);
+                    reject(new Error(`Record ${localId} not found in ${storeName} to update sync status`));
                 }
             };
-            request.onerror = () => reject(`Error getting record ${localId} from ${storeName} for sync status update: ${request.error?.message}`);
+            request.onerror = () => reject(new Error(`Error getting record ${localId} from ${storeName} for sync status update: ${request.error?.message}`));
         });
     });
 };
@@ -979,14 +978,15 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
             const index = store.index('deleted');
             const writeTx = store.transaction;
 
-            let cursorReq = index.openCursor(IDBKeyRange.only(true as any));
-
-            await new Promise<void>((resolveCursor, rejectCursor) => {
+            await new Promise<void>((resolveTx, rejectTx) => {
                 const itemsToDeleteKeys: IDBValidKey[] = [];
+                let cursorReq = index.openCursor(IDBKeyRange.only(true as any)); // Query for deleted: true
+
                 cursorReq.onerror = (event: Event) => {
                     console.error(`[Cleanup] Error opening cursor on 'deleted' index for ${storeName}:`, (event.target as IDBRequest).error);
-                    rejectCursor((event.target as IDBRequest).error);
+                    rejectTx((event.target as IDBRequest).error);
                 };
+
                 cursorReq.onsuccess = (event) => {
                     const cursor = (event.target as IDBRequest).result as IDBCursorWithValue | null;
                     if (cursor) {
@@ -995,7 +995,7 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
                         }
                         cursor.continue();
                     } else {
-                        // Cursor finished, now delete collected keys
+                        // Cursor finished
                         if (itemsToDeleteKeys.length > 0) {
                             let deleteCount = 0;
                             itemsToDeleteKeys.forEach(key => {
@@ -1003,30 +1003,26 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
                                 deleteRequest.onsuccess = () => {
                                     deleteCount++;
                                     if (deleteCount === itemsToDeleteKeys.length) {
-                                        resolveCursor();
+                                        // All deletes attempted
                                     }
                                 };
                                 deleteRequest.onerror = (delEvent) => {
                                     console.error(`[Cleanup] Error deleting record ${key} from ${storeName}:`, (delEvent.target as IDBRequest).error);
-                                    // Continue trying to delete others
                                     deleteCount++;
                                     if (deleteCount === itemsToDeleteKeys.length) {
-                                        resolveCursor(); // Resolve even if some deletes failed to not block the whole process
+                                        // All deletes attempted
                                     }
                                 };
                             });
-                        } else {
-                            resolveCursor();
                         }
                     }
                 };
-            });
-            await new Promise<void>((resolveTx, rejectTx) => {
+                // Rely on transaction events for final promise resolution
                 writeTx.oncomplete = () => resolveTx();
                 writeTx.onerror = (txEvent) => rejectTx((txEvent.target as IDBTransaction).error);
-                writeTx.onabort = (txEvent) => rejectTx((txEvent.target as IDBTransaction).error || new Error('Transaction aborted'));
+                writeTx.onabort = (txEvent) => rejectTx((txEvent.target as IDBTransaction).error || new Error('Transaction aborted during cleanup'));
             });
-             console.log(`[Cleanup] Finished processing store ${storeName}.`);
+            console.log(`[Cleanup] Finished processing store ${storeName}.`);
         } catch (error) {
             console.error(`[Cleanup] Error during cleanup setup for store ${storeName}:`, error);
         }
@@ -1038,8 +1034,9 @@ export const seedInitialUsers = async (): Promise<void> => {
     console.log("[seedInitialUsers] Attempting to seed initial users...");
     const dbInstance = await openDB();
     if (!dbInstance) {
-        console.error("[seedInitialUsers] DB instance is null, cannot seed users.");
-        throw new Error("DB instance is null for seeding.");
+        const err = new Error("DB instance is null, cannot seed users.");
+        console.error(err.message);
+        throw err;
     }
 
     const countTransaction = dbInstance.transaction(STORE_USERS, 'readonly');
@@ -1047,29 +1044,28 @@ export const seedInitialUsers = async (): Promise<void> => {
     const countRequest = countStore.count();
     let userCount = 0;
 
+    const countPromise = new Promise<number>((resolve, reject) => {
+        countRequest.onsuccess = () => resolve(countRequest.result);
+        countRequest.onerror = (event) => reject((event.target as IDBRequest).error);
+        countTransaction.oncomplete = () => resolve(countRequest.result); // Also resolve on complete
+        countTransaction.onerror = (event) => reject((event.target as IDBTransaction).error);
+        countTransaction.onabort = (event) => reject((event.target as IDBTransaction).error || new Error("Count transaction aborted"));
+    });
+
     try {
-        userCount = await new Promise<number>((resolve, reject) => {
-            countRequest.onsuccess = () => resolve(countRequest.result);
-            countRequest.onerror = (event) => reject((event.target as IDBRequest).error);
-        });
-        await new Promise<void>((resolve, reject) => {
-            countTransaction.oncomplete = () => resolve();
-            countTransaction.onerror = (event) => reject((event.target as IDBTransaction).error);
-            countTransaction.onabort = (event) => reject((event.target as IDBTransaction).error || new Error("Count transaction aborted"));
-        });
+        userCount = await countPromise;
         console.log(`[seedInitialUsers] Found ${userCount} existing users.`);
     } catch (error) {
-        console.error("[seedInitialUsers] Error in read-only transaction for counting users:", error);
-        // Proceed, assuming count is 0 or error means we should try seeding
+        console.error("[seedInitialUsers] Error counting users, assuming 0 and proceeding with seed if possible:", error);
+        userCount = 0; // Assume 0 if count fails, to allow seeding on potentially fresh DB
     }
-
 
     if (userCount > 0) {
         console.log("[seedInitialUsers] Users already exist or count failed but assuming existence, skipping seed.");
-        return Promise.resolve();
+        return;
     }
 
-    console.log("[seedInitialUsers] No users found, proceeding with seeding.");
+    console.log("[seedInitialUsers] No users found or count failed, proceeding with hashing passwords for seeding.");
     let usersToSeedWithHashedPasswords: LocalUser[];
     try {
         const hashPromises = seedUsersData.map(async (user) => {
@@ -1077,33 +1073,35 @@ export const seedInitialUsers = async (): Promise<void> => {
             const { password, ...userData } = user;
             return {
                 ...userData,
-                id: user.id || user.email,
+                id: user.id || user.email, // Ensure ID is set
                 username: user.username || user.email.split('@')[0],
                 passwordHash: hash,
                 lastLogin: new Date().toISOString(),
                 role: user.role || 'driver',
                 base: user.role === 'admin' ? 'ALL' : (user.base || 'N/A'),
                 deleted: false,
-                firebaseId: user.id || user.email,
+                firebaseId: user.id || user.email, // Assume seeded users are "synced" with this ID
                 syncStatus: 'synced' as SyncStatus,
             };
         });
         usersToSeedWithHashedPasswords = await Promise.all(hashPromises);
+        console.log(`[seedInitialUsers] ${usersToSeedWithHashedPasswords.length} users prepared with hashed passwords.`);
     } catch (hashError) {
         console.error("[seedInitialUsers] Error hashing passwords for seed data:", hashError);
-        throw hashError;
+        throw hashError; // Propagate error
     }
 
     if (usersToSeedWithHashedPasswords.length === 0) {
-        console.log("[seedInitialUsers] No users prepared to seed.");
-        return Promise.resolve();
+        console.log("[seedInitialUsers] No users prepared to seed after hashing (this shouldn't happen with seed data).");
+        return;
     }
     
     const writeTransaction = dbInstance.transaction(STORE_USERS, 'readwrite');
     const store = writeTransaction.objectStore(STORE_USERS);
+    
     const txCompletionPromise = new Promise<void>((resolve, reject) => {
         writeTransaction.oncomplete = () => {
-            console.log("[seedInitialUsers] Seed users transaction completed.");
+            console.log("[seedInitialUsers] Seed users transaction successfully completed.");
             resolve();
         };
         writeTransaction.onerror = (event) => {
@@ -1116,18 +1114,31 @@ export const seedInitialUsers = async (): Promise<void> => {
         };
     });
 
+    console.log(`[seedInitialUsers] Starting to add/update ${usersToSeedWithHashedPasswords.length} users in transaction.`);
     usersToSeedWithHashedPasswords.forEach(user => {
-        const putRequest = store.put(user); // Use put for seeding to be idempotent
-        putRequest.onerror = () => {
-            console.error(`[seedInitialUsers] Error putting seed user ${user.email} (ID: ${user.id}):`, putRequest.error);
-        };
-        putRequest.onsuccess = () => {
-            console.log(`[seedInitialUsers] Successfully put seed user ${user.email} (ID: ${user.id}).`);
-        };
+        try {
+            const request = store.put(user); // Use put for idempotency during seeding
+            request.onerror = () => {
+                console.warn(`[seedInitialUsers] Error on put for user ${user.email} (ID: ${user.id}):`, request.error);
+                // Don't abort transaction here, let it try to continue for other users
+            };
+            request.onsuccess = () => {
+                // console.log(`[seedInitialUsers] Successfully put user ${user.email} (ID: ${user.id}).`);
+            };
+        } catch (e) {
+            // This catch is for synchronous errors if store.put itself throws, which is rare.
+            console.error(`[seedInitialUsers] Synchronous error calling store.put for user ${user.email}:`, e);
+            if (writeTransaction.readyState === 'active') {
+                writeTransaction.abort(); // Abort if a sync error occurs
+            }
+            // No need to reject txCompletionPromise here, transaction.onerror/onabort will handle it
+            return; // Stop trying to add more users if a sync error happens during put
+        }
     });
 
     return txCompletionPromise;
 };
 
+// Initial call to open the DB and seed users when the service loads
 openDB().then(() => seedInitialUsers()).catch(error => console.error("Failed to initialize/seed IndexedDB on load:", error));
 

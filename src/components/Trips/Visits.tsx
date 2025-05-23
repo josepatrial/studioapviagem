@@ -376,7 +376,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-lg sm:text-xl font-semibold">Histórico de Visitas</h3>
+        <h3 className="text-xl font-semibold">Histórico de Visitas</h3>
         {tripLocalId && (
             <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
                 <DialogTrigger asChild>
@@ -385,7 +385,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
                 </Button>
                 </DialogTrigger>
                 <DialogContent className="sm:max-w-lg">
- <DialogHeader className="pb-4"> {/* Added padding-bottom */}
+                <DialogHeader>
                     <DialogTitle>Registrar Nova Visita</DialogTitle>
                 </DialogHeader>
                 <form onSubmit={handlePrepareVisitForConfirmation} className="grid gap-4 py-4">
@@ -482,7 +482,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
         {loading ? (
            <div className="flex justify-center items-center h-20">
                <LoadingSpinner />
- </div>
+           </div>
        ) : visits.length === 0 ? (
          <Card className="text-center py-10 bg-card border border-border shadow-sm rounded-lg">
            <CardContent>
@@ -495,7 +495,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
            </CardContent>
          </Card>
        ) : (
- <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3"> {/* Added responsive grid for larger screens */}
+        <div className="grid gap-4">
           {visits.map((visit, index) => {
             let distanceTraveled = null;
             const sortedVisits = [...visits].sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
@@ -509,8 +509,8 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
             }
 
             return (
- <Card key={visit.id} className={cn("shadow-sm transition-shadow hover:shadow-md bg-card border border-border", visit.syncStatus === 'pending' && 'border-yellow-500', visit.syncStatus === 'error' && 'border-destructive')}>
- <CardHeader className="pb-2"> {/* Adjusted padding */}
+                <Card key={visit.id} className={cn("shadow-sm transition-shadow hover:shadow-md bg-card border border-border", visit.syncStatus === 'pending' && 'border-yellow-500', visit.syncStatus === 'error' && 'border-destructive')}>
+                <CardHeader>
                     <div className="flex justify-between items-start">
                         <div>
                         <CardTitle>{visit.clientName}</CardTitle>
@@ -535,7 +535,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
                                     <DialogTitle>Detalhes da Visita</DialogTitle>
                                 </DialogHeader>
                                 <div className="py-4 space-y-3">
- <p className="break-words"><strong>Cliente:</strong> {visit.clientName}</p> {/* Ensure long names wrap */}
+                                    <p><strong>Cliente:</strong> {visit.clientName}</p>
                                     <p><strong>Tipo de Visita:</strong> {visit.visitType || 'N/A'}</p>
                                     <p><strong>Localização (Cidade):</strong> {visit.location}</p>
                                     {visit.latitude && visit.longitude && <p className="text-xs text-muted-foreground">Coordenadas: ({visit.latitude.toFixed(4)}, {visit.longitude.toFixed(4)})</p>}
@@ -562,7 +562,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
                             </Button>
                             </DialogTrigger>
                             <DialogContent className="sm:max-w-lg">
- <DialogHeader className="pb-4"><DialogTitle>Editar Visita</DialogTitle></DialogHeader> {/* Added padding-bottom */}
+                                <DialogHeader><DialogTitle>Editar Visita</DialogTitle></DialogHeader>
                                 <form onSubmit={handleEditVisit} className="grid gap-4 py-4">
                                     <div className="space-y-2">
                                         <Label htmlFor="editClientName">Nome do Cliente*</Label>
@@ -625,7 +625,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
                                     <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
                                     <AlertDialogDescription>
                                         Tem certeza que deseja marcar esta visita a {visitToDelete?.clientName || visit.clientName} para exclusão?
- </AlertDialogDescription>
+                                    </AlertDialogDescription>
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
                                     <AlertDialogCancel onClick={closeDeleteConfirmation} disabled={isSaving}>Cancelar</AlertDialogCancel>
@@ -639,7 +639,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
                         </div>
                     </div>
                 </CardHeader>
- <CardContent className="space-y-2 text-sm py-4"> {/* Adjusted padding */}
+                <CardContent className="space-y-2 text-sm">
                     <div className="flex items-center gap-2 text-muted-foreground">
                         <Briefcase className="h-4 w-4 flex-shrink-0" />
                         <span>Tipo: {visit.visitType || 'N/A'}</span>

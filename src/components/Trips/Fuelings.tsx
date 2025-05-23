@@ -411,13 +411,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
 
   const openEditModal = (fueling: Fueling) => {
     setCurrentFueling(fueling);
-    // Ensure the date is formatted correctly for the date input (YYYY-MM-DD)
-    try {
-      setDate(new Date(fueling.date).toISOString().split('T')[0]);
-    } catch (e) {
-      console.error('Error parsing fueling date:', e);
-      setDate(''); // Set to empty string if date is invalid
-    }
+    setDate(fueling.date.split('T')[0]);
     setLiters(fueling.liters);
     setPricePerLiter(fueling.pricePerLiter);
     setLocation(fueling.location);
@@ -505,20 +499,16 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
     <canvas ref={canvasRef} style={{ display: 'none' }} />
 
     <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-center mb-4 gap-4 sm:gap-0">
+      <div className="flex justify-between items-center mb-4">
         <h3 className="text-xl font-semibold">Histórico de Abastecimentos</h3>
         {tripLocalId && ( // Only show add button if in context of a trip
           <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
-            <DialogTrigger asChild onClick={() => {
-              // Initialize date with current date in YYYY-MM-DD format
-              const today = new Date();
-              setDate(today.toISOString().split('T')[0]);
-            }}>
+            <DialogTrigger asChild>
               <Button onClick={() => { resetForm(); setDate(new Date().toISOString().split('T')[0]); console.log("[FuelingsComponent] Registrar Abastecimento button clicked, setting isCreateModalOpen to true."); setIsCreateModalOpen(true); }} className="bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isSaving}>
                 <PlusCircle className="mr-2 h-4 w-4" /> Registrar Abastecimento
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-lg w-11/12 md:w-full">
+            <DialogContent className="sm:max-w-lg">
               <DialogHeader>
                 <DialogTitle>Registrar Novo Abastecimento</DialogTitle>
               </DialogHeader>
@@ -622,7 +612,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
 
         <AlertDialog open={isDeleteModalOpen} onOpenChange={closeDeleteConfirmation}>
             <AlertDialogContent>
-                <AlertDialogHeader className="flex flex-col items-center text-center">
+                <AlertDialogHeader>
                     <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
                     <AlertDialogDescription>
                         Tem certeza que deseja marcar este abastecimento de {fuelingToDelete ? formatDateDisplay(fuelingToDelete.date) : 'N/A'} para exclusão? A exclusão definitiva ocorrerá na próxima sincronização.
@@ -669,7 +659,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
                     </CardDescription>
                   </div>
                   {tripLocalId && // Only show edit/delete buttons if in context of a trip where actions are appropriate
-                    <div className="flex gap-1 flex-shrink-0"> {/* Added flex-shrink-0 */}
+                    <div className="flex gap-1">
                       <Dialog>
                          <DialogTrigger asChild>
                              <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-primary h-8 w-8">
@@ -713,7 +703,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
                             <span className="sr-only">Editar</span>
                           </Button>
                         </DialogTrigger>
-                        <DialogContent className="sm:max-w-lg w-11/12 md:w-full">
+                        <DialogContent className="sm:max-w-lg">
                           <DialogHeader>
                             <DialogTitle>Editar Abastecimento</DialogTitle>
                           </DialogHeader>
