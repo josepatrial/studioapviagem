@@ -9,6 +9,9 @@ import { Toaster } from '@/components/ui/toaster';
 import { SyncProvider } from '@/contexts/SyncContext';
 
 // Initialize the fonts using the named imports
+// If the runtime error "(0, ...GeistSans) is not a function" persists
+// after the environment cleaning steps below, this indicates a deeper
+// issue with your Next.js/Turbopack/Geist setup.
 const geistSansFont = GeistSans({
   variable: '--font-geist-sans',
   subsets: ['latin'],
