@@ -1,19 +1,19 @@
 // src/app/layout.tsx
 import type { Metadata } from 'next';
-// Corrected import for GeistSans and GeistMono to use specific subpaths
-import { GeistSans } from 'geist/font/sans';
-import { GeistMono } from 'geist/font/mono';
+// Standard named imports from specific subpaths for Geist fonts
+import { GeistSans } from 'geist/font/sans'; // Changed to named import
+import { GeistMono } from 'geist/font/mono'; // Corrected to named import
 import './globals.css';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { Toaster } from '@/components/ui/toaster';
 import { SyncProvider } from '@/contexts/SyncContext';
 
-const geistSans = GeistSans({
+const geistSansFont = GeistSans({
   variable: '--font-geist-sans',
   subsets: ['latin'],
 });
 
-const geistMono = GeistMono({
+const geistMonoFont = GeistMono({
   variable: '--font-geist-mono',
   subsets: ['latin'],
 });
@@ -33,7 +33,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-BR">
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+      <body className={`${geistSansFont.variable} ${geistMonoFont.variable} antialiased`}>
         <AuthProvider>
           <SyncProvider>
             <main>{children}</main>
