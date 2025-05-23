@@ -1,21 +1,28 @@
 // src/app/layout.tsx
 import type { Metadata } from 'next';
-// Attempt to import default export and access named properties based on Turbopack runtime error
-import GeistSansModule from 'geist/font/sans';
-import GeistMonoModule from 'geist/font/mono';
+// Standard named imports from specific subpaths for Geist fonts
+import { GeistSans } from 'geist/font/sans';
+import { GeistMono } from 'geist/font/mono';
 import './globals.css';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { Toaster } from '@/components/ui/toaster';
 import { SyncProvider } from '@/contexts/SyncContext';
 
-// Initialize the fonts by accessing properties on the imported default modules
-// Using type assertion (as any) to accommodate the structure implied by the Turbopack error.
-const geistSansFont = (GeistSansModule as any).GeistSans({
+// Initialize the fonts using the named imports, but calling them as if they are properties
+// on an object, as implied by the Turbopack runtime error.
+// Using type assertion (as any) to bypass TypeScript strict checks for this specific workaround.
+const geistSansFont = (GeistSans as any).GeistSans ? (GeistSans as any).GeistSans({
+  variable: '--font-geist-sans',
+  subsets: ['latin'],
+}) : GeistSans({ // Fallback to direct call if the above structure isn't what's happening
   variable: '--font-geist-sans',
   subsets: ['latin'],
 });
 
-const geistMonoFont = (GeistMonoModule as any).GeistMono({
+const geistMonoFont = (GeistMono as any).GeistMono ? (GeistMono as any).GeistMono({
+  variable: '--font-geist-mono',
+  subsets: ['latin'],
+}) : GeistMono({ // Fallback to direct call
   variable: '--font-geist-mono',
   subsets: ['latin'],
 });
