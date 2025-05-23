@@ -8,12 +8,21 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { Toaster } from '@/components/ui/toaster';
 import { SyncProvider } from '@/contexts/SyncContext';
 
-const geistSansFont = GeistSans({
+// Initialize the fonts with their configurations
+// Attempting to access the function as a property of the named import,
+// based on the structure suggested by the Turbopack runtime error.
+const geistSansFont = (GeistSans as any).GeistSans ? (GeistSans as any).GeistSans({
+  variable: '--font-geist-sans',
+  subsets: ['latin'],
+}) : GeistSans({ // Fallback to direct call if the above structure isn't what's happening
   variable: '--font-geist-sans',
   subsets: ['latin'],
 });
 
-const geistMonoFont = GeistMono({
+const geistMonoFont = (GeistMono as any).GeistMono ? (GeistMono as any).GeistMono({
+  variable: '--font-geist-mono',
+  subsets: ['latin'],
+}) : GeistMono({ // Fallback
   variable: '--font-geist-mono',
   subsets: ['latin'],
 });
