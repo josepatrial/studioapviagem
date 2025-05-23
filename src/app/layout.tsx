@@ -8,16 +8,15 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { Toaster } from '@/components/ui/toaster';
 import { SyncProvider } from '@/contexts/SyncContext';
 
-// Initialize the fonts using the named imports
-// If the runtime error "(0, ...GeistSans) is not a function" persists
-// after the environment cleaning steps below, this indicates a deeper
-// issue with your Next.js/Turbopack/Geist setup.
-const geistSansFont = GeistSans({
+// Attempt to initialize the fonts based on the Turbopack error structure
+// This assumes the named import (e.g., GeistSans) is an object,
+// and the function is a property on that object with the same name.
+const geistSansFont = (GeistSans as any).GeistSans({
   variable: '--font-geist-sans',
   subsets: ['latin'],
 });
 
-const geistMonoFont = GeistMono({
+const geistMonoFont = (GeistMono as any).GeistMono({
   variable: '--font-geist-mono',
   subsets: ['latin'],
 });
