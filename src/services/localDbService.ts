@@ -191,22 +191,23 @@ export const openDB = (): Promise<IDBDatabase> => {
   openDBPromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onerror = () => {
-      console.error('[localDbService] IndexedDB error:', request.error);
+      console.error('[localDbService openDB] IndexedDB error:', request.error);
       db = null; 
       openDBPromise = null;
       reject(`Error opening IndexedDB: ${request.error?.message}`);
     };
     request.onsuccess = () => {
       db = request.result;
+      console.log('[localDbService openDB] IndexedDB connection successful.');
       db.onclose = () => {
-          console.warn('[localDbService] IndexedDB connection closed unexpectedly.');
+          console.warn('[localDbService openDB] IndexedDB connection closed unexpectedly.');
           db = null;
           openDBPromise = null;
       };
       db.onerror = (event) => {
            const target = event.target as IDBOpenDBRequest | IDBDatabase | null;
            const error = target ? (target as any).error : 'Unknown DB error';
-           console.error('[localDbService] IndexedDB connection error:', error);
+           console.error('[localDbService openDB] IndexedDB connection error:', error);
            db = null;
            openDBPromise = null;
       };
@@ -216,7 +217,7 @@ export const openDB = (): Promise<IDBDatabase> => {
       const tempDb = request.result;
       const transaction = (event.target as IDBOpenDBRequest).transaction;
       if (!transaction) {
-           console.error("[onupgradeneeded] Upgrade transaction is null.");
+           console.error("[localDbService openDB onupgradeneeded] Upgrade transaction is null.");
            if (request.error) {
                 reject("Upgrade transaction failed: " + request.error.message);
            } else {
@@ -224,6 +225,7 @@ export const openDB = (): Promise<IDBDatabase> => {
            }
            return;
        }
+      console.log(`[localDbService openDB onupgradeneeded] Upgrading database from version ${event.oldVersion} to ${event.newVersion}`);
 
       const storesToUpgrade = [
           { name: STORE_VEHICLES, keyPath: 'localId', indices: [{name: 'firebaseId', unique: false}, {name: 'syncStatus', unique: false}, {name: 'deleted', unique: false}]},
@@ -239,24 +241,24 @@ export const openDB = (): Promise<IDBDatabase> => {
       storesToUpgrade.forEach(storeInfo => {
           let objectStore: IDBObjectStore;
           if (!tempDb.objectStoreNames.contains(storeInfo.name)) {
-              console.log(`[onupgradeneeded] Creating store: ${storeInfo.name}`);
-              objectStore = tempDb.createObjectStore(storeInfo.name, { keyPath: storeInfo.keyPath });
+              console.log(`[localDbService openDB onupgradeneeded] Creating store: ${storeInfo.name}`);
+              objectStore = tempDb.createObjectStore(storeInfo.name, { keyPath: storeInfo.keyPath as string });
           } else {
-              console.log(`[onupgradeneeded] Store ${storeInfo.name} already exists. Accessing...`);
+              console.log(`[localDbService openDB onupgradeneeded] Store ${storeInfo.name} already exists. Accessing...`);
               objectStore = transaction.objectStore(storeInfo.name);
           }
           storeInfo.indices.forEach(indexInfo => {
               if (!objectStore.indexNames.contains(indexInfo.name)) {
-                  console.log(`[onupgradeneeded] Creating index '${indexInfo.name}' on store '${storeInfo.name}'.`);
+                  console.log(`[localDbService openDB onupgradeneeded] Creating index '${indexInfo.name}' on store '${storeInfo.name}'.`);
                   objectStore.createIndex(indexInfo.name, indexInfo.name, { unique: indexInfo.unique });
               } else {
-                  console.log(`[onupgradeneeded] Index '${indexInfo.name}' already exists on store '${storeInfo.name}'.`);
+                  console.log(`[localDbService openDB onupgradeneeded] Index '${indexInfo.name}' already exists on store '${storeInfo.name}'.`);
               }
           });
       });
     };
      request.onblocked = (event) => {
-          console.warn("[localDbService] IndexedDB open request blocked.", event);
+          console.warn("[localDbService openDB] IndexedDB open request blocked.", event);
           openDBPromise = null;
           reject("IndexedDB blocked, please close other tabs.");
      };
@@ -267,8 +269,9 @@ export const openDB = (): Promise<IDBDatabase> => {
 export const getLocalDbStore = (storeName: string, mode: IDBTransactionMode): Promise<IDBObjectStore> => {
   return openDB().then(dbInstance => {
     if (!dbInstance) {
-        console.error(`[getLocalDbStore] Failed to open DB, dbInstance is null for store ${storeName}.`);
-        throw new Error(`[getLocalDbStore] Failed to open DB for store ${storeName}.`);
+        const errorMsg = `[getLocalDbStore] Failed to open DB, dbInstance is null for store ${storeName}.`;
+        console.error(errorMsg);
+        throw new Error(errorMsg);
     }
     try {
       const transaction = dbInstance.transaction(storeName, mode);
@@ -278,7 +281,7 @@ export const getLocalDbStore = (storeName: string, mode: IDBTransactionMode): Pr
       return store;
      } catch (error) {
          console.error(`[getLocalDbStore] Error acquiring store ${storeName} (${mode}). Potentially, store does not exist. Error:`, error);
-         throw error; // Re-throw to be caught by caller
+         throw error;
      }
   });
 };
@@ -336,8 +339,9 @@ export const clearStore = async (storeName: string): Promise<void> => {
     console.log(`[clearStore] Attempting to clear store: ${storeName}`);
     return openDB().then(dbInstance => {
         if (!dbInstance) {
-            console.error(`[clearStore] Failed to open DB, dbInstance is null for store ${storeName}.`);
-            throw new Error(`[clearStore] Failed to open DB for store ${storeName}.`);
+            const errorMsg = `[clearStore] Failed to open DB, dbInstance is null for store ${storeName}.`;
+            console.error(errorMsg);
+            throw new Error(errorMsg);
         }
         return new Promise<void>((resolve, reject) => {
             try {
@@ -472,93 +476,77 @@ export const getLocalUserByUsername = (username: string): Promise<LocalUser | nu
 };
 
 export const saveLocalUser = (user: DbUser): Promise<void> => {
-    console.log(`[saveLocalUser] Attempting to save user. ID: ${user.id}, Email: ${user.email}, FirebaseID: ${user.firebaseId}`);
+    console.log(`[saveLocalUser] Attempting to save/update user. ID: ${user.id}, Email: ${user.email}, FirebaseID: ${user.firebaseId}`);
     return new Promise<void>((resolve, reject) => {
-        openDB().then(dbInstance => {
-            if (!dbInstance) {
-                const err = new Error("DB instance is null in saveLocalUser.");
-                console.error(err.message);
-                return reject(err);
-            }
-            const transaction = dbInstance.transaction(STORE_USERS, 'readwrite');
-            const store = transaction.objectStore(STORE_USERS);
+        getLocalDbStore(STORE_USERS, 'readwrite').then(store => {
+            const transaction = store.transaction;
             const emailIndex = store.index('email');
 
-            const txPromise = new Promise<void>((txResolve, txReject) => {
-                transaction.oncomplete = () => {
-                    console.log(`[saveLocalUser] Transaction completed for user ID: ${user.id}`);
-                    txResolve();
-                };
-                transaction.onerror = (event) => {
-                    const error = (event.target as IDBTransaction)?.error || new Error("Unknown transaction error in saveLocalUser");
-                    console.error(`[saveLocalUser] Transaction error for user ID ${user.id}:`, error);
-                    txReject(error);
-                };
-                transaction.onabort = (event) => {
-                    const error = (event.target as IDBTransaction)?.error || new Error("Transaction aborted in saveLocalUser");
-                    console.warn(`[saveLocalUser] Transaction aborted for user ID ${user.id}:`, error);
-                    txReject(error);
-                };
-            });
-
-            // Step 1: Find any existing records with the same email.
             const getByEmailRequest = emailIndex.getAll(user.email);
-
-            getByEmailRequest.onsuccess = () => {
-                const existingRecordsWithEmail: DbUser[] = getByEmailRequest.result;
-                const operations: Promise<void>[] = [];
-
-                existingRecordsWithEmail.forEach(existingRec => {
-                    if (existingRec.id !== user.id) {
-                        console.log(`[saveLocalUser] Email conflict: '${user.email}' found with different ID '${existingRec.id}'. Current ID is '${user.id}'. Deleting conflicting record.`);
-                        operations.push(new Promise<void>((deleteResolve, deleteReject) => {
-                            const deleteRequest = store.delete(existingRec.id);
-                            deleteRequest.onsuccess = () => {
-                                console.log(`[saveLocalUser] Successfully deleted conflicting record ID: ${existingRec.id}`);
-                                deleteResolve();
-                            };
-                            deleteRequest.onerror = () => {
-                                console.error(`[saveLocalUser] Error deleting conflicting record ID ${existingRec.id}:`, deleteRequest.error);
-                                deleteReject(deleteRequest.error);
-                            };
-                        }));
-                    }
-                });
-
-                // After attempting to delete all conflicts, put the new/updated user record.
-                Promise.all(operations)
-                    .then(() => {
-                        console.log(`[saveLocalUser] Proceeding to put user ID: ${user.id} after handling potential conflicts.`);
-                        const putRequest = store.put(user);
-                        putRequest.onerror = () => {
-                            console.error(`[saveLocalUser] Error in final put for user ID ${user.id}:`, putRequest.error);
-                            // If transaction is still active, try to abort it, though it might already be failing
-                            if (transaction.readyState === "active") transaction.abort();
-                        };
-                        putRequest.onsuccess = () => {
-                             console.log(`[saveLocalUser] Successfully put user ID: ${user.id}`);
-                        };
-                    })
-                    .catch(deleteError => {
-                        console.error(`[saveLocalUser] Error during delete operations for user ${user.id}:`, deleteError);
-                        if (transaction.readyState === "active") transaction.abort();
-                    });
-            };
 
             getByEmailRequest.onerror = (event) => {
                 console.error(`[saveLocalUser] Error querying email index for ${user.email}:`, (event.target as IDBRequest).error);
-                if (transaction.readyState === "active") transaction.abort();
+                if(transaction.readyState !== 'done') transaction.abort();
+                reject((event.target as IDBRequest).error || new Error("Failed to query email index."));
             };
-            
-            txPromise.then(resolve).catch(reject);
 
-        }).catch(dbOpenError => {
-            console.error("[saveLocalUser] Error opening DB for saveLocalUser:", dbOpenError);
-            reject(dbOpenError);
+            getByEmailRequest.onsuccess = () => {
+                const existingRecordsWithEmail: DbUser[] = getByEmailRequest.result;
+                const conflictingRecord = existingRecordsWithEmail.find(rec => rec.id !== user.id);
+
+                if (conflictingRecord) {
+                    console.log(`[saveLocalUser] Email conflict detected for ${user.email}. Existing record ID: ${conflictingRecord.id}, Current record ID: ${user.id}. Deleting conflicting record.`);
+                    const deleteRequest = store.delete(conflictingRecord.id);
+                    deleteRequest.onerror = (event) => {
+                        console.error(`[saveLocalUser] Error deleting conflicting record ID ${conflictingRecord.id}:`, (event.target as IDBRequest).error);
+                        if(transaction.readyState !== 'done') transaction.abort();
+                        reject((event.target as IDBRequest).error || new Error("Failed to delete conflicting record."));
+                    };
+                    deleteRequest.onsuccess = () => {
+                        console.log(`[saveLocalUser] Conflicting record ${conflictingRecord.id} deleted. Proceeding to put user ${user.id}.`);
+                        const putRequest = store.put(user);
+                        putRequest.onerror = (event) => {
+                            console.error(`[saveLocalUser] Error putting user ${user.id} after deleting conflict:`, (event.target as IDBRequest).error);
+                            if(transaction.readyState !== 'done') transaction.abort();
+                            reject((event.target as IDBRequest).error || new Error("Failed to put user after deleting conflict."));
+                        };
+                        putRequest.onsuccess = () => {
+                            // Main success path, transaction will complete
+                        };
+                    };
+                } else {
+                    console.log(`[saveLocalUser] No email conflict for ${user.email} with a different ID. Proceeding to put user ${user.id}.`);
+                    const putRequest = store.put(user);
+                    putRequest.onerror = (event) => {
+                        console.error(`[saveLocalUser] Error putting user ${user.id} (no conflict):`, (event.target as IDBRequest).error);
+                         if(transaction.readyState !== 'done') transaction.abort();
+                        reject((event.target as IDBRequest).error || new Error("Failed to put user (no conflict)."));
+                    };
+                    putRequest.onsuccess = () => {
+                        // Main success path, transaction will complete
+                    };
+                }
+            };
+
+            transaction.oncomplete = () => {
+                console.log(`[saveLocalUser] Transaction completed successfully for user ${user.id}.`);
+                resolve();
+            };
+            transaction.onerror = (event) => {
+                console.error(`[saveLocalUser] Transaction error for user ${user.id}:`, (event.target as IDBTransaction)?.error);
+                reject((event.target as IDBTransaction)?.error || new Error("Transaction failed in saveLocalUser."));
+            };
+            transaction.onabort = (event) => {
+                console.warn(`[saveLocalUser] Transaction aborted for user ${user.id}:`, (event.target as IDBTransaction)?.error);
+                reject((event.target as IDBTransaction)?.error || new Error("Transaction aborted in saveLocalUser."));
+            };
+
+        }).catch(dbStoreError => {
+            console.error("[saveLocalUser] Error getting DB store:", dbStoreError);
+            reject(dbStoreError);
         });
     });
 };
-
 
 export const deleteLocalUser = (userId: string, permanent: boolean = false): Promise<void> => {
      if (permanent) {
@@ -654,11 +642,10 @@ const markChildrenForDeletion = async (storeName: string, tripLocalId: string): 
                         updateRequest.onerror = (errEvent) => console.error(`[markChildrenForDeletion] Error updating child ${cursor.primaryKey} in ${storeName}:`, (errEvent.target as IDBRequest).error);
                      } catch (error) {
                         console.error(`[markChildrenForDeletion] Error processing cursor value for ${cursor.primaryKey} in ${storeName}:`, error);
-                        if(transaction.readyState !== 'done') transaction.abort(); // Abort if something unexpected happens
+                        if(transaction.readyState !== 'done') transaction.abort(); 
                      }
                      cursor.continue();
                  }
-                 // Implicitly resolves when cursor is null and transaction completes
              };
         });
     } catch (error) {
@@ -968,66 +955,88 @@ export const updateSyncStatus = async (storeName: string, localId: string, fireb
 
 export const cleanupDeletedRecords = async (): Promise<void> => {
     const stores = [STORE_TRIPS, STORE_VISITS, STORE_EXPENSES, STORE_FUELINGS, STORE_VEHICLES, STORE_USERS, STORE_VISIT_TYPES, STORE_EXPENSE_TYPES];
+    console.log("[Cleanup] Starting cleanup of deleted records for all stores.");
+
     for (const storeName of stores) {
         try {
             const store = await getLocalDbStore(storeName, 'readwrite');
-            if (!store.indexNames.contains('deleted')) {
-                console.warn(`[Cleanup] Store ${storeName} does not have a 'deleted' index. Skipping cleanup for this store.`);
-                continue;
-            }
-            const index = store.index('deleted');
             const writeTx = store.transaction;
 
             await new Promise<void>((resolveTx, rejectTx) => {
-                const itemsToDeleteKeys: IDBValidKey[] = [];
-                let cursorReq = index.openCursor(IDBKeyRange.only(true as any)); // Query for deleted: true
+                const getAllRequest = store.getAll();
 
-                cursorReq.onerror = (event: Event) => {
-                    console.error(`[Cleanup] Error opening cursor on 'deleted' index for ${storeName}:`, (event.target as IDBRequest).error);
+                getAllRequest.onerror = (event: Event) => {
+                    console.error(`[Cleanup] Error fetching all records from ${storeName}:`, (event.target as IDBRequest).error);
                     rejectTx((event.target as IDBRequest).error);
                 };
 
-                cursorReq.onsuccess = (event) => {
-                    const cursor = (event.target as IDBRequest).result as IDBCursorWithValue | null;
-                    if (cursor) {
-                        if (cursor.value && cursor.value.deleted === true && cursor.value.syncStatus === 'synced') {
-                            itemsToDeleteKeys.push(cursor.primaryKey);
+                getAllRequest.onsuccess = () => {
+                    const allRecords = getAllRequest.result as any[];
+                    const itemsToDeleteKeys: IDBValidKey[] = [];
+
+                    allRecords.forEach(record => {
+                        if (record.deleted === true && record.syncStatus === 'synced') {
+                            const keyPath = store.keyPath;
+                            if (typeof keyPath === 'string') {
+                                itemsToDeleteKeys.push(record[keyPath]);
+                            } else if (Array.isArray(keyPath)) {
+                                // Handle array keyPaths if necessary, though not used in this app
+                                console.warn(`[Cleanup] Array keyPath not handled for store ${storeName}`);
+                            } else {
+                                console.warn(`[Cleanup] No valid keyPath for store ${storeName}`);
+                            }
                         }
-                        cursor.continue();
-                    } else {
-                        // Cursor finished
-                        if (itemsToDeleteKeys.length > 0) {
-                            let deleteCount = 0;
-                            itemsToDeleteKeys.forEach(key => {
+                    });
+
+                    if (itemsToDeleteKeys.length > 0) {
+                        console.log(`[Cleanup] Found ${itemsToDeleteKeys.length} items to delete from ${storeName}.`);
+                        let deleteOperations = itemsToDeleteKeys.map(key => {
+                            return new Promise<void>((resolveDelete, rejectDelete) => {
                                 const deleteRequest = store.delete(key);
                                 deleteRequest.onsuccess = () => {
-                                    deleteCount++;
-                                    if (deleteCount === itemsToDeleteKeys.length) {
-                                        // All deletes attempted
-                                    }
+                                    // console.log(`[Cleanup] Deleted record ${String(key)} from ${storeName}`);
+                                    resolveDelete();
                                 };
                                 deleteRequest.onerror = (delEvent) => {
-                                    console.error(`[Cleanup] Error deleting record ${key} from ${storeName}:`, (delEvent.target as IDBRequest).error);
-                                    deleteCount++;
-                                    if (deleteCount === itemsToDeleteKeys.length) {
-                                        // All deletes attempted
-                                    }
+                                    console.error(`[Cleanup] Error deleting record ${String(key)} from ${storeName}:`, (delEvent.target as IDBRequest).error);
+                                    rejectDelete((delEvent.target as IDBRequest).error);
                                 };
                             });
-                        }
+                        });
+
+                        Promise.all(deleteOperations)
+                            .then(() => {
+                                // All deletes attempted, transaction will complete/error on its own
+                            })
+                            .catch(err => {
+                                console.error(`[Cleanup] Error during batched delete operations for ${storeName}:`, err);
+                                // Let transaction error handler catch this if it hasn't already.
+                            });
+                    } else {
+                        // No items to delete, transaction will complete.
                     }
                 };
+
                 // Rely on transaction events for final promise resolution
-                writeTx.oncomplete = () => resolveTx();
-                writeTx.onerror = (txEvent) => rejectTx((txEvent.target as IDBTransaction).error);
-                writeTx.onabort = (txEvent) => rejectTx((txEvent.target as IDBTransaction).error || new Error('Transaction aborted during cleanup'));
+                writeTx.oncomplete = () => {
+                    // console.log(`[Cleanup] Transaction completed for store ${storeName}.`);
+                    resolveTx();
+                };
+                writeTx.onerror = (txEvent) => {
+                    console.error(`[Cleanup] Transaction error for store ${storeName}:`, (txEvent.target as IDBTransaction).error);
+                    rejectTx((txEvent.target as IDBTransaction).error);
+                };
+                writeTx.onabort = (txEvent) => {
+                    console.warn(`[Cleanup] Transaction aborted for store ${storeName}:`, (txEvent.target as IDBTransaction).error);
+                    rejectTx((txEvent.target as IDBTransaction).error || new Error('Transaction aborted during cleanup'));
+                };
             });
             console.log(`[Cleanup] Finished processing store ${storeName}.`);
         } catch (error) {
             console.error(`[Cleanup] Error during cleanup setup for store ${storeName}:`, error);
         }
     }
-     console.log("[Cleanup] All stores processed for cleanup.");
+    console.log("[Cleanup] All stores processed for cleanup.");
 };
 
 export const seedInitialUsers = async (): Promise<void> => {
@@ -1039,25 +1048,23 @@ export const seedInitialUsers = async (): Promise<void> => {
         throw err;
     }
 
-    const countTransaction = dbInstance.transaction(STORE_USERS, 'readonly');
-    const countStore = countTransaction.objectStore(STORE_USERS);
-    const countRequest = countStore.count();
+    // Step 1: Count existing users in a read-only transaction
     let userCount = 0;
-
-    const countPromise = new Promise<number>((resolve, reject) => {
-        countRequest.onsuccess = () => resolve(countRequest.result);
-        countRequest.onerror = (event) => reject((event.target as IDBRequest).error);
-        countTransaction.oncomplete = () => resolve(countRequest.result); // Also resolve on complete
-        countTransaction.onerror = (event) => reject((event.target as IDBTransaction).error);
-        countTransaction.onabort = (event) => reject((event.target as IDBTransaction).error || new Error("Count transaction aborted"));
-    });
-
     try {
-        userCount = await countPromise;
+        const countTransaction = dbInstance.transaction(STORE_USERS, 'readonly');
+        const countStore = countTransaction.objectStore(STORE_USERS);
+        const countRequest = countStore.count();
+        userCount = await new Promise<number>((resolve, reject) => {
+            countRequest.onsuccess = () => resolve(countRequest.result);
+            countRequest.onerror = (event) => reject((event.target as IDBRequest).error);
+            countTransaction.oncomplete = () => resolve(countRequest.result); // Resolve on complete as well
+            countTransaction.onerror = (event) => reject((event.target as IDBTransaction).error);
+            countTransaction.onabort = (event) => reject((event.target as IDBTransaction).error || new Error("Count transaction aborted"));
+        });
         console.log(`[seedInitialUsers] Found ${userCount} existing users.`);
     } catch (error) {
         console.error("[seedInitialUsers] Error counting users, assuming 0 and proceeding with seed if possible:", error);
-        userCount = 0; // Assume 0 if count fails, to allow seeding on potentially fresh DB
+        userCount = 0;
     }
 
     if (userCount > 0) {
@@ -1065,6 +1072,7 @@ export const seedInitialUsers = async (): Promise<void> => {
         return;
     }
 
+    // Step 2: Hash passwords (asynchronously, outside DB transaction)
     console.log("[seedInitialUsers] No users found or count failed, proceeding with hashing passwords for seeding.");
     let usersToSeedWithHashedPasswords: LocalUser[];
     try {
@@ -1073,14 +1081,14 @@ export const seedInitialUsers = async (): Promise<void> => {
             const { password, ...userData } = user;
             return {
                 ...userData,
-                id: user.id || user.email, // Ensure ID is set
+                id: user.id || user.email,
                 username: user.username || user.email.split('@')[0],
                 passwordHash: hash,
                 lastLogin: new Date().toISOString(),
                 role: user.role || 'driver',
                 base: user.role === 'admin' ? 'ALL' : (user.base || 'N/A'),
                 deleted: false,
-                firebaseId: user.id || user.email, // Assume seeded users are "synced" with this ID
+                firebaseId: user.id || user.email,
                 syncStatus: 'synced' as SyncStatus,
             };
         });
@@ -1088,57 +1096,60 @@ export const seedInitialUsers = async (): Promise<void> => {
         console.log(`[seedInitialUsers] ${usersToSeedWithHashedPasswords.length} users prepared with hashed passwords.`);
     } catch (hashError) {
         console.error("[seedInitialUsers] Error hashing passwords for seed data:", hashError);
-        throw hashError; // Propagate error
+        throw hashError;
     }
 
     if (usersToSeedWithHashedPasswords.length === 0) {
-        console.log("[seedInitialUsers] No users prepared to seed after hashing (this shouldn't happen with seed data).");
+        console.log("[seedInitialUsers] No users prepared to seed after hashing.");
         return;
     }
-    
-    const writeTransaction = dbInstance.transaction(STORE_USERS, 'readwrite');
-    const store = writeTransaction.objectStore(STORE_USERS);
-    
-    const txCompletionPromise = new Promise<void>((resolve, reject) => {
-        writeTransaction.oncomplete = () => {
-            console.log("[seedInitialUsers] Seed users transaction successfully completed.");
-            resolve();
-        };
-        writeTransaction.onerror = (event) => {
-            console.error("[seedInitialUsers] Seed users transaction error:", (event.target as IDBTransaction).error);
-            reject((event.target as IDBTransaction).error);
-        };
-        writeTransaction.onabort = (event) => {
-            console.warn("[seedInitialUsers] Seed users transaction aborted:", (event.target as IDBTransaction).error);
-            reject((event.target as IDBTransaction).error || new Error("Seed users transaction aborted"));
-        };
-    });
 
-    console.log(`[seedInitialUsers] Starting to add/update ${usersToSeedWithHashedPasswords.length} users in transaction.`);
-    usersToSeedWithHashedPasswords.forEach(user => {
-        try {
-            const request = store.put(user); // Use put for idempotency during seeding
-            request.onerror = () => {
-                console.warn(`[seedInitialUsers] Error on put for user ${user.email} (ID: ${user.id}):`, request.error);
-                // Don't abort transaction here, let it try to continue for other users
-            };
-            request.onsuccess = () => {
-                // console.log(`[seedInitialUsers] Successfully put user ${user.email} (ID: ${user.id}).`);
-            };
-        } catch (e) {
-            // This catch is for synchronous errors if store.put itself throws, which is rare.
-            console.error(`[seedInitialUsers] Synchronous error calling store.put for user ${user.email}:`, e);
-            if (writeTransaction.readyState === 'active') {
-                writeTransaction.abort(); // Abort if a sync error occurs
-            }
-            // No need to reject txCompletionPromise here, transaction.onerror/onabort will handle it
-            return; // Stop trying to add more users if a sync error happens during put
-        }
-    });
+    // Step 3: Perform all database writes in a single new transaction
+    try {
+        const writeTransaction = dbInstance.transaction(STORE_USERS, 'readwrite');
+        const store = writeTransaction.objectStore(STORE_USERS);
+        const operationPromises: Promise<void>[] = [];
 
-    return txCompletionPromise;
+        usersToSeedWithHashedPasswords.forEach(user => {
+            operationPromises.push(new Promise<void>((resolveOp, rejectOp) => {
+                const request = store.put(user); // Use put for idempotency
+                request.onsuccess = () => resolveOp();
+                request.onerror = (event) => {
+                    console.warn(`[seedInitialUsers] Error on put for user ${user.email} (ID: ${user.id}):`, request.error);
+                    rejectOp(request.error); // Or resolveOp() if you want to continue seeding other users
+                };
+            }));
+        });
+
+        await Promise.all(operationPromises); // Wait for all put operations to be queued
+
+        return new Promise<void>((resolve, reject) => { // Wait for the transaction itself to complete
+            writeTransaction.oncomplete = () => {
+                console.log(`[seedInitialUsers] Seed users transaction successfully completed. ${usersToSeedWithHashedPasswords.length} users processed.`);
+                resolve();
+            };
+            writeTransaction.onerror = (event) => {
+                console.error("[seedInitialUsers] Seed users transaction error:", (event.target as IDBTransaction).error);
+                reject((event.target as IDBTransaction).error);
+            };
+            writeTransaction.onabort = (event) => {
+                console.warn("[seedInitialUsers] Seed users transaction aborted:", (event.target as IDBTransaction).error);
+                reject((event.target as IDBTransaction).error || new Error("Seed users transaction aborted"));
+            };
+        });
+    } catch (error) {
+        console.error("[seedInitialUsers] Error during seeding logic (transaction phase):", error);
+        throw error; // Propagate if transaction setup fails
+    }
 };
 
 // Initial call to open the DB and seed users when the service loads
-openDB().then(() => seedInitialUsers()).catch(error => console.error("Failed to initialize/seed IndexedDB on load:", error));
-
+openDB()
+  .then(() => {
+    console.log("[localDbService init] DB opened successfully. Proceeding to seed users.");
+    return seedInitialUsers();
+  })
+  .then(() => {
+    console.log("[localDbService init] User seeding process attempted/completed.");
+  })
+  .catch(error => console.error("[localDbService init] Failed to initialize/seed IndexedDB on load:", error));
