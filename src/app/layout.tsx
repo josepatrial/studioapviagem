@@ -1,20 +1,23 @@
 // src/app/layout.tsx
 import type { Metadata } from 'next';
 // Standard named imports from specific subpaths for Geist fonts
-import { GeistSans } from 'geist/font/sans';
-import { GeistMono } from 'geist/font/mono';
+import { GeistSans as GeistSansImport } from 'geist/font/sans';
+import { GeistMono as GeistMonoImport } from 'geist/font/mono';
 import './globals.css';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { Toaster } from '@/components/ui/toaster';
 import { SyncProvider } from '@/contexts/SyncContext';
 
-// Initialize the fonts using the standard named imports and direct invocation
-const geistSansFont = GeistSans({
+// Initialize the fonts directly using the named imports
+const geistSansLoader = GeistSansImport;
+const geistMonoLoader = GeistMonoImport;
+
+const geistSansFont = geistSansLoader({
   variable: '--font-geist-sans',
   subsets: ['latin'],
 });
 
-const geistMonoFont = GeistMono({
+const geistMonoFont = geistMonoLoader({
   variable: '--font-geist-mono',
   subsets: ['latin'],
 });
