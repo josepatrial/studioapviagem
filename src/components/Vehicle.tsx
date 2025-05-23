@@ -20,7 +20,7 @@ import {
     getLocalVehicles as fetchLocalDbVehicles,
     updateLocalRecord,
     STORE_VEHICLES,
-    STORE_USERS, // Added STORE_USERS import
+    STORE_USERS,
     LocalVehicle,
     getLocalFuelings,
     LocalFueling,
@@ -73,7 +73,6 @@ export const Vehicle: React.FC = () => {
   const [vehicleDetails, setVehicleDetails] = useState<VehicleDetails | null>(null);
   const [loadingDetails, setLoadingDetails] = useState(false);
   const [allDrivers, setAllDrivers] = useState<LocalUser[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
 
   const fetchAllVehiclesData = useCallback(async () => {
@@ -81,66 +80,69 @@ export const Vehicle: React.FC = () => {
     console.log("[Vehicle fetchAllVehiclesData] Starting fetch...");
     try {
         let finalVehiclesData: LocalVehicle[];
+        const cachePromises: Promise<void>[] = [];
 
         if (navigator.onLine) {
             console.log("[Vehicle fetchAllVehiclesData] Online: Fetching vehicles from Firestore...");
             const onlineVehiclesRaw = await fetchOnlineVehicles();
             console.log(`[Vehicle fetchAllVehiclesData] Fetched ${onlineVehiclesRaw.length} vehicles from Firestore.`);
 
-            const onlineVehiclesData = onlineVehiclesRaw.map(v => ({
+            finalVehiclesData = onlineVehiclesRaw.map(v => ({
                 ...v,
-                localId: String(v.firebaseId || v.id),
+                localId: String(v.firebaseId || v.id || uuidv4()), // Ensure localId exists
                 firebaseId: String(v.firebaseId || v.id),
                 syncStatus: 'synced',
                 deleted: v.deleted || false,
             } as LocalVehicle));
-            
-            const cachePromises = onlineVehiclesData.map(vehicleToCache => {
+
+            finalVehiclesData.forEach(vehicleToCache => {
               if (!vehicleToCache.localId) {
                 console.warn("[Vehicle] Skipping cache for online vehicle due to missing localId:", vehicleToCache);
-                return Promise.resolve();
+                return;
               }
-              return updateLocalRecord(STORE_VEHICLES, vehicleToCache)
-                .catch(cacheError => console.warn(`[Vehicle] Error caching Firestore vehicle ${vehicleToCache.localId} locally:`, cacheError));
+              cachePromises.push(updateLocalRecord(STORE_VEHICLES, vehicleToCache)
+                .catch(cacheError => console.warn(`[Vehicle] Error caching Firestore vehicle ${vehicleToCache.localId} locally:`, cacheError)));
             });
-            await Promise.all(cachePromises);
-            console.log("[Vehicle fetchAllVehiclesData] Finished caching online vehicles.");
-            finalVehiclesData = onlineVehiclesData;
+
         } else {
             console.log("[Vehicle fetchAllVehiclesData] Offline: Fetching vehicles from LocalDB...");
             finalVehiclesData = await fetchLocalDbVehicles();
             console.log(`[Vehicle fetchAllVehiclesData] Fetched ${finalVehiclesData.length} vehicles from LocalDB.`);
         }
-        
+
+        if (cachePromises.length > 0) {
+            await Promise.all(cachePromises);
+            console.log("[Vehicle fetchAllVehiclesData] Finished attempting to cache Firestore items.");
+        }
+
         const uniqueVehiclesMap = new Map<string, LocalVehicle>();
         finalVehiclesData.forEach(v => {
-            const key = String(v.firebaseId || v.localId); // Prioritize firebaseId for uniqueness
+            const key = String(v.firebaseId || v.localId);
             if (!uniqueVehiclesMap.has(key) && !v.deleted) {
                  uniqueVehiclesMap.set(key, v);
             } else if (uniqueVehiclesMap.has(key) && !v.deleted) {
-                // If already exists, prefer the one with a firebaseId or the one that is not deleted
                 const existing = uniqueVehiclesMap.get(key)!;
-                if (!existing.firebaseId && v.firebaseId) { // New one has firebaseId, old one doesn't
+                if (!existing.firebaseId && v.firebaseId) {
                     uniqueVehiclesMap.set(key, v);
-                } else if (existing.deleted && !v.deleted) { // Old one was deleted, new one isn't
+                } else if (existing.deleted && !v.deleted) {
                      uniqueVehiclesMap.set(key, v);
                 }
             }
         });
-        
+
         const uniqueVehiclesArray = Array.from(uniqueVehiclesMap.values());
         console.log(`[Vehicle fetchAllVehiclesData] De-duplicated vehicles. Count: ${uniqueVehiclesArray.length}`);
 
         const mappedVehiclesUI = uniqueVehiclesArray.map(lv => ({
-              id: String(lv.firebaseId || lv.localId), 
+              id: String(lv.firebaseId || lv.localId),
               localId: lv.localId,
               firebaseId: lv.firebaseId,
               model: lv.model,
               year: lv.year,
               licensePlate: lv.licensePlate,
          } as VehicleInfo)).sort((a,b)=> (a.model || '').localeCompare(b.model || ''));
-        
-        console.log(`[Vehicle fetchAllVehiclesData] Mapped to UI. Count: ${mappedVehiclesUI.length}. First few:`, mappedVehiclesUI.slice(0,3));
+
+        console.log(`[Vehicle fetchAllVehiclesData] Mapped to UI. Count: ${mappedVehiclesUI.length}.`);
         setVehicles(mappedVehiclesUI);
 
     } catch (error) {
@@ -173,174 +175,6 @@ export const Vehicle: React.FC = () => {
   }, [fetchAllVehiclesData]);
 
 
-  const parseVehicleCSV = (csvText: string): Partial<LocalVehicle>[] => {
-    const lines = csvText.trim().split('\n');
-    if (lines.length < 1) return []; // Allow CSV with only header
-
-    const rawHeaderLine = lines[0].trim();
-    console.log("[parseVehicleCSV] Raw Header line:", rawHeaderLine);
-
-    const header = rawHeaderLine.split(',').map(h => h.trim().toLowerCase().replace(/^"|"$/g, ''));
-    console.log("[parseVehicleCSV] Processed Headers:", header);
-
-    const data: Partial<LocalVehicle>[] = [];
-    const headerMap: Record<string, keyof LocalVehicle> = {
-        'modelo': 'model',
-        'placa': 'licensePlate',
-        'ano': 'year'
-    };
-    const modelHeaderFound = header.includes('modelo');
-    const placaHeaderFound = header.includes('placa');
-    const anoHeaderFound = header.includes('ano');
-
-    if (!modelHeaderFound || !placaHeaderFound) {
-        console.warn("[parseVehicleCSV] CSV header is missing 'Modelo' or 'Placa'. Cannot process file.");
-        toast({variant: "destructive", title: "Cabeçalho Inválido", description: "CSV deve conter colunas 'Modelo' e 'Placa'. A coluna 'Ano' é opcional."});
-        return [];
-    }
-
-
-    for (let i = 1; i < lines.length; i++) {
-        const line = lines[i].trim();
-        if (!line) continue;
-        // console.log(`[parseVehicleCSV] Processing data line ${i}: "${line}"`);
-
-        const values = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
-        // console.log(`[parseVehicleCSV] Line ${i} - Values after split and trim:`, values);
-
-        const entry: Partial<LocalVehicle> = {};
-        let hasModelo = false;
-        let hasPlaca = false;
-
-        header.forEach((h, index) => {
-            const internalKey = headerMap[h as keyof typeof headerMap] || h as keyof LocalVehicle;
-            const value = values[index] || '';
-            
-            if (internalKey === 'model') {
-                entry.model = value;
-                if (value) hasModelo = true;
-            } else if (internalKey === 'licensePlate') {
-                entry.licensePlate = value.toUpperCase();
-                if (value) hasPlaca = true;
-            } else if (internalKey === 'year') {
-                entry.year = value ? Number(value) : 0; // Default to 0 if empty or NaN
-                if (isNaN(entry.year!) || entry.year! < 1900 || entry.year! > new Date().getFullYear() + 5) {
-                    console.warn(`[parseVehicleCSV] Ano inválido ('${value}') na linha ${i+1}. Será usado 0.`)
-                    entry.year = 0;
-                }
-            }
-        });
-        // console.log(`[parseVehicleCSV] Line ${i} - Parsed entry:`, entry, `{ hasModelo: ${hasModelo}, hasPlaca: ${hasPlaca} }`);
-
-        if (hasModelo && hasPlaca) {
-            if(entry.year === undefined && !anoHeaderFound) entry.year = 0; // Default year if Ano column completely missing
-            data.push(entry);
-        } else {
-            console.warn(`[parseVehicleCSV] Linha ${i + 1} ignorada: 'Modelo' ou 'Placa' ausente ou inválido. Dados da linha: ${line}`);
-        }
-    }
-    return data;
-  };
-
-
- const handleVehicleFileImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
-    setIsSaving(true);
-    toast({ title: "Importando Veículos...", description: "Processando arquivo CSV." });
-
-    const reader = new FileReader();
-    reader.onload = async (e) => {
-        const text = e.target?.result as string;
-        if (!text) {
-            toast({ variant: "destructive", title: "Erro ao ler arquivo", description: "Não foi possível ler o conteúdo do arquivo." });
-            setIsSaving(false);
-            return;
-        }
-
-        try {
-            const parsedData = parseVehicleCSV(text);
-            console.log("[Vehicle CSV Import] Parsed Data from CSV:", parsedData);
-            if (parsedData.length === 0) {
-                 // parseVehicleCSV already toasts if headers are bad, so this is for empty data with good headers
-                toast({ variant: "default", title: "Arquivo Vazio", description: "O CSV não contém dados de veículos para importar (além do cabeçalho)." });
-                setIsSaving(false);
-                return;
-            }
-
-            let importedCount = 0;
-            let skippedCount = 0;
-            const skippedReasons: string[] = [];
-            const currentLocalVehicles = await fetchLocalDbVehicles();
-            const existingPlates = new Set(currentLocalVehicles.map(v => v.licensePlate.toUpperCase()));
-
-            for (const row of parsedData) {
-                const modelo = row.model?.trim();
-                const placa = row.licensePlate?.trim().toUpperCase();
-                const ano = row.year ?? 0; // Default to 0 if undefined from parser
-
-                if (!modelo || !placa) { // Should be caught by parser, but double check
-                    const reason = `Modelo ou Placa ausente. Linha: ${JSON.stringify(row)}`;
-                    skippedReasons.push(reason);
-                    console.warn("[Vehicle CSV Import] Linha ignorada (handle):", reason);
-                    skippedCount++;
-                    continue;
-                }
-
-                if (existingPlates.has(placa)) {
-                    const reason = `Veículo com placa ${placa} já existe localmente. Linha: ${JSON.stringify(row)}`;
-                    skippedReasons.push(reason);
-                    console.warn("[Vehicle CSV Import] Linha ignorada (handle):", reason);
-                    skippedCount++;
-                    continue;
-                }
-
-                const vehicleDataForAdd: Omit<LocalVehicle, 'localId' | 'syncStatus' | 'deleted' | 'firebaseId' | 'id'> = {
-                    model: modelo,
-                    year: ano,
-                    licensePlate: placa,
-                };
-
-                try {
-                    await addLocalDbVehicle(vehicleDataForAdd);
-                    importedCount++;
-                    existingPlates.add(placa); 
-                } catch (saveError: any) {
-                    const reason = `Erro ao salvar ${modelo} (${placa}): ${saveError.message}`;
-                    skippedReasons.push(reason);
-                    console.error("[Vehicle CSV Import] Erro ao salvar veículo importado:", saveError);
-                    skippedCount++;
-                }
-            }
-
-            if (importedCount > 0) {
-                await fetchAllVehiclesData(); // Refresh list
-            }
-            toast({
-                title: "Importação de Veículos Concluída",
-                description: `${importedCount} veículos importados. ${skippedCount} ignorados. ${skippedReasons.length > 0 ? 'Verifique o console para detalhes dos ignorados.' : ''}`,
-                duration: skippedReasons.length > 0 ? 10000 : 5000
-            });
-
-        } catch (parseError: any) {
-            console.error("[Vehicle CSV Import] Erro ao processar CSV:", parseError);
-            toast({ variant: "destructive", title: "Erro ao Processar CSV", description: parseError.message });
-        } finally {
-            setIsSaving(false);
-            if (fileInputRef.current) {
-                fileInputRef.current.value = "";
-            }
-        }
-    };
-    reader.onerror = () => {
-        toast({ variant: "destructive", title: "Erro de Leitura", description: "Não foi possível ler o arquivo selecionado." });
-        setIsSaving(false);
-    };
-    reader.readAsText(file);
-};
-
-
   const handleAddVehicle = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!model || year === '' || !licensePlate) {
@@ -360,28 +194,15 @@ export const Vehicle: React.FC = () => {
     };
     try {
         const currentLocalVehicles = await fetchLocalDbVehicles();
-        const existingLocalByPlate = currentLocalVehicles.find(v => v.licensePlate.toUpperCase() === licensePlate.toUpperCase());
-        
+        const existingLocalByPlate = currentLocalVehicles.find(v => v.licensePlate.toUpperCase() === licensePlate.toUpperCase() && !v.deleted);
+
         if (existingLocalByPlate) {
              toast({ variant: "destructive", title: "Duplicidade", description: `Veículo com placa ${licensePlate.toUpperCase()} já existe localmente.` });
              setIsSaving(false);
              return;
         }
-        const assignedLocalId = await addLocalDbVehicle(vehicleDataForAdd);
-        const createdVehicleUI: VehicleInfo = {
-             id: assignedLocalId, // This will be the localId initially
-             localId: assignedLocalId,
-             firebaseId: undefined, // No firebaseId yet
-             model: vehicleDataForAdd.model,
-             year: vehicleDataForAdd.year,
-             licensePlate: vehicleDataForAdd.licensePlate,
-         };
-        setVehicles(prevVehicles => {
-            // Ensure de-duplication logic is sound if prevVehicles could be out of sync
-             const newVehicles = [...prevVehicles, createdVehicleUI];
-             const uniqueMap = new Map(newVehicles.map(v => [String(v.firebaseId || v.localId || v.id), v]));
-             return Array.from(uniqueMap.values()).sort((a,b)=> (a.model||'').localeCompare(b.model||''));
-        });
+        await addLocalDbVehicle(vehicleDataForAdd);
+        await fetchAllVehiclesData(); // Re-fetch data
         resetForm();
         setIsCreateModalOpen(false);
         toast({ title: "Veículo adicionado localmente!" });
@@ -426,20 +247,7 @@ export const Vehicle: React.FC = () => {
      setIsSaving(true);
      try {
          await updateLocalDbVehicle(updatedLocalData);
-          const updatedVehicleUI: VehicleInfo = {
-             id: String(updatedLocalData.firebaseId || updatedLocalData.localId),
-             localId: updatedLocalData.localId,
-             firebaseId: updatedLocalData.firebaseId,
-             model: updatedLocalData.model,
-             year: updatedLocalData.year,
-             licensePlate: updatedLocalData.licensePlate
-          };
-          setVehicles(prevVehicles => {
-            const newVehicles = prevVehicles.map(v => (v.id === updatedVehicleUI.id) ? updatedVehicleUI : v);
-            const uniqueMap = new Map(newVehicles.map(v => [v.id, v]));
-            return Array.from(uniqueMap.values()).sort((a,b)=> (a.model||'').localeCompare(b.model||''));
-          });
-
+         await fetchAllVehiclesData(); // Re-fetch data
          resetForm();
          setIsEditModalOpen(false);
          setCurrentVehicle(null);
@@ -454,20 +262,19 @@ export const Vehicle: React.FC = () => {
 
    const confirmDeleteVehicle = async () => {
         if (!vehicleToDelete) return;
-        const allLocalVehicles = await fetchLocalDbVehicles();
-        const originalLocalVehicle = allLocalVehicles.find(v => (v.firebaseId || v.localId) === vehicleToDelete.id);
-
-
-        if (!originalLocalVehicle) {
-             toast({ variant: "destructive", title: "Erro", description: "Veículo original não encontrado localmente." });
-             closeDeleteModal();
-             return;
-        }
-
         setIsSaving(true);
         try {
-            await deleteLocalDbVehicle(originalLocalVehicle.localId); // Always use localId for local DB operations
-            setVehicles(prevVehicles => prevVehicles.filter(v => v.id !== (originalLocalVehicle.firebaseId || originalLocalVehicle.localId)));
+            const allLocalVehicles = await fetchLocalDbVehicles();
+            const originalLocalVehicle = allLocalVehicles.find(v => (v.firebaseId || v.localId) === vehicleToDelete.id);
+
+            if (!originalLocalVehicle) {
+                 toast({ variant: "destructive", title: "Erro", description: "Veículo original não encontrado localmente." });
+                 setIsSaving(false);
+                 closeDeleteModal();
+                 return;
+            }
+            await deleteLocalDbVehicle(originalLocalVehicle.localId);
+            await fetchAllVehiclesData(); // Re-fetch data
             toast({ title: "Veículo marcado para exclusão localmente." });
             closeDeleteModal();
         } catch (error) {
@@ -518,9 +325,9 @@ export const Vehicle: React.FC = () => {
     setIsDetailsModalOpen(true);
     setLoadingDetails(true);
     try {
-        const vehicleIdToFetch = vehicle.firebaseId || vehicle.localId; // Use the ID that was used as key
+        const vehicleIdToFetch = vehicle.firebaseId || vehicle.localId;
         if (!vehicleIdToFetch) {
-            console.error("Vehicle has no valid ID (firebaseId or localId) for fetching details:", vehicle);
+            console.error("Vehicle has no valid ID for fetching details:", vehicle);
             setVehicleDetails(null);
             setLoadingDetails(false);
             toast({variant: "destructive", title: "Erro Interno", description: "ID do veículo inválido para buscar detalhes."});
@@ -529,13 +336,15 @@ export const Vehicle: React.FC = () => {
 
         const vehicleFuelings = await getLocalFuelings(vehicleIdToFetch, 'vehicleId');
         vehicleFuelings.sort((a, b) => {
-            const dateDiff = new Date(a.date).getTime() - new Date(b.date).getTime();
+            const dateA = a.date instanceof Date ? a.date : new Date(a.date);
+            const dateB = b.date instanceof Date ? b.date : new Date(b.date);
+            const dateDiff = dateA.getTime() - dateB.getTime();
             if (dateDiff !== 0) return dateDiff;
             return (a.odometerKm || 0) - (b.odometerKm || 0);
         });
 
         const allLocalTrips = await getLocalTrips();
-        const vehicleTrips = allLocalTrips.filter(t => (t.vehicleId === vehicleIdToFetch || t.vehicleId === vehicle.localId || t.vehicleId === vehicle.firebaseId) );
+        const vehicleTrips = allLocalTrips.filter(t => (t.vehicleId === vehicleIdToFetch || t.vehicleId === vehicle.localId || t.vehicleId === vehicle.firebaseId) && !t.deleted );
 
 
         let totalKmDrivenFromFuelings = 0;
@@ -550,13 +359,6 @@ export const Vehicle: React.FC = () => {
         const totalLiters = vehicleFuelings.reduce((sum, f) => sum + f.liters, 0);
         const totalFuelCost = vehicleFuelings.reduce((sum, f) => sum + f.totalCost, 0);
 
-        console.log("[Vehicle Details] Fueling data for performance calculation:", {
-            vehicleFuelingsLength: vehicleFuelings.length,
-            firstOdometer: vehicleFuelings.length > 0 ? vehicleFuelings[0].odometerKm : 'N/A',
-            lastOdometer: vehicleFuelings.length > 0 ? vehicleFuelings[vehicleFuelings.length - 1].odometerKm : 'N/A',
-            totalKmDrivenFromFuelings,
-        });
-
         const avgKmPerLiter = totalLiters > 0 && totalKmDrivenFromFuelings > 0 ? totalKmDrivenFromFuelings / totalLiters : 0;
         const avgCostPerKm = totalKmDrivenFromFuelings > 0 ? totalFuelCost / totalKmDrivenFromFuelings : 0;
 
@@ -564,9 +366,9 @@ export const Vehicle: React.FC = () => {
         vehicleTrips.forEach(trip => {
             if(trip.userId) driverIds.add(trip.userId);
         });
-        
-        const allLocalDrivers = await getLocalRecordsByRole('driver');
-        const uniqueDrivers = allLocalDrivers.filter(driver => driverIds.has(driver.id || driver.firebaseId!));
+
+        // const allLocalDrivers = await getLocalRecordsByRole('driver'); // Assuming allDrivers state is up-to-date
+        const uniqueDrivers = allDrivers.filter(driver => driverIds.has(driver.id || driver.firebaseId!) && !driver.deleted);
 
 
         setVehicleDetails({
@@ -705,7 +507,7 @@ export const Vehicle: React.FC = () => {
                           <AlertDialogHeader>
                             <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
                             <AlertDialogDescription>
-                              Tem certeza que deseja marcar o veículo {vehicleToDelete?.model || 'este veículo'} ({vehicleToDelete?.licensePlate || 'N/I'}) para exclusão? A exclusão definitiva ocorrerá na próxima sincronização.
+                              Tem certeza que deseja marcar o veículo {vehicleToDelete?.model || 'este veículo'} ({vehicleToDelete?.licensePlate || 'N/I'}) para exclusão?
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
@@ -724,9 +526,6 @@ export const Vehicle: React.FC = () => {
                  </div>
               </CardHeader>
               <CardContent className="space-y-2 text-sm text-muted-foreground pt-2">
-                 <p className="flex items-center gap-1"><Fuel className="h-3 w-3" /> Histórico de Abastecimentos</p>
-                 <p className="flex items-center gap-1"><Milestone className="h-3 w-3" /> Km Percorridos & Performance</p>
-                 <p className="flex items-center gap-1"><Users className="h-3 w-3" /> Motoristas que utilizaram</p>
                  <Button variant="link" size="sm" className="p-0 h-auto text-primary" onClick={() => handleOpenDetailsModal(vehicle)}>
                     Ver Histórico Completo
                  </Button>
@@ -784,9 +583,9 @@ export const Vehicle: React.FC = () => {
                         </TabsContent>
                         <TabsContent value="performance" className="mt-4 space-y-3 flex-1 overflow-y-auto">
                             <Card>
-                                <CardHeader><CardTitle>Resumo de Performance</CardTitle></CardHeader>
+                                <CardHeader><CardTitle>Resumo de Performance (Baseado em Abastecimentos)</CardTitle></CardHeader>
                                 <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                                    <div><span className="font-medium">KM Total Percorrido (Base Abastec.):</span> {formatKm(vehicleDetails.performance.totalKm)}</div>
+                                    <div><span className="font-medium">KM Total (Base Abastec.):</span> {formatKm(vehicleDetails.performance.totalKm)}</div>
                                     <div><span className="font-medium">Total de Litros Consumidos:</span> {vehicleDetails.performance.totalLiters.toFixed(2)} L</div>
                                     <div><span className="font-medium">Custo Total com Combustível:</span> {formatCurrency(vehicleDetails.performance.totalFuelCost)}</div>
                                     <div><span className="font-medium">Média KM/Litro:</span> {vehicleDetails.performance.avgKmPerLiter.toFixed(2)} Km/L</div>

@@ -1,3 +1,4 @@
+/src/services/localDbService.ts
 // src/services/localDbService.ts
 import type { VehicleInfo } from '@/components/Vehicle';
 import type { Trip } from '@/components/Trips/Trips';
@@ -12,7 +13,7 @@ import { parseISO, startOfDay, endOfDay, isWithinInterval } from 'date-fns';
 
 
 const DB_NAME = 'RotaCertaDB';
-const DB_VERSION = 7; // Incremented version for new custom type stores
+const DB_VERSION = 7;
 
 export const STORE_VEHICLES = 'vehicles';
 export const STORE_TRIPS = 'trips';
@@ -40,9 +41,9 @@ export type LocalFueling = Omit<BaseFueling, 'id'> & LocalRecord & { localId: st
 export type LocalUser = User & { lastLogin?: string; passwordHash?: string; username?: string; deleted?: boolean; firebaseId?: string };
 
 export interface CustomType extends LocalRecord {
-  localId: string; 
-  id?: string; 
-  name: string; 
+  localId: string;
+  id?: string;
+  name: string;
 }
 
 
@@ -192,7 +193,7 @@ export const openDB = (): Promise<IDBDatabase> => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onerror = () => {
       console.error('[localDbService openDB] IndexedDB error:', request.error);
-      db = null; 
+      db = null;
       openDBPromise = null;
       reject(`Error opening IndexedDB: ${request.error?.message}`);
     };
@@ -317,20 +318,36 @@ const deleteLocalRecordByKey = (storeName: string, key: string): Promise<void> =
 };
 
 const markRecordForDeletion = (storeName: string, localId: string): Promise<void> => {
+    console.log(`[localDbService markRecordForDeletion] Marking record ${localId} in store ${storeName} for deletion.`);
     return getLocalDbStore(storeName, 'readwrite').then(store => {
         return new Promise<void>((resolve, reject) => {
             const request = store.get(localId);
             request.onsuccess = () => {
                 if (request.result) {
-                    const recordToUpdate = { ...request.result, deleted: true, syncStatus: 'pending' as SyncStatus };
+                    const recordToUpdate = {
+                        ...request.result,
+                        deleted: true,
+                        syncStatus: 'pending' as SyncStatus, // Ensure syncStatus is pending
+                    };
+                    console.log(`[localDbService markRecordForDeletion] Updating record ${localId} with:`, recordToUpdate);
                     const updateRequest = store.put(recordToUpdate);
-                    updateRequest.onsuccess = () => resolve();
-                    updateRequest.onerror = () => reject(new Error(`Error marking record ${localId} for deletion: ${updateRequest.error?.message}`));
+                    updateRequest.onsuccess = () => {
+                        console.log(`[localDbService markRecordForDeletion] Record ${localId} successfully marked for deletion.`);
+                        resolve();
+                    };
+                    updateRequest.onerror = () => {
+                        console.error(`[localDbService markRecordForDeletion] Error updating record ${localId} for deletion: ${updateRequest.error?.message}`);
+                        reject(new Error(`Error marking record ${localId} for deletion: ${updateRequest.error?.message}`));
+                    };
                 } else {
+                    console.warn(`[localDbService markRecordForDeletion] Record ${localId} not found in ${storeName} to mark for deletion.`);
                     reject(new Error(`Record ${localId} not found to mark for deletion`));
                 }
             };
-            request.onerror = () => reject(new Error(`Error getting record ${localId} to mark for deletion: ${request.error?.message}`));
+            request.onerror = () => {
+                console.error(`[localDbService markRecordForDeletion] Error getting record ${localId} to mark for deletion: ${request.error?.message}`);
+                reject(new Error(`Error getting record ${localId} to mark for deletion: ${request.error?.message}`));
+            };
         });
     });
 };
@@ -382,7 +399,7 @@ const getLocalRecordsBySyncStatus = <T>(storeName: string, status: SyncStatus | 
                  getAllRequest.onsuccess = () => {
                      const allRecords = getAllRequest.result as any[];
                      const statusArray = Array.isArray(status) ? status : [status];
-                     const filtered = allRecords.filter(item => !item.deleted && statusArray.includes(item.syncStatus));
+                     const filtered = allRecords.filter(item => statusArray.includes(item.syncStatus)); // Do not filter by item.deleted here as pending deletions need to be synced
                      resolve(filtered as T[]);
                  };
                  getAllRequest.onerror = () => reject(new Error(`Fallback getAll failed for ${storeName}: ${getAllRequest.error?.message}`));
@@ -396,7 +413,7 @@ const getLocalRecordsBySyncStatus = <T>(storeName: string, status: SyncStatus | 
                 promises.push(new Promise<void>((res, rej) => {
                      const request = index.getAll(s);
                      request.onsuccess = () => {
-                         const results = (request.result as any[]).filter(item => !item.deleted);
+                         const results = (request.result as any[]); // Do not filter by item.deleted here
                          combinedResults = combinedResults.concat(results as T[]);
                          res();
                      };
@@ -481,12 +498,10 @@ export const saveLocalUser = (user: DbUser): Promise<void> => {
         getLocalDbStore(STORE_USERS, 'readwrite').then(store => {
             const transaction = store.transaction;
             const emailIndex = store.index('email');
-
             const getByEmailRequest = emailIndex.getAll(user.email);
 
             getByEmailRequest.onerror = (event) => {
                 console.error(`[saveLocalUser] Error querying email index for ${user.email}:`, (event.target as IDBRequest).error);
-                if(transaction.readyState !== 'done') transaction.abort();
                 reject((event.target as IDBRequest).error || new Error("Failed to query email index."));
             };
 
@@ -494,38 +509,30 @@ export const saveLocalUser = (user: DbUser): Promise<void> => {
                 const existingRecordsWithEmail: DbUser[] = getByEmailRequest.result;
                 const conflictingRecord = existingRecordsWithEmail.find(rec => rec.id !== user.id);
 
+                const operations: Promise<void>[] = [];
+
                 if (conflictingRecord) {
-                    console.log(`[saveLocalUser] Email conflict detected for ${user.email}. Existing record ID: ${conflictingRecord.id}, Current record ID: ${user.id}. Deleting conflicting record.`);
-                    const deleteRequest = store.delete(conflictingRecord.id);
-                    deleteRequest.onerror = (event) => {
-                        console.error(`[saveLocalUser] Error deleting conflicting record ID ${conflictingRecord.id}:`, (event.target as IDBRequest).error);
-                        if(transaction.readyState !== 'done') transaction.abort();
-                        reject((event.target as IDBRequest).error || new Error("Failed to delete conflicting record."));
-                    };
-                    deleteRequest.onsuccess = () => {
-                        console.log(`[saveLocalUser] Conflicting record ${conflictingRecord.id} deleted. Proceeding to put user ${user.id}.`);
-                        const putRequest = store.put(user);
-                        putRequest.onerror = (event) => {
-                            console.error(`[saveLocalUser] Error putting user ${user.id} after deleting conflict:`, (event.target as IDBRequest).error);
-                            if(transaction.readyState !== 'done') transaction.abort();
-                            reject((event.target as IDBRequest).error || new Error("Failed to put user after deleting conflict."));
-                        };
-                        putRequest.onsuccess = () => {
-                            // Main success path, transaction will complete
-                        };
-                    };
-                } else {
-                    console.log(`[saveLocalUser] No email conflict for ${user.email} with a different ID. Proceeding to put user ${user.id}.`);
+                    console.log(`[saveLocalUser] Email conflict for ${user.email}. Existing ID: ${conflictingRecord.id}, current ID: ${user.id}. Deleting conflicting record.`);
+                    operations.push(new Promise((resDel, rejDel) => {
+                        const deleteRequest = store.delete(conflictingRecord.id);
+                        deleteRequest.onsuccess = () => resDel();
+                        deleteRequest.onerror = () => rejDel(deleteRequest.error);
+                    }));
+                }
+
+                Promise.all(operations).then(() => {
                     const putRequest = store.put(user);
                     putRequest.onerror = (event) => {
-                        console.error(`[saveLocalUser] Error putting user ${user.id} (no conflict):`, (event.target as IDBRequest).error);
-                         if(transaction.readyState !== 'done') transaction.abort();
-                        reject((event.target as IDBRequest).error || new Error("Failed to put user (no conflict)."));
+                        console.error(`[saveLocalUser] Error putting user ${user.id}:`, (event.target as IDBRequest).error);
+                        reject((event.target as IDBRequest).error || new Error("Failed to put user."));
                     };
                     putRequest.onsuccess = () => {
-                        // Main success path, transaction will complete
+                        // This onsuccess means the put was queued. The transaction's oncomplete handles final success.
                     };
-                }
+                }).catch(deleteErr => {
+                    console.error(`[saveLocalUser] Error during conflict deletion for ${user.email}:`, deleteErr);
+                    reject(deleteErr);
+                });
             };
 
             transaction.oncomplete = () => {
@@ -540,7 +547,6 @@ export const saveLocalUser = (user: DbUser): Promise<void> => {
                 console.warn(`[saveLocalUser] Transaction aborted for user ${user.id}:`, (event.target as IDBTransaction)?.error);
                 reject((event.target as IDBTransaction)?.error || new Error("Transaction aborted in saveLocalUser."));
             };
-
         }).catch(dbStoreError => {
             console.error("[saveLocalUser] Error getting DB store:", dbStoreError);
             reject(dbStoreError);
@@ -631,7 +637,7 @@ const markChildrenForDeletion = async (storeName: string, tripLocalId: string): 
              transaction.onerror = (event) => rejectCursor(new Error(`Transaction error in markChildrenForDeletion for ${storeName}: ${(event.target as IDBRequest).error?.message}`));
              transaction.oncomplete = () => resolveCursor();
              transaction.onabort = (event) => rejectCursor(new Error(`Transaction aborted in markChildrenForDeletion for ${storeName}: ${(event.target as IDBRequest).error?.message}`));
-             
+
              cursorReq.onerror = (event) => rejectCursor(new Error(`Cursor error in markChildrenForDeletion for ${storeName}: ${(event.target as IDBRequest).error?.message}`));
              cursorReq.onsuccess = (event) => {
                  const cursor = (event.target as IDBRequest).result as IDBCursorWithValue | null;
@@ -642,7 +648,7 @@ const markChildrenForDeletion = async (storeName: string, tripLocalId: string): 
                         updateRequest.onerror = (errEvent) => console.error(`[markChildrenForDeletion] Error updating child ${cursor.primaryKey} in ${storeName}:`, (errEvent.target as IDBRequest).error);
                      } catch (error) {
                         console.error(`[markChildrenForDeletion] Error processing cursor value for ${cursor.primaryKey} in ${storeName}:`, error);
-                        if(transaction.readyState !== 'done') transaction.abort(); 
+                        if(transaction.readyState !== 'done') transaction.abort();
                      }
                      cursor.continue();
                  }
@@ -660,13 +666,13 @@ export const getLocalTrips = (userId?: string, dateRange?: DateRange): Promise<L
             const processResults = (allRecords: LocalTrip[]) => {
                 let filteredRecords = allRecords.filter(item => !item.deleted);
                 const adminUser = allRecords.find(t => t.userId === userId && (t.base === 'ALL_ADM_TRIP' || t.base === 'ALL'));
-                
-                if (userId && !adminUser) { 
+
+                if (userId && !adminUser) {
                     filteredRecords = filteredRecords.filter(item => item.userId === userId);
                 }
                 if (dateRange?.from) {
                     const startDate = startOfDay(dateRange.from);
-                    const endDate = dateRange.to ? endOfDay(dateRange.to) : new Date(8640000000000000); 
+                    const endDate = dateRange.to ? endOfDay(dateRange.to) : new Date(8640000000000000);
                     const interval = { start: startDate, end: endDate };
                     filteredRecords = filteredRecords.filter(trip => {
                         try {
@@ -674,10 +680,14 @@ export const getLocalTrips = (userId?: string, dateRange?: DateRange): Promise<L
                         } catch { return false; }
                     });
                 }
-                filteredRecords.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+                filteredRecords.sort((a, b) => {
+                     if (a.status === 'Andamento' && b.status !== 'Andamento') return -1;
+                     if (a.status !== 'Andamento' && b.status === 'Andamento') return 1;
+                     return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+                });
                 resolve(filteredRecords);
             };
-            
+
             const getAllRequest = store.getAll();
             getAllRequest.onsuccess = () => processResults(getAllRequest.result as LocalTrip[]);
             getAllRequest.onerror = () => reject(new Error(`Fallback/All getAll failed for ${STORE_TRIPS}: ${getAllRequest.error?.message}`));
@@ -721,7 +731,7 @@ export const addLocalVisit = (visit: Omit<LocalVisit, 'localId' | 'syncStatus' |
         ...visit,
         localId,
         id: localId,
-        userId: visit.userId, 
+        userId: visit.userId,
         deleted: false,
         syncStatus: 'pending',
     };
@@ -774,7 +784,7 @@ export const addLocalExpense = (expense: Omit<LocalExpense, 'localId' | 'syncSta
          ...expense,
          localId,
          id: localId,
-         userId: expense.userId, 
+         userId: expense.userId,
          deleted: false,
          syncStatus: 'pending',
      };
@@ -835,7 +845,7 @@ export const addLocalFueling = (fueling: Omit<LocalFueling, 'localId' | 'syncSta
           ...fueling,
           localId,
           id: localId,
-          userId: fueling.userId, 
+          userId: fueling.userId,
           deleted: false,
           syncStatus: 'pending',
       };
@@ -864,7 +874,7 @@ export const addLocalCustomType = (storeName: string, typeName: string): Promise
                      reject(new Error(`O tipo "${typeName}" já existe.`));
                      return;
                 }
-                
+
                 const localId = `local_${storeName.replace('Store', '').toLowerCase()}_type_${uuidv4()}`;
                 const newCustomType: CustomType = {
                     localId,
@@ -960,84 +970,83 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
     for (const storeName of stores) {
         try {
             const store = await getLocalDbStore(storeName, 'readwrite');
-            const writeTx = store.transaction;
+            const tx = store.transaction;
+            let deletedCount = 0;
 
             await new Promise<void>((resolveTx, rejectTx) => {
                 const getAllRequest = store.getAll();
 
                 getAllRequest.onerror = (event: Event) => {
-                    console.error(`[Cleanup] Error fetching all records from ${storeName}:`, (event.target as IDBRequest).error);
+                    console.error(`[Cleanup] Error fetching records from ${storeName}:`, (event.target as IDBRequest).error);
+                    if (tx.readyState !== 'done') tx.abort();
                     rejectTx((event.target as IDBRequest).error);
                 };
 
                 getAllRequest.onsuccess = () => {
                     const allRecords = getAllRequest.result as any[];
-                    const itemsToDeleteKeys: IDBValidKey[] = [];
+                    const deletePromises: Promise<void>[] = [];
 
                     allRecords.forEach(record => {
                         if (record.deleted === true && record.syncStatus === 'synced') {
                             const keyPath = store.keyPath;
+                            let keyToDelete: IDBValidKey | undefined = undefined;
                             if (typeof keyPath === 'string') {
-                                itemsToDeleteKeys.push(record[keyPath]);
+                                keyToDelete = record[keyPath];
                             } else if (Array.isArray(keyPath)) {
-                                // Handle array keyPaths if necessary, though not used in this app
-                                console.warn(`[Cleanup] Array keyPath not handled for store ${storeName}`);
-                            } else {
-                                console.warn(`[Cleanup] No valid keyPath for store ${storeName}`);
+                                // Handle array keyPath if necessary
+                                console.warn(`[Cleanup] Array keyPath not directly handled for store ${storeName}`);
+                            }
+
+                            if (keyToDelete !== undefined) {
+                                deletePromises.push(new Promise((resolveDelete, rejectDelete) => {
+                                    const deleteRequest = store.delete(keyToDelete!);
+                                    deleteRequest.onsuccess = () => {
+                                        deletedCount++;
+                                        resolveDelete();
+                                    };
+                                    deleteRequest.onerror = (delEvent) => {
+                                        console.error(`[Cleanup] Error deleting record with key ${String(keyToDelete)} from ${storeName}:`, (delEvent.target as IDBRequest).error);
+                                        rejectDelete((delEvent.target as IDBRequest).error);
+                                    };
+                                }));
                             }
                         }
                     });
 
-                    if (itemsToDeleteKeys.length > 0) {
-                        console.log(`[Cleanup] Found ${itemsToDeleteKeys.length} items to delete from ${storeName}.`);
-                        let deleteOperations = itemsToDeleteKeys.map(key => {
-                            return new Promise<void>((resolveDelete, rejectDelete) => {
-                                const deleteRequest = store.delete(key);
-                                deleteRequest.onsuccess = () => {
-                                    // console.log(`[Cleanup] Deleted record ${String(key)} from ${storeName}`);
-                                    resolveDelete();
-                                };
-                                deleteRequest.onerror = (delEvent) => {
-                                    console.error(`[Cleanup] Error deleting record ${String(key)} from ${storeName}:`, (delEvent.target as IDBRequest).error);
-                                    rejectDelete((delEvent.target as IDBRequest).error);
-                                };
-                            });
+                    if (deletePromises.length > 0) {
+                        Promise.all(deletePromises).then(() => {
+                           // This means all delete requests were successfully queued
+                           // The transaction will complete or abort based on these.
+                        }).catch(err => {
+                            console.error(`[Cleanup] Error in one or more delete operations for ${storeName}:`, err);
+                            if (tx.readyState !== 'done') tx.abort(); // Abort transaction on individual delete error
                         });
-
-                        Promise.all(deleteOperations)
-                            .then(() => {
-                                // All deletes attempted, transaction will complete/error on its own
-                            })
-                            .catch(err => {
-                                console.error(`[Cleanup] Error during batched delete operations for ${storeName}:`, err);
-                                // Let transaction error handler catch this if it hasn't already.
-                            });
                     } else {
-                        // No items to delete, transaction will complete.
+                        // No items to delete, transaction will complete normally.
                     }
                 };
-
-                // Rely on transaction events for final promise resolution
-                writeTx.oncomplete = () => {
-                    // console.log(`[Cleanup] Transaction completed for store ${storeName}.`);
+                 tx.oncomplete = () => {
+                    if (deletedCount > 0) {
+                        console.log(`[Cleanup] Successfully deleted ${deletedCount} synced & marked-for-deletion records from ${storeName}.`);
+                    }
                     resolveTx();
                 };
-                writeTx.onerror = (txEvent) => {
-                    console.error(`[Cleanup] Transaction error for store ${storeName}:`, (txEvent.target as IDBTransaction).error);
-                    rejectTx((txEvent.target as IDBTransaction).error);
+                tx.onerror = (event) => {
+                    console.error(`[Cleanup] Transaction error for store ${storeName}:`, (event.target as IDBTransaction).error);
+                    rejectTx((event.target as IDBTransaction).error);
                 };
-                writeTx.onabort = (txEvent) => {
-                    console.warn(`[Cleanup] Transaction aborted for store ${storeName}:`, (txEvent.target as IDBTransaction).error);
-                    rejectTx((txEvent.target as IDBTransaction).error || new Error('Transaction aborted during cleanup'));
+                tx.onabort = (event) => {
+                    console.warn(`[Cleanup] Transaction aborted for store ${storeName}:`, (event.target as IDBTransaction).error);
+                    rejectTx((event.target as IDBTransaction).error || new Error('Transaction aborted during cleanup'));
                 };
             });
-            console.log(`[Cleanup] Finished processing store ${storeName}.`);
         } catch (error) {
             console.error(`[Cleanup] Error during cleanup setup for store ${storeName}:`, error);
         }
     }
     console.log("[Cleanup] All stores processed for cleanup.");
 };
+
 
 export const seedInitialUsers = async (): Promise<void> => {
     console.log("[seedInitialUsers] Attempting to seed initial users...");
@@ -1048,7 +1057,6 @@ export const seedInitialUsers = async (): Promise<void> => {
         throw err;
     }
 
-    // Step 1: Count existing users in a read-only transaction
     let userCount = 0;
     try {
         const countTransaction = dbInstance.transaction(STORE_USERS, 'readonly');
@@ -1057,13 +1065,13 @@ export const seedInitialUsers = async (): Promise<void> => {
         userCount = await new Promise<number>((resolve, reject) => {
             countRequest.onsuccess = () => resolve(countRequest.result);
             countRequest.onerror = (event) => reject((event.target as IDBRequest).error);
-            countTransaction.oncomplete = () => resolve(countRequest.result); // Resolve on complete as well
+            countTransaction.oncomplete = () => resolve(countRequest.result);
             countTransaction.onerror = (event) => reject((event.target as IDBTransaction).error);
             countTransaction.onabort = (event) => reject((event.target as IDBTransaction).error || new Error("Count transaction aborted"));
         });
         console.log(`[seedInitialUsers] Found ${userCount} existing users.`);
     } catch (error) {
-        console.error("[seedInitialUsers] Error counting users, assuming 0 and proceeding with seed if possible:", error);
+        console.error("[seedInitialUsers] Error counting users, assuming 0:", error);
         userCount = 0;
     }
 
@@ -1072,8 +1080,7 @@ export const seedInitialUsers = async (): Promise<void> => {
         return;
     }
 
-    // Step 2: Hash passwords (asynchronously, outside DB transaction)
-    console.log("[seedInitialUsers] No users found or count failed, proceeding with hashing passwords for seeding.");
+    console.log("[seedInitialUsers] No users found, proceeding with hashing passwords for seeding.");
     let usersToSeedWithHashedPasswords: LocalUser[];
     try {
         const hashPromises = seedUsersData.map(async (user) => {
@@ -1088,8 +1095,8 @@ export const seedInitialUsers = async (): Promise<void> => {
                 role: user.role || 'driver',
                 base: user.role === 'admin' ? 'ALL' : (user.base || 'N/A'),
                 deleted: false,
-                firebaseId: user.id || user.email,
-                syncStatus: 'synced' as SyncStatus,
+                firebaseId: user.id || user.email, // Assume firebaseId is the same as local 'id' for seeded users for simplicity
+                syncStatus: 'synced' as SyncStatus, // Assume seeded users are 'synced' as they are foundational
             };
         });
         usersToSeedWithHashedPasswords = await Promise.all(hashPromises);
@@ -1104,26 +1111,30 @@ export const seedInitialUsers = async (): Promise<void> => {
         return;
     }
 
-    // Step 3: Perform all database writes in a single new transaction
-    try {
-        const writeTransaction = dbInstance.transaction(STORE_USERS, 'readwrite');
-        const store = writeTransaction.objectStore(STORE_USERS);
-        const operationPromises: Promise<void>[] = [];
+    return new Promise<void>(async (resolve, reject) => {
+        try {
+            const writeTransaction = dbInstance.transaction(STORE_USERS, 'readwrite');
+            const store = writeTransaction.objectStore(STORE_USERS);
+            const operationPromises: Promise<void>[] = [];
 
-        usersToSeedWithHashedPasswords.forEach(user => {
-            operationPromises.push(new Promise<void>((resolveOp, rejectOp) => {
-                const request = store.put(user); // Use put for idempotency
-                request.onsuccess = () => resolveOp();
-                request.onerror = (event) => {
-                    console.warn(`[seedInitialUsers] Error on put for user ${user.email} (ID: ${user.id}):`, request.error);
-                    rejectOp(request.error); // Or resolveOp() if you want to continue seeding other users
-                };
-            }));
-        });
+            usersToSeedWithHashedPasswords.forEach(user => {
+                operationPromises.push(new Promise<void>((resolveOp, rejectOp) => {
+                    const request = store.put(user); // Use put for idempotency during seed
+                    request.onsuccess = () => resolveOp();
+                    request.onerror = (event) => {
+                        console.warn(`[seedInitialUsers] Error on put for user ${user.email} (ID: ${user.id}):`, request.error);
+                        rejectOp(request.error);
+                    };
+                }));
+            });
 
-        await Promise.all(operationPromises); // Wait for all put operations to be queued
+            await Promise.all(operationPromises).catch(err => {
+                console.error("[seedInitialUsers] Error in one or more put operations during seeding:", err);
+                if (writeTransaction.readyState !== 'done') writeTransaction.abort();
+                reject(err);
+                return; // Exit if Promise.all rejects
+            });
 
-        return new Promise<void>((resolve, reject) => { // Wait for the transaction itself to complete
             writeTransaction.oncomplete = () => {
                 console.log(`[seedInitialUsers] Seed users transaction successfully completed. ${usersToSeedWithHashedPasswords.length} users processed.`);
                 resolve();
@@ -1136,14 +1147,13 @@ export const seedInitialUsers = async (): Promise<void> => {
                 console.warn("[seedInitialUsers] Seed users transaction aborted:", (event.target as IDBTransaction).error);
                 reject((event.target as IDBTransaction).error || new Error("Seed users transaction aborted"));
             };
-        });
-    } catch (error) {
-        console.error("[seedInitialUsers] Error during seeding logic (transaction phase):", error);
-        throw error; // Propagate if transaction setup fails
-    }
+        } catch (error) {
+            console.error("[seedInitialUsers] Error during seeding logic (transaction phase):", error);
+            reject(error);
+        }
+    });
 };
 
-// Initial call to open the DB and seed users when the service loads
 openDB()
   .then(() => {
     console.log("[localDbService init] DB opened successfully. Proceeding to seed users.");

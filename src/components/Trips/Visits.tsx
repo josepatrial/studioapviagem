@@ -17,7 +17,7 @@ import { addLocalVisit, updateLocalVisit, deleteLocalVisit, getLocalVisits, Loca
 import { cn } from '@/lib/utils';
 import { formatKm } from '@/lib/utils';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { getVisitTypesFromFirestore } from '@/services/firestoreService'; // For fetching from Firestore
+import { getVisitTypesFromFirestore } from '@/services/firestoreService';
 
 
 export interface Visit extends Omit<LocalVisit, 'localId' | 'tripLocalId'> {
@@ -60,14 +60,17 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
   const [availableVisitTypes, setAvailableVisitTypes] = useState<string[]>([]);
   const [loadingVisitTypes, setLoadingVisitTypes] = useState(true);
 
-   useEffect(() => {
-    const fetchVisitsData = async () => {
-      if (!tripLocalId) return;
-      setLoading(true);
-      try {
-        console.log(`[VisitsComponent useEffect] Fetching local visits for trip ${tripLocalId}, owner ${ownerUserId}`);
+  const fetchVisitsData = useCallback(async () => {
+    if (!tripLocalId) {
+        console.log("[VisitsComponent fetchVisitsData] No tripLocalId, skipping fetch.");
+        setVisits([]);
+        setLoading(false);
+        return;
+    }
+    setLoading(true);
+    console.log(`[VisitsComponent fetchVisitsData] Fetching for trip: ${tripLocalId}`);
+    try {
         const localVisits = await getLocalVisits(tripLocalId);
-        console.log(`[VisitsComponent useEffect] Fetched ${localVisits.length} local visits.`);
         const uiVisits = localVisits.map(lv => ({
             ...lv,
             id: lv.firebaseId || lv.localId,
@@ -75,16 +78,19 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
             userId: lv.userId || ownerUserId,
             syncStatus: lv.syncStatus,
             visitType: lv.visitType,
-        })).sort((a,b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+        })).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
         setVisits(uiVisits);
-        console.log(`[VisitsComponent useEffect] Mapped ${uiVisits.length} visits to UI state.`);
-      } catch (error) {
-        console.error(`Error fetching local visits for trip ${tripLocalId}:`, error);
+        console.log(`[VisitsComponent fetchVisitsData] Fetched and set ${uiVisits.length} visits.`);
+    } catch (error) {
+        console.error(`[VisitsComponent fetchVisitsData] Error fetching local visits for trip ${tripLocalId}:`, error);
         toast({ variant: "destructive", title: "Erro Local", description: "Não foi possível carregar as visitas locais." });
-      } finally {
+    } finally {
         setLoading(false);
-      }
-    };
+    }
+  }, [tripLocalId, ownerUserId, toast]);
+
+
+   useEffect(() => {
     fetchVisitsData();
 
     const loadAndCacheVisitTypes = async () => {
@@ -97,7 +103,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
                 const firestoreTypes = await getVisitTypesFromFirestore();
                 console.log(`[VisitsComponent] Fetched ${firestoreTypes.length} types from Firestore.`);
                  typesToUse = firestoreTypes.map(ft => ({
-                    localId: ft.id, 
+                    localId: ft.id,
                     id: ft.id,
                     name: ft.name,
                     firebaseId: ft.id,
@@ -110,7 +116,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
                 const transaction = store.transaction;
                 const typePromises = typesToUse.map(type => {
                     return new Promise<void>((resolve, reject) => {
-                        const request = store.put(type); // Upsert
+                        const request = store.put(type);
                         request.onsuccess = () => resolve();
                         request.onerror = () => {
                             console.warn(`[VisitsComponent] Failed to cache visit type "${type.name}" (ID: ${type.localId}) locally:`, request.error);
@@ -119,20 +125,20 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
                     });
                 });
                 await Promise.all(typePromises);
-                await new Promise(resolve => transaction.oncomplete = resolve);
+                await new Promise<void>(resolve => transaction.oncomplete = () => resolve());
                 console.log("[VisitsComponent] Cached/updated visit types from Firestore locally.");
             } else {
                 console.log("[VisitsComponent] Offline: Fetching visit types from LocalDB.");
                 typesToUse = await getLocalCustomTypes(STORE_VISIT_TYPES);
                 console.log(`[VisitsComponent] Fetched ${typesToUse.length} types from LocalDB.`);
             }
-            setAvailableVisitTypes(['Outro', ...typesToUse.map(t => t.name).sort()]);
+            setAvailableVisitTypes(['Outro', ...typesToUse.filter(t=>!t.deleted).map(t => t.name).sort()]);
         } catch (err) {
             console.error("[VisitsComponent] Failed to load visit types:", err);
             try {
                 console.log("[VisitsComponent] Attempting fallback to local types after error.");
                 const localTypes = await getLocalCustomTypes(STORE_VISIT_TYPES);
-                setAvailableVisitTypes(['Outro', ...localTypes.map(t => t.name).sort()]);
+                setAvailableVisitTypes(['Outro', ...localTypes.filter(t=>!t.deleted).map(t => t.name).sort()]);
             } catch (localErr) {
                 setAvailableVisitTypes(['Outro']);
                 toast({ variant: 'destructive', title: 'Erro ao carregar tipos de visita', description: (err as Error).message });
@@ -144,7 +150,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
     };
     loadAndCacheVisitTypes();
 
-  }, [tripLocalId, ownerUserId, toast]);
+  }, [fetchVisitsData, toast]);
 
 
   const getLastVisitKm = (): number | null => {
@@ -164,7 +170,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
       toast({ title: "Localização capturada!", description: `Cidade: ${city}. Coordenadas salvas.` });
     } catch (error) {
       console.error("Error getting location:", error);
-      toast({ variant: "destructive", title: "Erro ao buscar localização", description: (error as Error).message || "Tente novamente ou digite manualmente." });
+      toast({ variant: "destructive", title: "Erro ao buscar localização", description: (error as Error).message || "Tente novamente ou digite manually." });
       setLocation('');
       setLatitude(undefined);
       setLongitude(undefined);
@@ -221,17 +227,8 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
       console.log("[VisitsComponent] Attempting to save new visit locally:", visitToConfirm);
       setIsSaving(true);
       try {
-          const localId = await addLocalVisit({...visitToConfirm, userId: ownerUserId}); // Ensure ownerUserId is passed
-          const newUIVisit: Visit = {
-             ...(visitToConfirm as LocalVisit), // Cast to LocalVisit for spreading then type as Visit
-             localId: localId,
-             id: localId,
-             tripId: tripLocalId,
-             userId: ownerUserId,
-             visitType: visitToConfirm.visitType,
-             syncStatus: 'pending'
-          };
-          setVisits(prevVisits => [newUIVisit, ...prevVisits].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+          await addLocalVisit({...visitToConfirm, userId: ownerUserId});
+          await fetchVisitsData(); // Re-fetch to update list
           resetForm();
           setIsConfirmModalOpen(false);
           setVisitToConfirm(null);
@@ -275,22 +272,12 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
             reason,
             visitType,
             syncStatus: originalLocalVisit.syncStatus === 'synced' && !originalLocalVisit.deleted ? 'pending' : originalLocalVisit.syncStatus,
-            // deleted: originalLocalVisit.deleted || false, // Retain deleted status if it was already marked
       };
 
       setIsSaving(true);
       try {
           await updateLocalVisit(updatedLocalVisitData);
-           const updatedUIVisit: Visit = {
-                ...updatedLocalVisitData,
-                id: updatedLocalVisitData.firebaseId || updatedLocalVisitData.localId,
-                tripId: tripLocalId,
-                userId: ownerUserId,
-                visitType: updatedLocalVisitData.visitType,
-                syncStatus: updatedLocalVisitData.syncStatus
-            };
-          setVisits(prevVisits => prevVisits.map(v => v.id === currentVisit.id ? updatedUIVisit : v)
-                                        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()));
+          await fetchVisitsData(); // Re-fetch to update list
           resetForm();
           setIsEditModalOpen(false);
           setCurrentVisit(null);
@@ -315,16 +302,15 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
 
   const confirmDeleteVisit = async () => {
     if (!visitToDelete) return;
-     const localIdToDelete = visitToDelete.id;
     setIsSaving(true);
     try {
         const visitsInDb = await getLocalVisits(tripLocalId);
-        const visitRecordToDelete = visitsInDb.find(v => v.localId === localIdToDelete || v.firebaseId === localIdToDelete);
+        const visitRecordToDelete = visitsInDb.find(v => (v.localId === visitToDelete.id || v.firebaseId === visitToDelete.id));
         if (!visitRecordToDelete) {
              throw new Error("Registro local da visita não encontrado para exclusão.");
         }
         await deleteLocalVisit(visitRecordToDelete.localId);
-        setVisits(visits.filter(v => v.id !== visitToDelete.id));
+        await fetchVisitsData(); // Re-fetch to update list
         toast({ title: "Visita marcada para exclusão na próxima sincronização." });
         closeDeleteConfirmation();
     } catch (error) {
@@ -380,7 +366,7 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
         {tripLocalId && (
             <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
                 <DialogTrigger asChild>
-                <Button onClick={() => { resetForm(); console.log("[VisitsComponent] Registrar Visita button clicked, setting isCreateModalOpen to true."); setIsCreateModalOpen(true);}} className="bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isSaving}>
+                <Button onClick={() => { resetForm(); console.log("[VisitsComponent] Registrar Visita button clicked."); setIsCreateModalOpen(true);}} className="bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isSaving}>
                     <PlusCircle className="mr-2 h-4 w-4" /> Registrar Visita
                 </Button>
                 </DialogTrigger>
@@ -452,20 +438,17 @@ export const Visits: React.FC<VisitsProps> = ({ tripId: tripLocalId, ownerUserId
                     <AlertDialogTitle className="flex items-center gap-2">
                         <AlertTriangle className="h-5 w-5 text-yellow-500" /> Confirmar Dados da Visita
                     </AlertDialogTitle>
-                    <AlertDialogDescription asChild>
-                       <div>
-                         <p>Por favor, revise os dados abaixo, especialmente a <strong>Quilometragem Inicial</strong>. Esta ação não pode ser facilmente desfeita.</p>
-                         <ul className="mt-3 list-disc list-inside space-y-1 text-sm text-foreground">
-                            <li><strong>Cliente:</strong> {visitToConfirm?.clientName}</li>
-                            <li><strong>Tipo de Visita:</strong> {visitToConfirm?.visitType}</li>
-                            <li><strong>Localização (Cidade):</strong> {visitToConfirm?.location}</li>
-                            <li><strong>KM Inicial:</strong> {visitToConfirm ? formatKm(visitToConfirm.initialKm) : 'N/A'}</li>
-                            <li><strong>Motivo:</strong> {visitToConfirm?.reason}</li>
-                        </ul>
-                       </div>
-                    </AlertDialogDescription>
                 </AlertDialogHeader>
-
+                <div className="py-2 space-y-2"> {/* Changed from AlertDialogDescription to div for flexible content */}
+                     <p className="text-sm text-muted-foreground">Por favor, revise os dados abaixo, especialmente a <strong>Quilometragem Inicial</strong>. Esta ação não pode ser facilmente desfeita.</p>
+                     <ul className="mt-3 list-disc list-inside space-y-1 text-sm text-foreground">
+                        <li><strong>Cliente:</strong> {visitToConfirm?.clientName}</li>
+                        <li><strong>Tipo de Visita:</strong> {visitToConfirm?.visitType}</li>
+                        <li><strong>Localização (Cidade):</strong> {visitToConfirm?.location}</li>
+                        <li><strong>KM Inicial:</strong> {visitToConfirm ? formatKm(visitToConfirm.initialKm) : 'N/A'}</li>
+                        <li><strong>Motivo:</strong> {visitToConfirm?.reason}</li>
+                    </ul>
+                </div>
                 <AlertDialogFooter>
                     <AlertDialogCancel onClick={() => {
                         setIsConfirmModalOpen(false);

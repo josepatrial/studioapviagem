@@ -71,8 +71,8 @@ import { TripAccordionItem } from './TripAccordionItem';
 import { Textarea } from '../ui/textarea';
 
 export interface Trip extends Omit<LocalTrip, 'localId'> {
-    id: string; // This will be firebaseId if synced, otherwise localId
-    localId: string; // Always present, primary key for IndexedDB
+    id: string;
+    localId: string;
     visitCount?: number;
     expenseCount?: number;
     fuelingCount?: number;
@@ -105,7 +105,6 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedVehicleIdForEdit, setSelectedVehicleIdForEdit] = useState('');
 
-
   const [isFinishModalOpen, setIsFinishModalOpen] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -115,7 +114,6 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
   const [tripToDelete, setTripToDelete] = useState<Trip | null>(null);
   const [expandedTripId, setExpandedTripId] = useState<string | null>(null);
   const { toast } = useToast();
-
 
   const [selectedVehicleIdForCreate, setSelectedVehicleIdForCreate] = useState('');
   const [filterDriver, setFilterDriver] = useState<string>('');
@@ -129,10 +127,9 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
   const [sharingTripId, setSharingTripId] = useState<string | null>(null);
   const [detailedSummaryText, setDetailedSummaryText] = useState<string | null>(null);
   const [initialLoading, setInitialLoading] = useState(true);
-  const fileInputRef = useRef<HTMLInputElement>(null); // For trip CSV import
 
-  useEffect(() => {
-    const initializeDriversData = async () => {
+
+  const initializeDriversData = useCallback(async () => {
         if (!isAdmin) {
             setLoadingDrivers(false);
             return;
@@ -140,100 +137,115 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
         console.log("[Trips initializeDriversData] Admin detected, fetching drivers...");
         setLoadingDrivers(true);
         try {
-            let fetchedDrivers: DbUser[];
+            let fetchedDriversDbUsers: DbUser[];
             if (navigator.onLine) {
                 console.log("[Trips initializeDriversData] Online: Fetching drivers from Firestore...");
                 const onlineDrivers = await fetchOnlineDrivers();
-                fetchedDrivers = onlineDrivers.map(d => ({...d, id: d.id, firebaseId: d.id, role: d.role || 'driver', base: d.base || 'N/A', lastLogin: new Date().toISOString(), syncStatus: 'synced'} as DbUser));
-                console.log(`[Trips initializeDriversData] Fetched ${fetchedDrivers.length} drivers from Firestore. Caching...`);
-                Promise.all(fetchedDrivers.map(d => saveLocalUser(d)))
-                       .catch(e => console.warn("[Trips initializeDriversData] Error caching drivers:", e));
+                fetchedDriversDbUsers = onlineDrivers.map(d => ({
+                    ...d,
+                    id: d.id,
+                    firebaseId: d.id,
+                    role: d.role || 'driver',
+                    base: d.base || 'N/A',
+                    lastLogin: new Date().toISOString(), // Or preserve existing if available
+                    syncStatus: 'synced',
+                    deleted: false,
+                } as DbUser));
+                console.log(`[Trips initializeDriversData] Fetched ${fetchedDriversDbUsers.length} drivers from Firestore. Caching...`);
+
+                const cachePromises = fetchedDriversDbUsers.map(dbUser =>
+                    saveLocalUser(dbUser).catch(e => console.warn(`[Trips initializeDriversData] Error caching driver ${dbUser.id}:`, e))
+                );
+                await Promise.all(cachePromises);
+
             } else {
                 console.log("[Trips initializeDriversData] Offline: Fetching drivers from LocalDB...");
-                fetchedDrivers = await getLocalRecordsByRole('driver');
+                fetchedDriversDbUsers = await getLocalRecordsByRole('driver');
             }
-            setDrivers(fetchedDrivers.filter(d => d.role === 'driver').map(d => ({...d, name: d.name || d.email || `ID ${d.id.substring(0,6)}...`})));
-            console.log(`[Trips initializeDriversData] Set ${drivers.length} drivers to state.`);
+            const finalDrivers = fetchedDriversDbUsers
+                .filter(d => d.role === 'driver' && !d.deleted)
+                .map(d => {
+                    const { passwordHash, ...driverForUI } = d;
+                    return driverForUI as User;
+                })
+                .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+            setDrivers(finalDrivers);
+            console.log(`[Trips initializeDriversData] Set ${finalDrivers.length} drivers to state.`);
         } catch (error) {
             console.error("[Trips initializeDriversData] Error fetching drivers:", error);
             toast({ variant: "destructive", title: "Erro ao Carregar Motoristas", description: (error as Error).message || "Não foi possível buscar motoristas." });
         } finally {
             setLoadingDrivers(false);
         }
-    };
+  }, [isAdmin, toast]);
+
+  useEffect(() => {
     if (isAdmin) {
         initializeDriversData();
     } else {
-        setLoadingDrivers(false); // Not admin, not loading drivers
+        setLoadingDrivers(false);
     }
-}, [isAdmin, toast]); // Removed 'drivers' from dependency array to prevent potential loop if drivers state itself causes re-fetch
+  }, [isAdmin, initializeDriversData]);
 
 
  const initializeTripsAndVehiclesData = useCallback(async () => {
-    if (authLoading) { // Wait for auth context to finish loading
+    if (authLoading) {
       console.log("[Trips initializeData] Auth context still loading. Waiting...");
       return;
     }
     setInitialLoading(true);
+    setLoading(true); // General loading for trips
     setLoadingVehicles(true);
     const fetchStartTime = Date.now();
     console.log(`[Trips initializeData ${fetchStartTime}] Starting... User: ${user?.id}, Admin: ${isAdmin}`);
 
     try {
          let localVehiclesData: LocalVehicle[];
+         let localTripsData: LocalTrip[];
+         const cachePromises: Promise<void>[] = [];
+
          if(navigator.onLine){
-            console.log(`[Trips initializeData ${fetchStartTime}] Online: Fetching vehicles from Firestore...`);
+            console.log(`[Trips initializeData ${fetchStartTime}] Online: Fetching vehicles and trips from Firestore...`);
             const onlineVehicles = await fetchOnlineVehicles();
-            localVehiclesData = onlineVehicles.map(v => ({ ...v, localId: String(v.id), firebaseId: String(v.id), syncStatus: 'synced', deleted: false } as LocalVehicle));
+            localVehiclesData = onlineVehicles.map(v => ({ ...v, localId: String(v.id), firebaseId: String(v.id), syncStatus: 'synced', deleted: v.deleted || false } as LocalVehicle));
             console.log(`[Trips initializeData ${fetchStartTime}] Fetched ${onlineVehicles.length} vehicles from Firestore. Caching...`);
-            const vehicleCachePromises = localVehiclesData.map(v => updateLocalRecord(STORE_VEHICLES, v).catch(e => console.warn(`[Trips Cache Fail] Vehicle ${v.localId}:`, e)));
-            await Promise.all(vehicleCachePromises);
+            localVehiclesData.forEach(v => cachePromises.push(updateLocalRecord(STORE_VEHICLES, v).catch(e => console.warn(`[Trips Cache Fail] Vehicle ${v.localId}:`, e))));
+
+            const driverIdToFilter = isAdmin && filterDriver ? filterDriver : (!isAdmin && user ? user.id : undefined);
+            console.log(`[Trips initializeData ${fetchStartTime}] Effective driverIdToFilter for trip fetching: ${driverIdToFilter}`);
+            if (!driverIdToFilter && !isAdmin) {
+                console.warn(`[Trips initializeData ${fetchStartTime}] No driverIdToFilter and not admin. Skipping online trip fetch.`);
+                localTripsData = [];
+            } else {
+                const onlineTrips = await fetchOnlineTrips({ userId: driverIdToFilter, startDate: filterDateRange?.from, endDate: filterDateRange?.to });
+                localTripsData = onlineTrips.map(t => ({ ...t, localId: String(t.id), firebaseId: String(t.id), syncStatus: 'synced', deleted: t.deleted || false } as LocalTrip));
+                console.log(`[Trips initializeData ${fetchStartTime}] Fetched ${onlineTrips.length} trips from Firestore. Caching...`);
+                localTripsData.forEach(t => cachePromises.push(updateLocalRecord(STORE_TRIPS, t).catch(e => console.warn(`[Trips Cache Fail] Trip ${t.localId}:`, e))));
+            }
          } else {
-            console.log(`[Trips initializeData ${fetchStartTime}] Offline: Fetching vehicles from LocalDB...`);
+            console.log(`[Trips initializeData ${fetchStartTime}] Offline: Fetching vehicles and trips from LocalDB...`);
             localVehiclesData = await fetchLocalDbVehicles();
+            const driverIdToFilter = isAdmin && filterDriver ? filterDriver : (!isAdmin && user ? user.id : undefined);
+            localTripsData = await fetchLocalDbTrips(driverIdToFilter, filterDateRange);
          }
-         setVehicles(localVehiclesData);
-         console.log(`[Trips initializeData ${fetchStartTime}] Set ${localVehiclesData.length} vehicles to state.`);
+
+         setVehicles(localVehiclesData.filter(v => !v.deleted));
+         console.log(`[Trips initializeData ${fetchStartTime}] Set ${vehicles.length} non-deleted vehicles to state.`);
          setLoadingVehicles(false);
 
-        const driverIdToFilter = isAdmin && filterDriver ? filterDriver : (!isAdmin && user ? user.id : undefined);
-        console.log(`[Trips initializeData ${fetchStartTime}] Effective driverIdToFilter for trip fetching: ${driverIdToFilter}`);
-
-        if (!driverIdToFilter && !isAdmin) {
-            console.warn(`[Trips initializeData ${fetchStartTime}] No driverIdToFilter and not admin. Skipping trip fetch.`);
-            setAllTrips([]);
-            setInitialLoading(false);
-            setLoading(false); // Ensure loading finishes
-            return;
-        }
-
-        let localTripsData: LocalTrip[];
-
-        if(navigator.onLine) {
-            console.log(`[Trips initializeData ${fetchStartTime}] Online: Fetching trips from Firestore. Filter: userId=${driverIdToFilter}, dateRange=${JSON.stringify(filterDateRange)}`);
-            const onlineTrips = await fetchOnlineTrips({ userId: driverIdToFilter, startDate: filterDateRange?.from, endDate: filterDateRange?.to });
-            localTripsData = onlineTrips.map(t => ({ ...t, localId: String(t.id), firebaseId: String(t.id), syncStatus: 'synced', deleted: false } as LocalTrip));
-            console.log(`[Trips initializeData ${fetchStartTime}] Fetched ${onlineTrips.length} trips from Firestore. Caching...`);
-            const tripCachePromises = localTripsData.map(t => updateLocalRecord(STORE_TRIPS, t).catch(e => console.warn(`[Trips Cache Fail] Trip ${t.localId}:`, e)));
-            await Promise.all(tripCachePromises);
-        } else {
-            console.log(`[Trips initializeData ${fetchStartTime}] Offline: Fetching trips from LocalDB. Filter: userId=${driverIdToFilter}, dateRange=${JSON.stringify(filterDateRange)}`);
-            localTripsData = await fetchLocalDbTrips(driverIdToFilter, filterDateRange);
-        }
-
-        const countsPromises = localTripsData.map(async (trip) => {
+        const countsPromises = localTripsData.filter(t => !t.deleted).map(async (trip) => {
              const [visits, expenses, fuelings] = await Promise.all([
                 getLocalVisits(trip.localId).catch(() => []),
                 getLocalExpenses(trip.localId).catch(() => []),
                 getLocalFuelings(trip.localId, 'tripLocalId').catch(() => []),
             ]);
-             const adaptedVisits = visits.map(v => ({ ...v, id: v.firebaseId || v.localId, tripId: trip.localId, userId: v.userId, visitType: v.visitType })) as Visit[];
             return {
                 tripLocalId: trip.localId,
-                visitCount: visits.length,
-                expenseCount: expenses.length,
-                fuelingCount: fuelings.length,
-                visits: adaptedVisits
+                visitCount: visits.filter(v => !v.deleted).length,
+                expenseCount: expenses.filter(e => !e.deleted).length,
+                fuelingCount: fuelings.filter(f => !f.deleted).length,
+                visits: visits.filter(v => !v.deleted).map(v => ({ ...v, id: v.firebaseId || v.localId, tripId: trip.localId, userId: v.userId || trip.userId, visitType: v.visitType })) as Visit[]
             };
         });
 
@@ -257,9 +269,9 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
         setFuelingCounts(newFuelingCounts);
         setVisitsDataForFinish(allVisitsForFinishDialog);
 
-        const uiTrips = localTripsData.map(lt => ({
+        const uiTrips = localTripsData.filter(lt => !lt.deleted).map(lt => ({
             ...lt,
-            id: lt.firebaseId || lt.localId, // Ensure id is set for key prop
+            id: lt.firebaseId || lt.localId,
             localId: lt.localId,
         })).sort((a, b) => {
              if (a.status === 'Andamento' && b.status !== 'Andamento') return -1;
@@ -267,7 +279,15 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
              return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
         });
         setAllTrips(uiTrips);
-         console.log(`[Trips initializeData ${fetchStartTime}] Set ${uiTrips.length} trips to UI state.`);
+         console.log(`[Trips initializeData ${fetchStartTime}] Set ${uiTrips.length} non-deleted trips to UI state.`);
+
+        if (cachePromises.length > 0) {
+            console.log(`[Trips initializeData ${fetchStartTime}] Caching ${cachePromises.length} Firestore items locally in background...`);
+            await Promise.all(cachePromises).catch(cacheError => {
+                console.warn(`[Trips initializeData ${fetchStartTime}] Error caching some Firestore items locally:`, cacheError);
+            });
+            console.log(`[Trips initializeData ${fetchStartTime}] Finished attempting to cache Firestore items.`);
+        }
 
     } catch (error) {
         console.error(`[Trips initializeData ${fetchStartTime}] Error fetching trips and vehicles data:`, error);
@@ -276,19 +296,19 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
         setVehicles([]);
     } finally {
         setInitialLoading(false);
-        setLoading(false); // Also set general loading to false
+        setLoading(false);
         setLoadingVehicles(false);
         console.log(`[Trips initializeData ${fetchStartTime}] Initialization complete. Total time: ${Date.now() - fetchStartTime}ms`);
     }
-}, [isAdmin, user, authLoading, toast, filterDriver, filterDateRange]); // Added authLoading
+}, [isAdmin, user, authLoading, toast, filterDriver, filterDateRange]);
 
 useEffect(() => {
     console.log("[Trips useEffect] Triggered. AuthLoading:", authLoading);
-    if (!authLoading) { // Only run if auth context is no longer loading
+    if (!authLoading) {
       console.log("[Trips useEffect] AuthContext loaded. Initializing trips and vehicles data.");
       initializeTripsAndVehiclesData();
     }
-}, [authLoading, initializeTripsAndVehiclesData]); // Depend on authLoading and the memoized function
+}, [authLoading, initializeTripsAndVehiclesData]);
 
 
   const getVehicleDisplay = useCallback((vehicleId: string) => {
@@ -297,12 +317,11 @@ useEffect(() => {
   }, [vehicles]);
 
   const getDriverName = useCallback((driverId: string): string => {
-     if (user && user.id === driverId) { // Prioritize current logged-in user
+     if (user && user.id === driverId) {
          return user.name || user.email || `ID: ${driverId.substring(0,6)}...`;
      }
      const driver = drivers.find(d => d.id === driverId || d.firebaseId === driverId);
-     const nameToDisplay = driver?.name || driver?.email || `Motorista (${driverId.substring(0,6)}...)`;
-     return nameToDisplay;
+     return driver?.name || driver?.email || `Motorista (${driverId.substring(0,6)}...)`;
   }, [drivers, user]);
 
 
@@ -343,7 +362,7 @@ useEffect(() => {
     }
 
     const dateStr = new Date().toLocaleDateString('pt-BR', {day: '2-digit', month: '2-digit', year: 'numeric'});
-    const generatedTripName = `Viagem ${vehicleForTrip.model || 'Veículo'} (${vehicleForTrip.licensePlate || 'N/P'}) - ${dateStr}`;
+    const generatedTripName = `Viagem ${vehicleForTrip.model || 'Veículo'} - ${dateStr}`; // Removed license plate from name
 
     const now = new Date().toISOString();
 
@@ -373,7 +392,7 @@ useEffect(() => {
          const newUITrip: Trip = {
             ...(newTripData as LocalTrip),
             localId,
-            id: localId, // Initially, id is the localId
+            id: localId,
             syncStatus: 'pending',
             deleted: false,
          };
@@ -402,7 +421,7 @@ useEffect(() => {
   const handleOpenEditModal = (tripToEdit: Trip) => {
     console.log("[Trips handleOpenEditModal] Opening edit modal for trip:", tripToEdit.localId, tripToEdit);
     setCurrentTripForEdit(tripToEdit);
-    setSelectedVehicleIdForEdit(tripToEdit.vehicleId); // Ensure this uses the correct vehicle ID field
+    setSelectedVehicleIdForEdit(tripToEdit.vehicleId);
     setIsEditModalOpen(true);
   };
 
@@ -427,7 +446,7 @@ useEffect(() => {
         toast({ variant: 'destructive', title: 'Erro', description: 'Veículo é obrigatório.' });
         return;
     }
-    
+
     const allLocalTrips = await fetchLocalDbTrips(undefined, undefined);
     const originalLocalTrip = allLocalTrips.find(t => t.localId === currentTripForEdit.localId);
 
@@ -479,7 +498,7 @@ useEffect(() => {
     console.log("[Trips handleOpenFinishModal] Opening finish modal for trip:", trip.localId);
     try {
         const visits = await getLocalVisits(trip.localId);
-        if (visits.length === 0) {
+        if (visits.filter(v => !v.deleted).length === 0) {
             toast({
                 variant: "destructive",
                 title: "Finalização Bloqueada",
@@ -488,7 +507,7 @@ useEffect(() => {
             });
             return;
         }
-        const adaptedVisits = visits.map(v => ({ ...v, id: v.firebaseId || v.localId, tripId: trip.localId, userId: v.userId, visitType: v.visitType })) as Visit[];
+        const adaptedVisits = visits.filter(v => !v.deleted).map(v => ({ ...v, id: v.firebaseId || v.localId, tripId: trip.localId, userId: v.userId || trip.userId, visitType: v.visitType })) as Visit[];
         setVisitsDataForFinish(adaptedVisits);
         setTripToFinish(trip);
         setIsFinishModalOpen(true);
@@ -551,8 +570,8 @@ useEffect(() => {
         setIsDeleteModalOpen(true);
     };
 
-    const handleCloseDeleteModal = () => {
-        console.log("[Trips handleCloseDeleteModal] Closing delete confirmation.");
+    const closeDeleteConfirmation = () => {
+        console.log("[Trips closeDeleteConfirmation] Closing delete confirmation.");
         setTripToDelete(null);
         setIsDeleteModalOpen(false);
     };
@@ -565,15 +584,17 @@ useEffect(() => {
     console.log("[Trips confirmDeleteTrip] Confirming delete for trip:", tripToDelete.localId);
     setIsDeleting(true);
     try {
-        await deleteLocalTrip(tripToDelete.localId);
+        await deleteLocalTrip(tripToDelete.localId); // This now marks for deletion
         console.log(`[Trips confirmDeleteTrip] Trip ${tripToDelete.localId} and its children marked for deletion locally.`);
-        setAllTrips(prevTrips => prevTrips.filter(t => t.localId !== tripToDelete!.localId));
+
+        // Re-fetch trips to update UI
+        await initializeTripsAndVehiclesData();
 
         if (expandedTripId === tripToDelete.localId) {
           setExpandedTripId(null);
         }
-        toast({ title: 'Viagem marcada para exclusão.', description: 'A exclusão definitiva ocorrerá na próxima sincronização ou imediatamente se nunca foi sincronizada.' });
-        handleCloseDeleteModal();
+        toast({ title: 'Viagem marcada para exclusão.', description: 'A exclusão definitiva ocorrerá na próxima sincronização.' });
+        closeDeleteConfirmation();
     } catch (error: any) {
         console.error("[Trips confirmDeleteTrip] Error marking trip and children for deletion locally:", error);
         toast({ variant: "destructive", title: "Erro Local", description: `Não foi possível marcar a viagem e seus itens para exclusão. Detalhes: ${error.message || 'Erro desconhecido'}` });
@@ -591,7 +612,6 @@ useEffect(() => {
         toast({ variant: "destructive", title: "Erro", description: "Dados da viagem não encontrados para compartilhar." });
         return;
     }
-    setCurrentTripForEdit(tripData); // Set current trip for summary generation context
     setSharingTripId(tripId);
     generateTripSummary(tripData).then(summary => setDetailedSummaryText(summary));
   };
@@ -600,7 +620,6 @@ useEffect(() => {
     console.log("[Trips handleCloseShareDialog] Closing share dialog.");
     setSharingTripId(null);
     setDetailedSummaryText(null);
-    setCurrentTripForEdit(null); // Clear current trip for edit context
   };
 
   const generateTripSummary = useCallback(async (trip: Trip): Promise<string> => {
@@ -613,7 +632,7 @@ useEffect(() => {
     summary += `Status: ${status}\n`;
     summary += `Motorista: ${driverName}\n`;
     summary += `Veículo: ${vehicleDisplay}\n`;
-    summary += `Criada em: ${formatDateFn(parseISO(createdAt), 'dd/MM/yyyy HH:mm')}\n`;
+    summary += `Criada em: ${createdAt ? formatDateFn(parseISO(createdAt), 'dd/MM/yyyy HH:mm') : 'N/A'}\n`;
     if (updatedAt) {
       summary += `Atualizada em: ${formatDateFn(parseISO(updatedAt), 'dd/MM/yyyy HH:mm')}\n`;
     }
@@ -628,46 +647,47 @@ useEffect(() => {
       getLocalFuelings(trip.localId, 'tripLocalId').catch(() => [])
     ]);
 
-    summary += `\n--- Visitas (${visits.length}) ---\n`;
-    if (visits.length > 0) {
-      visits.forEach(v => {
-        summary += `- Cliente: ${v.clientName}, Tipo: ${v.visitType || 'N/A'}, Local: ${v.location}, KM: ${formatKm(v.initialKm)}, Data: ${formatDateFn(parseISO(v.timestamp), 'dd/MM/yy HH:mm')}\n`;
+    summary += `\n--- Visitas (${visits.filter(v=>!v.deleted).length}) ---\n`;
+    if (visits.filter(v=>!v.deleted).length > 0) {
+      visits.filter(v=>!v.deleted).forEach(v => {
+        summary += `- Cliente: ${v.clientName}, Tipo: ${v.visitType || 'N/A'}, Local: ${v.location}, KM: ${formatKm(v.initialKm)}, Data: ${v.timestamp ? formatDateFn(parseISO(v.timestamp), 'dd/MM/yy HH:mm') : 'N/A'}\n`;
       });
     } else {
       summary += "Nenhuma visita registrada.\n";
     }
 
-    summary += `\n--- Despesas (${expenses.length}) ---\n`;
-    if (expenses.length > 0) {
-      expenses.forEach(e => {
-        summary += `- Desc: ${e.description}, Tipo: ${e.expenseType}, Valor: ${e.value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}, Data: ${formatDateFn(parseISO(e.expenseDate), 'dd/MM/yy')}\n`;
+    summary += `\n--- Despesas (${expenses.filter(e=>!e.deleted).length}) ---\n`;
+    if (expenses.filter(e=>!e.deleted).length > 0) {
+      expenses.filter(e=>!e.deleted).forEach(e => {
+        summary += `- Desc: ${e.description}, Tipo: ${e.expenseType}, Valor: ${e.value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}, Data: ${e.expenseDate ? formatDateFn(parseISO(e.expenseDate), 'dd/MM/yy') : 'N/A'}\n`;
       });
     } else {
       summary += "Nenhuma despesa registrada.\n";
     }
 
-    summary += `\n--- Abastecimentos (${fuelings.length}) ---\n`;
-    if (fuelings.length > 0) {
-      fuelings.forEach(f => {
-        summary += `- Data: ${formatDateFn(parseISO(f.date), 'dd/MM/yy')}, Litros: ${f.liters.toFixed(2)}L, Preço/L: ${f.pricePerLiter.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}, Total: ${f.totalCost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}, KM: ${formatKm(f.odometerKm)}, Tipo: ${f.fuelType}\n`;
+    summary += `\n--- Abastecimentos (${fuelings.filter(f=>!f.deleted).length}) ---\n`;
+    if (fuelings.filter(f=>!f.deleted).length > 0) {
+      fuelings.filter(f=>!f.deleted).forEach(f => {
+        summary += `- Data: ${f.date ? formatDateFn(parseISO(f.date), 'dd/MM/yy') : 'N/A'}, Litros: ${f.liters.toFixed(2)}L, Preço/L: ${f.pricePerLiter.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}, Total: ${f.totalCost.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}, KM: ${formatKm(f.odometerKm)}, Tipo: ${f.fuelType}\n`;
       });
     } else {
       summary += "Nenhum abastecimento registrado.\n";
     }
     console.log("[Trips generateTripSummary] Summary generated successfully for trip:", trip.localId);
     return summary;
-  }, [getDriverName, getVehicleDisplay]); // Dependencies
+  }, [getDriverName, getVehicleDisplay]);
 
 
-  const getTripSummaryKm = useCallback(async (tripId: string) => {
+  const getTripSummaryKmFunction = useCallback(async (tripId: string) => {
     console.log("[Trips getTripSummaryKm] Calculating KM summary for trip:", tripId);
     const visits = await getLocalVisits(tripId).catch(() => []);
-    if (visits.length === 0) {
-        console.log("[Trips getTripSummaryKm] No visits found for trip:", tripId);
+    const activeVisits = visits.filter(v => !v.deleted);
+    if (activeVisits.length === 0) {
+        console.log("[Trips getTripSummaryKm] No active visits found for trip:", tripId);
         return { betweenVisits: null, firstToLast: null };
     }
 
-    const sortedVisits = [...visits].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    const sortedVisits = [...activeVisits].sort((a,b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
 
     let betweenVisitsKm = 0;
     for (let i = 1; i < sortedVisits.length; i++) {
@@ -692,7 +712,7 @@ useEffect(() => {
            firstToLastKm = 0;
        }
     }
-    console.log(`[Trips getTripSummaryKm] KM Summary for ${tripId}:`, { betweenVisits: betweenVisitsKm > 0 ? betweenVisitsKm : null, firstToLast });
+    console.log(`[Trips getTripSummaryKm] KM Summary for ${tripId}:`, { betweenVisits: betweenVisitsKm > 0 ? betweenVisitsKm : null, firstToLastKm });
     return {
         betweenVisits: betweenVisitsKm > 0 ? betweenVisitsKm : null,
         firstToLast: firstToLastKm
@@ -713,9 +733,9 @@ useEffect(() => {
         ...trip,
         vehicleDisplay: getVehicleDisplay(trip.vehicleId),
         driverName: getDriverName(trip.userId),
-        visits: visits.map(v => ({...v, id: v.firebaseId || v.localId, tripId: trip.localId, userId: v.userId, visitType: v.visitType})) as Visit[],
-        expenses: expenses.map(e => ({...e, id: e.firebaseId || e.localId, tripId: trip.localId, userId: e.userId})) as Expense[],
-        fuelings: fuelings.map(f => ({...f, id: f.firebaseId || f.localId, tripId: trip.localId, userId: f.userId, odometerKm: f.odometerKm, fuelType: f.fuelType})) as Fueling[],
+        visits: visits.filter(v=>!v.deleted).map(v => ({...v, id: v.firebaseId || v.localId, tripId: trip.localId, userId: v.userId || trip.userId, visitType: v.visitType})) as Visit[],
+        expenses: expenses.filter(e=>!e.deleted).map(e => ({...e, id: e.firebaseId || e.localId, tripId: trip.localId, userId: e.userId || trip.userId})) as Expense[],
+        fuelings: fuelings.filter(f=>!f.deleted).map(f => ({...f, id: f.firebaseId || f.localId, tripId: trip.localId, userId: f.userId || trip.userId, odometerKm: f.odometerKm, fuelType: f.fuelType})) as Fueling[],
       };
       console.log("[Trips handleGenerateReportDataForPrint] Report data generated successfully for trip:", trip.localId);
       return reportData;
@@ -736,7 +756,7 @@ useEffect(() => {
   }
 
   return (
-    <div className="space-y-6 px-4 sm:px-0">
+    <div className="space-y-6 px-4 sm:px-0"> {/* Added mobile padding */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h2 className="text-2xl font-semibold">
           {isAdmin ? 'Todas as Viagens' : 'Minhas Viagens'}
@@ -823,7 +843,7 @@ useEffect(() => {
                {isAdmin && (
                    <div className="space-y-1.5">
                        <Label htmlFor="driverFilter">Filtrar por Motorista</Label>
-                       <Select value={filterDriver} onValueChange={(value) => setFilterDriver(value === 'all_drivers_filter_trips' ? '' : value)} disabled={loadingDrivers || drivers.length === 0}>
+                       <Select value={filterDriver || '__all_drivers__'} onValueChange={(value) => setFilterDriver(value === '__all_drivers__' ? '' : value)} disabled={loadingDrivers || drivers.length === 0}>
                            <SelectTrigger id="driverFilter">
                                <SelectValue placeholder={loadingDrivers ? "Carregando..." : (drivers.length === 0 ? "Nenhum motorista" : "Todos os Motoristas")} />
                            </SelectTrigger>
@@ -836,7 +856,7 @@ useEffect(() => {
                                     </SelectItem>
                                 ) : (
                                     <>
-                                       <SelectItem value="all_drivers_filter_trips">Todos os Motoristas</SelectItem>
+                                       <SelectItem value="__all_drivers__">Todos os Motoristas</SelectItem>
                                        {drivers.map(driver => (
                                            <SelectItem key={driver.id} value={driver.id}>{driver.name || `Motorista: ${driver.id.substring(0,6)}...`} ({driver.base || 'Sem Base'})</SelectItem>
                                        ))}
@@ -892,11 +912,11 @@ useEffect(() => {
                 selectedVehicleIdForEdit={selectedVehicleIdForEdit}
                 setSelectedVehicleIdForEdit={setSelectedVehicleIdForEdit}
 
-                tripToDelete={tripToDelete}
                 isDeleteModalOpenForThisTrip={isDeleteModalOpen && tripToDelete?.localId === trip.localId}
                 openDeleteModalForThisTrip={(tripToDeleteFromItem, event) => handleOpenDeleteModal(tripToDeleteFromItem, event)}
-                closeDeleteModal={handleCloseDeleteModal}
+                closeDeleteModal={closeDeleteConfirmation} // Changed from handleCloseDeleteModal
                 confirmDeleteTrip={confirmDeleteTrip}
+                tripToDelete={tripToDelete} // Pass the tripToDelete state
 
                 isSaving={isSaving}
                 isDeleting={isDeleting}
@@ -904,7 +924,7 @@ useEffect(() => {
                 user={user}
                 isAdmin={isAdmin}
                 vehicles={vehicles}
-                getTripSummaryKmFunction={getTripSummaryKm}
+                getTripSummaryKmFunction={getTripSummaryKmFunction}
                 loadingVehicles={loadingVehicles}
                 onGenerateReport={handleGenerateReportDataForPrint}
 
@@ -929,4 +949,3 @@ useEffect(() => {
     </div>
   );
 };
-    
