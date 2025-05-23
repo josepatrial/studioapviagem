@@ -8,7 +8,7 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { Toaster } from '@/components/ui/toaster';
 import { SyncProvider } from '@/contexts/SyncContext';
 
-// Initialize the fonts using the named imports
+// Initialize the fonts using the standard named imports and direct invocation
 const geistSansFont = GeistSans({
   variable: '--font-geist-sans',
   subsets: ['latin'],
