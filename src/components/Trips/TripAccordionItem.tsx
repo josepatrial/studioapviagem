@@ -3,339 +3,542 @@
 
 import React from 'react';
 import { Button } from '@/components/ui/button';
-import { CardTitle, CardDescription } from '@/components/ui/card'; // Only if used, or remove
+import { CardTitle, CardDescription } from '@/components/ui/card';
 import { AccordionItem, AccordionHeader, AccordionContent, AccordionTrigger as UiAccordionTrigger } from '../ui/accordion';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Badge } from '@/components/ui/badge';
+import { Car, CheckCircle2, PlayCircle, MapPin, Wallet, Fuel, Milestone, Loader2, ChevronDown, TrendingUp, Edit, Trash2, Printer, Share2 } from 'lucide-react';
+import type { Trip, TripReportData } from './Trips';
+import type { User } from '@/contexts/AuthContext';
+import type { LocalVehicle } from '@/services/localDbService';
+import { cn } from '@/lib/utils';
+import { formatKm } from '@/lib/utils';
+import dynamic from 'next/dynamic';
+import { LoadingSpinner } from '../LoadingSpinner';
 import {
   Dialog,
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription as DialogDesc,
   DialogTrigger,
   DialogFooter,
-  DialogClose
-} from "@/components/ui/dialog";
+  DialogClose,
+} from '@/components/ui/dialog';
 import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
-  AlertDialogDescription,
+  AlertDialogDescription as AlertDialogDescUi,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from '@/components/ui/textarea';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Badge } from '@/components/ui/badge';
-import { cn } from '@/lib/utils';
-import { formatKm } from '@/lib/utils';
-import { Trip } from './Trips';
-import { Visits } from './Visits';
-import { Expenses } from './Expenses';
-import { Fuelings } from './Fuelings';
-import { VehicleInfo } from '../Vehicle'; // For vehicle selection
-import {
-  CheckCircle,
-  Edit,
-  Eye,
-  Fuel,
-  Loader2,
-  MapPin,
-  Milestone,
-  PackageCheck,
-  PlayCircle,
-  Printer,
-  Settings,
-  Share2,
-  Trash2,
-  Truck,
-  Users,
-  Wallet,
-  MessageSquare,
-  Send,
-  ChevronDown,
-  ChevronUp
-} from 'lucide-react';
-import { format as formatDateFn, parseISO } from 'date-fns';
+} from '@/components/ui/alert-dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { format, parseISO } from 'date-fns';
+import { Textarea } from '../ui/textarea';
+
+
+const VisitsComponent = dynamic(() => import('./Visits').then(mod => mod.Visits), {
+  loading: () => <LoadingSpinner className="h-5 w-5" />,
+  ssr: false,
+});
+const ExpensesComponent = dynamic(() => import('./Expenses').then(mod => mod.Expenses), {
+    loading: () => <LoadingSpinner className="h-5 w-5" />,
+    ssr: false,
+});
+const FuelingsComponent = dynamic(() => import('./Fuelings').then(mod => mod.Fuelings), {
+    loading: () => <LoadingSpinner className="h-5 w-5" />,
+    ssr: false,
+});
 
 interface TripAccordionItemProps {
   trip: Trip;
-  getVehicleInfo: (vehicleId: string | undefined) => string;
-  getTripDescription: (trip: Trip) => string; // To get the auto-generated name for display
   visitCount: number;
   expenseCount: number;
   fuelingCount: number;
   isExpanded: boolean;
-  onToggleExpand: () => void;
   activeSubTab: 'visits' | 'expenses' | 'fuelings' | null;
+  getVehicleDisplay: (vehicleId: string) => string;
+  getDriverName: (driverId: string) => string;
+  getTripDescription: (trip: Trip) => string;
+  openFinishModal: (trip: Trip, event: React.MouseEvent) => void;
 
-  // Props for Edit Modal
   currentTripForEdit: Trip | null;
+  isEditModalOpenForThisTrip: boolean;
   openEditModalForThisTrip: () => void;
   closeEditModal: () => void;
-  isEditModalOpenForThisTrip: boolean;
   handleEditTripSubmit: (e: React.FormEvent) => void;
-  // Form state for edit (passed down)
-  tripNameInput: string; // Although likely auto-generated, keep for consistency if form uses it
-  selectedVehicleId: string;
-  setSelectedVehicleId: (id: string) => void;
-  tripStatus: 'Andamento' | 'Finalizado';
-  setTripStatus: (status: 'Andamento' | 'Finalizado') => void;
-  tripBase: string; // Though likely not editable directly
-  tripDescription: string;
-  setTripDescription: (desc: string) => void;
-  vehicles: VehicleInfo[];
+  selectedVehicleIdForEdit: string;
+  setSelectedVehicleIdForEdit: (id: string) => void;
 
-  // Props for Finish Modal (implicitly handled by openFinishModal prop)
-  openFinishModal: () => void;
-
-  // Props for Delete Modal
   tripToDelete: Trip | null;
-  openDeleteModalForThisTrip: (trip: Trip, event?: React.MouseEvent) => void;
   isDeleteModalOpenForThisTrip: boolean;
-  closeDeleteConfirmation: () => void;
-  confirmDeleteTrip: () => void;
-
-  // Props for Print
-  handlePrintTrip: (tripId: string) => void;
+  openDeleteModalForThisTrip: (trip: Trip, event: React.MouseEvent) => void;
+  closeDeleteModal: () => void;
+  confirmDeleteTrip: () => Promise<void>;
 
   isSaving: boolean;
   isDeleting: boolean;
+  tripToFinish: Trip | null;
+  user: User | null;
+  isAdmin: boolean;
+  vehicles: LocalVehicle[];
+  getTripSummaryKmFunction: (tripId: string) => Promise<{ betweenVisits: number | null; firstToLast: number | null }>;
+  loadingVehicles: boolean;
+  onGenerateReport: (trip: Trip) => Promise<TripReportData | null>;
 
-  // For KM summary
-  tripKmSummary: { betweenVisits: number | null, firstToLast: number | null };
+  isShareModalOpenForThisTrip: boolean;
+  openShareModalForThisTrip: () => void;
+  closeShareModal: () => void;
+  detailedSummaryText: string | null;
 }
-
-const safeFormatDate = (dateInput: string | Date | Timestamp | undefined | null, formatStr: string = 'dd/MM/yyyy HH:mm'): string => {
-    if (!dateInput) return 'N/A';
-    try {
-        if (typeof dateInput === 'string') {
-            return formatDateFn(parseISO(dateInput), formatStr);
-        } else if (dateInput && typeof (dateInput as any).toDate === 'function') { // Firebase Timestamp
-            return formatDateFn((dateInput as any).toDate(), formatStr);
-        } else if (dateInput instanceof Date) { // JavaScript Date
-            return formatDateFn(dateInput, formatStr);
-        }
-        return 'Data inválida';
-    } catch (error) {
-        console.warn("[TripAccordionItem safeFormatDate] Error formatting date:", dateInput, error);
-        return 'Data inválida';
-    }
-};
-
 
 export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
   trip,
-  getVehicleInfo,
-  getTripDescription: getDisplayTripName, // Renaming for clarity as it generates the display name
   visitCount,
   expenseCount,
   fuelingCount,
   isExpanded,
-  onToggleExpand, // This will be implicitly called by AccordionTrigger
   activeSubTab,
-
+  getVehicleDisplay,
+  getDriverName,
+  getTripDescription,
+  openFinishModal,
   currentTripForEdit,
+  isEditModalOpenForThisTrip,
   openEditModalForThisTrip,
   closeEditModal,
-  isEditModalOpenForThisTrip,
   handleEditTripSubmit,
-  selectedVehicleId,
-  setSelectedVehicleId,
-  tripStatus,
-  setTripStatus,
-  tripDescription,
-  setTripDescription,
-  vehicles,
-
-  openFinishModal,
-
+  selectedVehicleIdForEdit,
+  setSelectedVehicleIdForEdit,
   tripToDelete,
-  openDeleteModalForThisTrip,
   isDeleteModalOpenForThisTrip,
-  closeDeleteConfirmation,
+  openDeleteModalForThisTrip,
+  closeDeleteModal,
   confirmDeleteTrip,
-  handlePrintTrip,
   isSaving,
   isDeleting,
-  tripKmSummary,
+  tripToFinish,
+  user,
+  isAdmin,
+  vehicles,
+  getTripSummaryKmFunction,
+  loadingVehicles,
+  onGenerateReport,
+  isShareModalOpenForThisTrip,
+  openShareModalForThisTrip,
+  closeShareModal,
+  detailedSummaryText,
 }) => {
+  const [tripKmSummary, setTripKmSummary] = React.useState<{ betweenVisits: number | null, firstToLast: number | null }>({ betweenVisits: null, firstToLast: null });
+  const [isGeneratingReport, setIsGeneratingReport] = React.useState(false);
 
-  const displayTripName = getDisplayTripName(trip); // Use the passed function to get the trip name
+
+  React.useEffect(() => {
+    if (isExpanded) {
+      getTripSummaryKmFunction(trip.localId).then(summary => {
+        setTripKmSummary(summary);
+      }).catch(err => {
+        console.error(`[TripAccordionItem ${trip.localId}] Error fetching KM summary:`, err);
+      });
+    }
+  }, [isExpanded, trip.localId, getTripSummaryKmFunction, trip.status, trip.finalKm, visitCount]);
 
   const isPending = trip.syncStatus === 'pending';
   const isError = trip.syncStatus === 'error';
 
-  const deleteDialogMessage = tripToDelete
-    ? `Tem certeza que deseja marcar a viagem "${tripToDelete.name || 'sem nome'}" para exclusão? Itens relacionados (visitas, despesas, abastecimentos) também serão marcados.`
-    : "Tem certeza que deseja marcar esta viagem para exclusão? Itens relacionados (visitas, despesas, abastecimentos) também serão marcados.";
+  const safeFormatDate = (dateInput: string | { toDate: () => Date } | Date | undefined | null): string => {
+    if (!dateInput) return 'N/A';
+    try {
+      if (typeof dateInput === 'string') {
+        return format(parseISO(dateInput), 'dd/MM/yyyy');
+      } else if (dateInput && typeof (dateInput as any).toDate === 'function') {
+        // It's a Firebase Timestamp object
+        return format((dateInput as any).toDate(), 'dd/MM/yyyy');
+      } else if (dateInput instanceof Date) {
+        // It's already a Date object
+        return format(dateInput, 'dd/MM/yyyy');
+      }
+      return 'Data inválida';
+    } catch (error) {
+      console.warn("Error formatting date:", dateInput, error);
+      return 'Data inválida';
+    }
+  };
+
+
+  const handlePrintReport = async (event: React.MouseEvent) => {
+    event.stopPropagation();
+    setIsGeneratingReport(true);
+    const reportData = await onGenerateReport(trip);
+    setIsGeneratingReport(false);
+
+    if (!reportData) {
+      return;
+    }
+
+    const formatCurrencyForReport = (value: number | undefined) => {
+        if (value === undefined || value === null) return 'N/A';
+        return value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    };
+
+    const formatDateForReportPrint = (dateString: string | { toDate: () => Date } | Date | undefined | null, includeTime = true) => {
+        if (!dateString) return 'N/A';
+        try {
+            const formatString = includeTime ? 'dd/MM/yyyy HH:mm' : 'dd/MM/yyyy';
+            if (typeof dateString === 'string') {
+                return format(parseISO(dateString), formatString);
+            } else if (dateString && typeof (dateString as any).toDate === 'function') {
+                return format((dateString as any).toDate(), formatString);
+            } else if (dateString instanceof Date) {
+                return format(dateString, formatString);
+            }
+            return 'Data Inválida';
+        } catch {
+            return 'Data Inválida';
+        }
+    };
+
+    let reportHtml = `
+      <html>
+        <head>
+          <title>Relatório da Viagem: ${reportData.name}</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 20px; font-size: 10pt; }
+            h1, h2, h3 { color: #333; }
+            h1 { font-size: 16pt; margin-bottom: 5px; text-align: center; }
+            h2 { font-size: 13pt; margin-top: 15px; margin-bottom: 8px; border-bottom: 1px solid #ccc; padding-bottom: 4px;}
+            h3 { font-size: 11pt; margin-top: 12px; margin-bottom: 4px; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 12px; page-break-inside: auto; }
+            tr { page-break-inside: avoid; page-break-after: auto; }
+            th, td { border: 1px solid #ddd; padding: 5px; text-align: left; word-wrap: break-word; }
+            th { background-color: #f2f2f2; font-weight: bold; }
+            .trip-summary p { margin: 2px 0; font-size: 9pt;}
+            .section-empty { color: #777; font-style: italic; padding: 10px 0; }
+            .logo-header { text-align: center; margin-bottom: 15px; }
+            .logo-header img { max-height: 60px; }
+            .footer { text-align: center; font-size: 8pt; color: #777; margin-top: 20px; position: fixed; bottom: 10px; width: 100%; }
+            @media print {
+              body { -webkit-print-color-adjust: exact; print-color-adjust: exact; margin: 15mm; }
+              .no-print { display: none; }
+              table { font-size: 9pt; }
+              th, td { padding: 4px; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="logo-header">
+            <img src="https://placehold.co/200x60.png?text=Grupo+2+Irmaos" alt="Logo Grupo 2 Irmãos" data-ai-hint="company logo"/>
+          </div>
+          <h1>Relatório da Viagem</h1>
+          <div class="trip-summary">
+            <p><strong>Nome da Viagem:</strong> ${reportData.name}</p>
+            <p><strong>Status:</strong> ${reportData.status}</p>
+            <p><strong>Motorista:</strong> ${reportData.driverName}</p>
+            <p><strong>Veículo:</strong> ${reportData.vehicleDisplay}</p>
+            <p><strong>Base:</strong> ${reportData.base || 'N/A'}</p>
+            <p><strong>Criada em:</strong> ${formatDateForReportPrint(reportData.createdAt, false)}</p>
+            <p><strong>Atualizada em:</strong> ${formatDateForReportPrint(reportData.updatedAt, false)}</p>
+            ${reportData.status === 'Finalizado' ? `<p><strong>KM Final:</strong> ${formatKm(reportData.finalKm)}</p>` : ''}
+            ${reportData.status === 'Finalizado' && reportData.totalDistance != null ? `<p><strong>Distância Total:</strong> ${formatKm(reportData.totalDistance)}</p>` : ''}
+          </div>
+
+          <h2>Visitas (${reportData.visits.length})</h2>
+    `;
+    if (reportData.visits.length > 0) {
+      reportHtml += `
+          <table>
+            <thead><tr><th>Cliente</th><th>Tipo</th><th>Local (Cidade)</th><th>KM Visita</th><th>Motivo</th><th>Data/Hora</th></tr></thead>
+            <tbody>`;
+      reportData.visits.forEach(v => {
+        reportHtml += `<tr>
+                        <td>${v.clientName}</td>
+                        <td>${v.visitType || 'N/A'}</td>
+                        <td>${v.location}</td>
+                        <td>${formatKm(v.initialKm)}</td>
+                        <td>${v.reason}</td>
+                        <td>${formatDateForReportPrint(v.timestamp)}</td>
+                       </tr>`;
+      });
+      reportHtml += `</tbody></table>`;
+    } else {
+      reportHtml += `<p class="section-empty">Nenhuma visita registrada.</p>`;
+    }
+
+    reportHtml += `<h2>Despesas (${reportData.expenses.length})</h2>`;
+    if (reportData.expenses.length > 0) {
+      reportHtml += `
+          <table>
+            <thead><tr><th>Descrição</th><th>Tipo</th><th>Valor</th><th>Data</th><th>Anexo</th></tr></thead>
+            <tbody>`;
+      reportData.expenses.forEach(e => {
+        reportHtml += `<tr>
+                        <td>${e.description}</td>
+                        <td>${e.expenseType}</td>
+                        <td>${formatCurrencyForReport(e.value)}</td>
+                        <td>${formatDateForReportPrint(e.expenseDate, false)}</td>
+                        <td>${e.receiptFilename || 'Nenhum'}</td>
+                       </tr>`;
+      });
+      reportHtml += `</tbody></table>`;
+    } else {
+      reportHtml += `<p class="section-empty">Nenhuma despesa registrada.</p>`;
+    }
+
+    reportHtml += `<h2>Abastecimentos (${reportData.fuelings.length})</h2>`;
+    if (reportData.fuelings.length > 0) {
+      reportHtml += `
+          <table>
+            <thead><tr><th>Data</th><th>Litros</th><th>Preço/L</th><th>Total</th><th>Odômetro</th><th>Combustível</th><th>Local</th><th>Anexo</th></tr></thead>
+            <tbody>`;
+      reportData.fuelings.forEach(f => {
+        reportHtml += `<tr>
+                        <td>${formatDateForReportPrint(f.date, false)}</td>
+                        <td>${f.liters.toFixed(2)} L</td>
+                        <td>${formatCurrencyForReport(f.pricePerLiter)}</td>
+                        <td>${formatCurrencyForReport(f.totalCost)}</td>
+                        <td>${formatKm(f.odometerKm)}</td>
+                        <td>${f.fuelType}</td>
+                        <td>${f.location}</td>
+                        <td>${f.receiptFilename || 'Nenhum'}</td>
+                       </tr>`;
+      });
+      reportHtml += `</tbody></table>`;
+    } else {
+      reportHtml += `<p class="section-empty">Nenhum abastecimento registrado.</p>`;
+    }
+
+    reportHtml += `
+          <div class="footer">
+            Relatório gerado em ${formatDateForReportPrint(new Date().toISOString())}
+          </div>
+          <div class="no-print" style="margin-top: 30px; text-align: center; padding-bottom: 20px;">
+            <button onclick="window.print()">Imprimir Relatório</button>
+            <button onclick="window.close()">Fechar</button>
+          </div>
+        </body>
+      </html>
+    `;
+
+    const printWindow = window.open('', '_blank', 'width=1000,height=700,scrollbars=yes,resizable=yes');
+    if (printWindow) {
+      printWindow.document.write(reportHtml);
+      printWindow.document.close();
+      printWindow.focus();
+    } else {
+      alert("Seu navegador bloqueou a abertura da janela de impressão. Por favor, habilite pop-ups para este site.");
+    }
+  };
 
 
   return (
     <AccordionItem key={trip.localId} value={trip.localId} className="border bg-card rounded-lg shadow-lg overflow-hidden group/item data-[state=open]:border-primary/50">
-      <AccordionHeader className="flex items-start"> {/* Changed from flex to flex items-start */}
+      <AccordionHeader className="flex"> {/* This renders the h3 */}
         <div className={cn(
           "flex justify-between items-center w-full",
-          isPending && "bg-yellow-100 dark:bg-yellow-900/30",
-          isError && "bg-red-100 dark:bg-red-900/30",
-          "hover:bg-accent/50 transition-colors" // General hover for the entire header bar
+          isPending && "bg-yellow-100 hover:bg-yellow-200/70 dark:bg-yellow-900/30 dark:hover:bg-yellow-900/50",
+          isError && "bg-destructive/20 hover:bg-destructive/30",
+          !isPending && !isError && "hover:bg-accent/50"
         )}>
-          <UiAccordionTrigger
-            className={cn(
-              "flex-1 text-left p-4", // Removed specific hover, parent div handles it
-              // "hover:bg-accent/50", // Removed for parent div to handle hover
-              "data-[state=open]:border-b data-[state=open]:border-border"
-            )}
-          >
-            <div className="w-full">
-              <div className="flex justify-between items-center">
-                <h3 className="text-md font-semibold text-primary truncate pr-2" title={displayTripName}>
-                  {displayTripName}
-                </h3>
-                <Badge
-                  variant={trip.status === 'Andamento' ? 'default' : 'secondary'}
-                  className={cn(
-                    trip.status === 'Andamento' && 'bg-emerald-500 hover:bg-emerald-600 text-emerald-foreground',
-                    trip.status === 'Finalizado' && 'bg-slate-500 hover:bg-slate-600 text-slate-foreground'
-                  )}
-                >
-                  {trip.status}
-                </Badge>
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {getVehicleInfo(trip.vehicleId)}
-              </p>
-              <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground mt-2">
-                <span className="flex items-center gap-1" title="Visitas"> <MapPin className="h-3 w-3" /> {visitCount}</span>
-                <span className="flex items-center gap-1" title="Despesas"> <Wallet className="h-3 w-3" /> {expenseCount}</span>
-                <span className="flex items-center gap-1" title="Abastecimentos"> <Fuel className="h-3 w-3" /> {fuelingCount}</span>
-                <span className="flex items-center gap-1" title="Criada em"> <Milestone className="h-3 w-3" /> {safeFormatDate(trip.createdAt, 'dd/MM/yy')}</span>
-                 {trip.status === 'Finalizado' && tripKmSummary.firstToLast !== null && (
-                   <span className="flex items-center gap-1 text-blue-600 font-medium" title="Distância Total da Viagem">
-                     <Truck className="h-3 w-3" /> {formatKm(tripKmSummary.firstToLast)}
-                   </span>
-                 )}
-                 {trip.status === 'Andamento' && tripKmSummary.betweenVisits !== null && tripKmSummary.betweenVisits > 0 && (
-                    <span className="flex items-center gap-1 text-indigo-600 font-medium" title="Distância Entre Visitas">
-                      <Milestone className="h-3 w-3" /> {formatKm(tripKmSummary.betweenVisits)}
+          <UiAccordionTrigger className="flex-1 p-4 hover:no-underline focus-visible:ring-0 focus-visible:ring-offset-0">
+            <div className="flex-1 mr-4 space-y-1 text-left">
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <CardTitle className="text-lg">{trip.name}</CardTitle>
+                  <Badge variant={trip.status === 'Andamento' ? 'default' : 'secondary'} className={cn('h-5 px-2 text-xs whitespace-nowrap', trip.status === 'Andamento' ? 'bg-emerald-500 hover:bg-emerald-500/80 dark:bg-emerald-600 dark:hover:bg-emerald-600/80 text-white' : '')}>
+                    {trip.status === 'Andamento' ? <PlayCircle className="h-3 w-3 mr-1" /> : <CheckCircle2 className="h-3 w-3 mr-1" />}
+                    {trip.status}
+                  </Badge>
+                  {isPending && <Badge variant="outline" className="h-5 px-2 text-xs whitespace-nowrap border-yellow-500 text-yellow-700 dark:text-yellow-400">Pendente</Badge>}
+                  {isError && <Badge variant="destructive" className="h-5 px-2 text-xs whitespace-nowrap">Erro Sinc</Badge>}
+                </div>
+                <CardDescription className="text-sm flex items-center gap-1 mt-1">
+                  <Car className="h-4 w-4 text-muted-foreground" /> {getTripDescription(trip)}
+                </CardDescription>
+                <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground mt-1">
+                  <span className="inline-flex items-center gap-1">
+                    <MapPin className="h-3 w-3" /> {visitCount} {visitCount === 1 ? 'Visita' : 'Visitas'}
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <Wallet className="h-3 w-3" /> {expenseCount} {expenseCount === 1 ? 'Despesa' : 'Despesas'}
+                  </span>
+                  <span className="inline-flex items-center gap-1">
+                    <Fuel className="h-3 w-3" /> {fuelingCount} {fuelingCount === 1 ? 'Abastec.' : 'Abastec.'}
+                  </span>
+                  {trip.status === 'Finalizado' && trip.totalDistance != null && (
+                    <span className="text-emerald-600 font-medium inline-flex items-center gap-1">
+                      <Milestone className="h-3 w-3" /> {formatKm(trip.totalDistance)} Total
                     </span>
                   )}
+                  {isExpanded && tripKmSummary.betweenVisits !== null && tripKmSummary.betweenVisits > 0 && (
+                    <span className="text-blue-600 font-medium inline-flex items-center gap-1">
+                      <TrendingUp className="h-3 w-3" /> {formatKm(tripKmSummary.betweenVisits)} Entre Visitas
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground mt-1">
+                  <span>Início: {safeFormatDate(trip.createdAt)}</span>
+                  <span>Atualizado: {safeFormatDate(trip.updatedAt)}</span>
+                </div>
               </div>
-               {isPending && <p className="text-xs text-yellow-600 mt-1">Sincronização pendente</p>}
-               {isError && <p className="text-xs text-red-600 mt-1">Erro na sincronização</p>}
             </div>
           </UiAccordionTrigger>
 
-          {/* Action Buttons Area */}
-          <div className="flex flex-col sm:flex-row items-center p-2 sm:py-4 sm:pr-4 gap-1 self-start sm:self-center">
-            {trip.status === 'Andamento' && (
-              <Button variant="outline" size="sm" onClick={(e) => { e.stopPropagation(); openFinishModal(); }} className="h-8 px-2 sm:px-3 border-emerald-500 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700 w-full sm:w-auto" disabled={isSaving || isDeleting}>
-                <CheckCircle className="h-4 w-4 mr-1 sm:mr-2" /> Finalizar
+          <div className="flex items-center gap-1 flex-shrink-0 pr-4 py-4">
+            {trip.status === 'Andamento' && (isAdmin || trip.userId === user?.id) && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={(e) => { e.stopPropagation(); openFinishModal(trip, e); }}
+                className="h-8 px-2 sm:px-3 text-emerald-600 border-emerald-600/50 hover:bg-emerald-50 hover:text-emerald-700 dark:text-emerald-400 dark:border-emerald-400/50 dark:hover:bg-emerald-900/30"
+                disabled={isSaving || isDeleting}
+              >
+                {isSaving && tripToFinish?.localId === trip.localId ? <Loader2 className="h-4 w-4 animate-spin sm:mr-1" /> : <CheckCircle2 className="h-4 w-4 sm:mr-1" />}
+                <span className="hidden sm:inline">{isSaving && tripToFinish?.localId === trip.localId ? 'Finalizando...' : 'Finalizar'}</span>
               </Button>
             )}
-            <Dialog open={isEditModalOpenForThisTrip} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); }}>
-              <DialogTrigger asChild>
-                <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openEditModalForThisTrip(); }} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving || isDeleting}>
-                  <Edit className="h-4 w-4" />
+            {(isAdmin || trip.userId === user?.id) && (
+              <>
+                 <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={handlePrintReport}
+                  className="text-muted-foreground hover:text-accent-foreground h-8 w-8"
+                  disabled={isSaving || isDeleting || isGeneratingReport}
+                  title="Gerar Relatório da Viagem"
+                >
+                  {isGeneratingReport ? <Loader2 className="h-4 w-4 animate-spin" /> : <Printer className="h-4 w-4" />}
                 </Button>
-              </DialogTrigger>
-              <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                  <DialogTitle>Editar Viagem: {currentTripForEdit?.name}</DialogTitle>
-                </DialogHeader>
-                <form onSubmit={handleEditTripSubmit} className="grid gap-4 py-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="editVehicleId">Veículo*</Label>
-                    <Select onValueChange={setSelectedVehicleId} value={selectedVehicleId} required disabled={isSaving || vehicles.length === 0}>
-                      <SelectTrigger id="editVehicleId"><SelectValue placeholder="Selecione um veículo" /></SelectTrigger>
-                      <SelectContent>
-                        {vehicles.map(vehicle => (
-                          <SelectItem key={vehicle.id} value={vehicle.id}>{vehicle.model} ({vehicle.licensePlate})</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="editTripDescription">Descrição (Opcional)</Label>
-                    <Textarea id="editTripDescription" value={tripDescription} onChange={(e) => setTripDescription(e.target.value)} placeholder="Ex: Entrega cliente X, Rota Sul..." disabled={isSaving}/>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="editTripStatus">Status*</Label>
-                    <Select onValueChange={(value) => setTripStatus(value as 'Andamento' | 'Finalizado')} value={tripStatus} required disabled={isSaving || tripStatus === 'Finalizado'}>
-                      <SelectTrigger id="editTripStatus" disabled={tripStatus === 'Finalizado'} title={tripStatus === 'Finalizado' ? "Não é possível alterar status de viagem finalizada" : ""}>
-                        <SelectValue placeholder="Selecione o status" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="Andamento">Andamento</SelectItem>
-                        <SelectItem value="Finalizado" disabled={true}>Finalizado (via botão "Finalizar")</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <DialogFooter>
-                    <DialogClose asChild><Button type="button" variant="outline" onClick={closeEditModal} disabled={isSaving}>Cancelar</Button></DialogClose>
-                    <Button type="submit" disabled={isSaving} className="bg-primary hover:bg-primary/90">
-                      {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Salvar Alterações
+
+                <Dialog open={isEditModalOpenForThisTrip} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); }}>
+                  <DialogTrigger asChild>
+                    <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openEditModalForThisTrip(); }} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving || isDeleting}>
+                      <Edit className="h-4 w-4" />
                     </Button>
-                  </DialogFooter>
-                </form>
-              </DialogContent>
-            </Dialog>
+                  </DialogTrigger>
+                  <DialogContent className="sm:max-w-[425px]">
+                    <DialogHeader>
+                      <DialogTitle>Editar Viagem</DialogTitle>
+                    </DialogHeader>
+                    <form onSubmit={handleEditTripSubmit} className="grid gap-4 py-4">
+                      <div className="space-y-2">
+                        <Label>Nome da Viagem</Label>
+                        <p className="text-sm text-muted-foreground">{currentTripForEdit?.name}</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="editVehicleId">Veículo*</Label>
+                        <Select value={selectedVehicleIdForEdit} onValueChange={setSelectedVehicleIdForEdit} required disabled={isSaving || loadingVehicles}>
+                          <SelectTrigger id="editVehicleId">
+                            <SelectValue placeholder={loadingVehicles ? "Carregando..." : "Selecione"} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {loadingVehicles ? (
+                              <SelectItem value="loading_vehicles_edit_trip" disabled>
+                                <div className="flex items-center justify-center py-2">
+                                  <LoadingSpinner className="h-4 w-4" />
+                                </div>
+                              </SelectItem>
+                            ) : vehicles.map((vehicle) => (
+                              <SelectItem key={vehicle.localId} value={vehicle.localId}>
+                                {vehicle.model} ({vehicle.licensePlate})
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Motorista</Label>
+                        <p className="text-sm text-muted-foreground">{getDriverName(trip.userId)}</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Base</Label>
+                        <p className="text-sm text-muted-foreground">{currentTripForEdit?.base || 'N/A'}</p>
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Status</Label>
+                        <p className="text-sm font-medium">{currentTripForEdit?.status}</p>
+                      </div>
+                      <DialogFooter>
+                        <DialogClose asChild>
+                          <Button type="button" variant="outline" onClick={closeEditModal} disabled={isSaving}>Cancelar</Button>
+                        </DialogClose>
+                        <Button type="submit" className="bg-primary hover:bg-primary/90" disabled={isSaving}>
+                          {isSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                          {isSaving ? 'Salvando...' : 'Salvar Alterações Locais'}
+                        </Button>
+                      </DialogFooter>
+                    </form>
+                  </DialogContent>
+                </Dialog>
 
-            <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handlePrintTrip(trip.localId); }} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving || isDeleting} title="Imprimir/Salvar PDF">
-              <Printer className="h-4 w-4" />
-            </Button>
-
-            <AlertDialog open={isDeleteModalOpenForThisTrip && tripToDelete?.localId === trip.localId} onOpenChange={(isOpen) => { if (!isOpen) closeDeleteConfirmation();}}>
-              <AlertDialogTrigger asChild>
-                <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openDeleteModalForThisTrip(trip, e); }} className="text-muted-foreground hover:text-destructive h-8 w-8" disabled={isSaving || isDeleting}>
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    {deleteDialogMessage}
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel onClick={(e) => { e.stopPropagation(); closeDeleteConfirmation(); }} disabled={isDeleting}>Cancelar</AlertDialogCancel>
-                  <AlertDialogAction onClick={(e) => { e.stopPropagation(); confirmDeleteTrip(); }} className="bg-destructive hover:bg-destructive/90 text-destructive-foreground" disabled={isDeleting}>
-                    {isDeleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />} Excluir
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+                <AlertDialog open={isDeleteModalOpenForThisTrip && tripToDelete?.localId === trip.localId} onOpenChange={(isOpen) => { if (!isOpen) closeDeleteModal(); }}>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openDeleteModalForThisTrip(trip, e); }} className="text-muted-foreground hover:text-destructive h-8 w-8" disabled={isSaving || isDeleting}>
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
+                      <AlertDialogDescUi>
+                        Tem certeza que deseja marcar a viagem "{tripToDelete?.name}" para exclusão? Itens relacionados (visitas, despesas, abastecimentos) também serão marcados.
+                      </AlertDialogDescUi>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel onClick={closeDeleteModal} disabled={isDeleting}>Cancelar</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={confirmDeleteTrip}
+                        className="bg-destructive hover:bg-destructive/90 text-destructive-foreground"
+                        disabled={isDeleting}
+                      >
+                        {isDeleting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                        {isDeleting ? 'Marcando...' : 'Marcar para Excluir'}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </>
+            )}
           </div>
         </div>
       </AccordionHeader>
-      <AccordionContent className="bg-card p-0 data-[state=open]:border-t"> {/* Use bg-card and remove direct padding for consistency */}
-        {/* Content is always rendered, AccordionContent controls visibility */}
-        <div className="p-4"> {/* Add padding here if needed inside the content area */}
+      <AccordionContent className="bg-card p-6">
           <Tabs defaultValue={activeSubTab || "visits"} className="w-full pt-4">
-            <div className="border-b bg-card"> {/* Changed from bg-background */}
-              <TabsList className="grid w-full grid-cols-3 sm:w-auto sm:inline-flex">
-                <TabsTrigger value="visits"><MapPin className="mr-2 h-4 w-4 sm:hidden md:inline-block" /> Visitas ({visitCount})</TabsTrigger>
-                <TabsTrigger value="expenses"><Wallet className="mr-2 h-4 w-4 sm:hidden md:inline-block" /> Despesas ({expenseCount})</TabsTrigger>
-                <TabsTrigger value="fuelings"><Fuel className="mr-2 h-4 w-4 sm:hidden md:inline-block" /> Abastecimentos ({fuelingCount})</TabsTrigger>
-              </TabsList>
+            <div className="overflow-x-auto border-b bg-card">
+               <TabsList className={cn(
+                  "grid w-full rounded-none bg-transparent p-0 sm:w-auto sm:inline-flex",
+                  "grid-cols-3"
+               )}>
+                   <TabsTrigger value="visits" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
+                     <MapPin className="mr-1 h-4 w-4 inline-block" />Visitas ({visitCount})
+                   </TabsTrigger>
+                   <TabsTrigger value="expenses" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
+                     <Wallet className="mr-1 h-4 w-4 inline-block" />Despesas ({expenseCount})
+                   </TabsTrigger>
+                   <TabsTrigger value="fuelings" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
+                     <Fuel className="mr-1 h-4 w-4 inline-block" />Abastec. ({fuelingCount})
+                   </TabsTrigger>
+               </TabsList>
             </div>
-            <TabsContent value="visits" className="mt-4">
-              <Visits tripId={trip.localId} ownerUserId={trip.userId} />
+
+            {/* Conteúdo das abas */}
+            <TabsContent value="visits">
+                <VisitsComponent tripId={trip.localId} ownerUserId={trip.userId}/>
             </TabsContent>
-            <TabsContent value="expenses" className="mt-4">
-              <Expenses tripId={trip.localId} ownerUserId={trip.userId} />
+            <TabsContent value="expenses">
+                <ExpensesComponent tripId={trip.localId} ownerUserId={trip.userId} />
             </TabsContent>
-            <TabsContent value="fuelings" className="mt-4">
-              <Fuelings tripId={trip.localId} vehicleId={trip.vehicleId!} ownerUserId={trip.userId} />
+            <TabsContent value="fuelings">
+                <FuelingsComponent tripId={trip.localId} vehicleId={trip.vehicleId} ownerUserId={trip.userId} />
             </TabsContent>
           </Tabs>
-        </div>
       </AccordionContent>
     </AccordionItem>
   );
 };
+
