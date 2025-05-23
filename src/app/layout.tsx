@@ -8,15 +8,23 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { Toaster } from '@/components/ui/toaster';
 import { SyncProvider } from '@/contexts/SyncContext';
 
-const geistSansFont = GeistSans({
+// Attempt to access the function as a property of the imported object
+const geistSansFont = GeistSans.GeistSans ? GeistSans.GeistSans({
+  variable: '--font-geist-sans',
+  subsets: ['latin'],
+}) : GeistSans({ // Fallback to direct call if the above structure isn't what's happening
   variable: '--font-geist-sans',
   subsets: ['latin'],
 });
 
-const geistMonoFont = GeistMono({
+const geistMonoFont = GeistMono.GeistMono ? GeistMono.GeistMono({
+  variable: '--font-geist-mono',
+  subsets: ['latin'],
+}) : GeistMono({ // Fallback for Mono as well
   variable: '--font-geist-mono',
   subsets: ['latin'],
 });
+
 
 export const metadata: Metadata = {
   title: 'Grupo 2 Irmãos',
