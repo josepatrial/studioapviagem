@@ -20,7 +20,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogDescription as DialogDesc, // Renamed to avoid conflict
+  DialogDescription as DialogDesc,
   DialogTrigger,
   DialogFooter,
   DialogClose,
@@ -30,7 +30,7 @@ import {
   AlertDialogAction,
   AlertDialogCancel,
   AlertDialogContent,
-  AlertDialogDescription as AlertDialogDescUi, // Renamed to avoid conflict
+  AlertDialogDescription as AlertDialogDescUi,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
@@ -98,24 +98,6 @@ interface TripAccordionItemProps {
   detailedSummaryText: string | null;
 }
 
-const safeFormatDate = (dateInput: string | { toDate: () => Date } | Date | undefined | null): string => {
-  if (!dateInput) return 'N/A';
-  try {
-    if (typeof dateInput === 'string') {
-      return format(parseISO(dateInput), 'dd/MM/yyyy');
-    } else if (dateInput && typeof (dateInput as any).toDate === 'function') {
-      return format((dateInput as any).toDate(), 'dd/MM/yyyy');
-    } else if (dateInput instanceof Date) {
-      return format(dateInput, 'dd/MM/yyyy');
-    }
-    console.warn("[safeFormatDate] Invalid date input type, returning 'Data inválida'. Input:", dateInput);
-    return 'Data inválida';
-  } catch (error) {
-    console.warn("[safeFormatDate] Error formatting date. Input:", dateInput, "Error:", error);
-    return 'Data inválida';
-  }
-};
-
 export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
   trip,
   visitCount,
@@ -156,23 +138,38 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
   const [tripKmSummary, setTripKmSummary] = React.useState<{ betweenVisits: number | null, firstToLast: number | null }>({ betweenVisits: null, firstToLast: null });
   const [isGeneratingReport, setIsGeneratingReport] = React.useState(false);
 
+
   React.useEffect(() => {
     if (isExpanded) {
       getTripSummaryKmFunction(trip.localId).then(summary => {
         setTripKmSummary(summary);
       }).catch(err => {
-        console.error("[TripAccordionItem " + trip.localId + "] Error fetching KM summary:", err);
+        console.error(`[TripAccordionItem ${trip.localId}] Error fetching KM summary:`, err);
       });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isExpanded, trip.localId]); // getTripSummaryKmFunction removed to prevent potential infinite loops if its reference changes too often
+  }, [isExpanded, trip.localId, getTripSummaryKmFunction, trip.status, trip.finalKm, visitCount]);
 
   const isPending = trip.syncStatus === 'pending';
   const isError = trip.syncStatus === 'error';
 
-  const deleteDialogMessage = isDeleteModalOpenForThisTrip && tripToDelete
-    ? `Tem certeza que deseja marcar a viagem "${tripToDelete.name || 'sem nome'}" para exclusão? Itens relacionados (visitas, despesas, abastecimentos) também serão marcados.`
-    : "Tem certeza que deseja marcar esta viagem para exclusão? Itens relacionados (visitas, despesas, abastecimentos) também serão marcados.";
+  const safeFormatDate = (dateInput: string | { toDate: () => Date } | Date | undefined | null): string => {
+    if (!dateInput) return 'N/A';
+    try {
+      if (typeof dateInput === 'string') {
+        return format(parseISO(dateInput), 'dd/MM/yyyy');
+      } else if (dateInput && typeof (dateInput as any).toDate === 'function') {
+        // It's a Firebase Timestamp object
+        return format((dateInput as any).toDate(), 'dd/MM/yyyy');
+      } else if (dateInput instanceof Date) {
+        // It's already a Date object
+        return format(dateInput, 'dd/MM/yyyy');
+      }
+      return 'Data inválida';
+    } catch (error) {
+      console.warn("Error formatting date:", dateInput, error);
+      return 'Data inválida';
+    }
+  };
 
 
   const handlePrintReport = async (event: React.MouseEvent) => {
@@ -192,8 +189,8 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
 
     const formatDateForReportPrint = (dateString: string | { toDate: () => Date } | Date | undefined | null, includeTime = true) => {
         if (!dateString) return 'N/A';
-        const formatString = includeTime ? 'dd/MM/yyyy HH:mm' : 'dd/MM/yyyy';
         try {
+            const formatString = includeTime ? 'dd/MM/yyyy HH:mm' : 'dd/MM/yyyy';
             if (typeof dateString === 'string') {
                 return format(parseISO(dateString), formatString);
             } else if (dateString && typeof (dateString as any).toDate === 'function') {
@@ -201,10 +198,8 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
             } else if (dateString instanceof Date) {
                 return format(dateString, formatString);
             }
-             console.warn("[formatDateForReportPrint] Invalid date input for report. Input:", dateString);
             return 'Data Inválida';
-        } catch(error) {
-            console.warn("[formatDateForReportPrint] Error formatting date for report. Input:", dateString, "Error:", error);
+        } catch {
             return 'Data Inválida';
         }
     };
@@ -343,14 +338,14 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
 
   return (
     <AccordionItem key={trip.localId} value={trip.localId} className="border bg-card rounded-lg shadow-lg overflow-hidden group/item data-[state=open]:border-primary/50">
-      <AccordionHeader className="flex items-start"> {/* Changed from flex to flex items-start */}
+      <AccordionHeader className="flex"> {/* This renders the h3 */}
         <div className={cn(
-          "flex justify-between items-center w-full", // Ensure items-center for vertical alignment
+          "flex justify-between items-center w-full",
           isPending && "bg-yellow-100 hover:bg-yellow-200/70 dark:bg-yellow-900/30 dark:hover:bg-yellow-900/50",
           isError && "bg-destructive/20 hover:bg-destructive/30",
           !isPending && !isError && "hover:bg-accent/50"
         )}>
-          <UiAccordionTrigger className="flex-1 text-left hover:no-underline focus-visible:ring-0 focus-visible:ring-offset-0 p-4">
+          <UiAccordionTrigger className="flex-1 p-4 hover:no-underline focus-visible:ring-0 focus-visible:ring-offset-0">
             <div className="flex-1 mr-4 space-y-1 text-left">
               <div>
                 <div className="flex items-center gap-2 flex-wrap">
@@ -394,12 +389,12 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
             </div>
           </UiAccordionTrigger>
 
-          <div className="flex items-center gap-1 flex-shrink-0 pr-4 py-4"> {/* Ensure this div has items-center */}
+          <div className="flex items-center gap-1 flex-shrink-0 pr-4 py-4">
             {trip.status === 'Andamento' && (isAdmin || trip.userId === user?.id) && (
               <Button
                 variant="outline"
                 size="sm"
-                onClick={(e) => { console.log("[TAI] Finish button clicked for trip:", trip.localId); e.stopPropagation(); openFinishModal(trip, e); }}
+                onClick={(e) => { e.stopPropagation(); openFinishModal(trip, e); }}
                 className="h-8 px-2 sm:px-3 text-emerald-600 border-emerald-600/50 hover:bg-emerald-50 hover:text-emerald-700 dark:text-emerald-400 dark:border-emerald-400/50 dark:hover:bg-emerald-900/30"
                 disabled={isSaving || isDeleting}
               >
@@ -422,7 +417,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
 
                 <Dialog open={isEditModalOpenForThisTrip} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); }}>
                   <DialogTrigger asChild>
-                    <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); console.log("[TAI] Edit button clicked for trip:", trip); openEditModalForThisTrip(); }} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving || isDeleting}>
+                    <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openEditModalForThisTrip(); }} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving || isDeleting}>
                       <Edit className="h-4 w-4" />
                     </Button>
                   </DialogTrigger>
@@ -483,7 +478,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
 
                 <AlertDialog open={isDeleteModalOpenForThisTrip && tripToDelete?.localId === trip.localId} onOpenChange={(isOpen) => { if (!isOpen) closeDeleteModal(); }}>
                   <AlertDialogTrigger asChild>
-                    <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); console.log("[TAI] Delete button clicked for trip:", trip); openDeleteModalForThisTrip(trip, e); }} className="text-muted-foreground hover:text-destructive h-8 w-8" disabled={isSaving || isDeleting}>
+                    <Button variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); openDeleteModalForThisTrip(trip, e); }} className="text-muted-foreground hover:text-destructive h-8 w-8" disabled={isSaving || isDeleting}>
                       <Trash2 className="h-4 w-4" />
                     </Button>
                   </AlertDialogTrigger>
@@ -491,7 +486,7 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                     <AlertDialogHeader>
                       <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
                       <AlertDialogDescUi>
-                        {deleteDialogMessage}
+                        Tem certeza que deseja marcar a viagem "{tripToDelete?.name}" para exclusão? Itens relacionados (visitas, despesas, abastecimentos) também serão marcados.
                       </AlertDialogDescUi>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -531,19 +526,16 @@ export const TripAccordionItem: React.FC<TripAccordionItemProps> = ({
                </TabsList>
             </div>
 
-            {isExpanded && (
-                <>
-                    <TabsContent value="visits">
-                        <VisitsComponent tripId={trip.localId} ownerUserId={trip.userId}/>
-                    </TabsContent>
-                    <TabsContent value="expenses">
-                        <ExpensesComponent tripId={trip.localId} ownerUserId={trip.userId} />
-                    </TabsContent>
-                    <TabsContent value="fuelings">
-                        <FuelingsComponent tripId={trip.localId} vehicleId={trip.vehicleId} ownerUserId={trip.userId} />
-                    </TabsContent>
-                </>
-            )}
+            {/* Conteúdo das abas */}
+            <TabsContent value="visits">
+                <VisitsComponent tripId={trip.localId} ownerUserId={trip.userId}/>
+            </TabsContent>
+            <TabsContent value="expenses">
+                <ExpensesComponent tripId={trip.localId} ownerUserId={trip.userId} />
+            </TabsContent>
+            <TabsContent value="fuelings">
+                <FuelingsComponent tripId={trip.localId} vehicleId={trip.vehicleId} ownerUserId={trip.userId} />
+            </TabsContent>
           </Tabs>
       </AccordionContent>
     </AccordionItem>
