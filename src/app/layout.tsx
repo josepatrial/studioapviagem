@@ -8,21 +8,13 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { Toaster } from '@/components/ui/toaster';
 import { SyncProvider } from '@/contexts/SyncContext';
 
-// Initialize the fonts using the named imports, but calling them as if they are properties
-// on an object, as implied by the Turbopack runtime error.
-// Using type assertion (as any) to bypass TypeScript strict checks for this specific workaround.
-const geistSansFont = (GeistSans as any).GeistSans ? (GeistSans as any).GeistSans({
-  variable: '--font-geist-sans',
-  subsets: ['latin'],
-}) : GeistSans({ // Fallback to direct call if the above structure isn't what's happening
+// Initialize the fonts using the named imports
+const geistSansFont = GeistSans({
   variable: '--font-geist-sans',
   subsets: ['latin'],
 });
 
-const geistMonoFont = (GeistMono as any).GeistMono ? (GeistMono as any).GeistMono({
-  variable: '--font-geist-mono',
-  subsets: ['latin'],
-}) : GeistMono({ // Fallback to direct call
+const geistMonoFont = GeistMono({
   variable: '--font-geist-mono',
   subsets: ['latin'],
 });
