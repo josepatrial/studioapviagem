@@ -20,6 +20,8 @@ try {
     });
     console.log('[Layout] GeistSans initialized directly.');
   } else if (GeistSansImport && typeof (GeistSansImport as any).GeistSans === 'function') {
+    // This case was an attempt to handle Turbopack's specific error messages.
+    // If direct import works, this part isn't strictly necessary but can be a fallback.
     geistSansFont = (GeistSansImport as any).GeistSans({
       variable: '--font-geist-sans',
       subsets: ['latin'],
