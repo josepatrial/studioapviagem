@@ -60,7 +60,7 @@ export const metadata: Metadata = {
   title: 'Grupo 2 Irmãos',
   description: 'Aplicativo de viagens para motoristas',
   icons: {
-    icon: '/favicon.ico', // This correctly points to public/favicon.ico
+    icon: '/favicon.ico', // This should point to public/favicon.ico
   },
 };
 

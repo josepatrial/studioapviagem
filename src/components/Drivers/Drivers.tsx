@@ -1,3 +1,4 @@
+
 // src/components/Drivers/Drivers.tsx
 'use client';
 
@@ -27,33 +28,34 @@ import bcrypt from 'bcryptjs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { format } from 'date-fns';
 
-type Driver = AppUser & { username?: string; lastLogin?: string; firebaseId?: string; }; // Added firebaseId for clarity
+type Driver = AppUser & { username?: string; lastLogin?: string; firebaseId?: string; };
 
 // Helper function to parse CSV data
 const parseCSV = (csvText: string): Record<string, string>[] => {
     const lines = csvText.trim().split('\n');
     if (lines.length < 2) return [];
 
-    const headerLine = lines[0].trim();
-    const header = headerLine.split(',').map(h => h.trim().toLowerCase());
+    const rawHeaderLine = lines[0].trim();
+    // Ensure regex flags are correct, e.g., /g and not /gX or similar typo
+    const header = rawHeaderLine.split(',').map(h => h.trim().toLowerCase().replace(/^"|"$/g, ''));
     const data = [];
 
     for (let i = 1; i < lines.length; i++) {
         const line = lines[i].trim();
         if (!line) continue;
 
-        const values = line.split(',');
+        // Ensure regex flags are correct here too
+        const values = line.split(',').map(v => v.trim().replace(/^"|"$/g, ''));
         const entry: Record<string, string> = {};
         let nameFound = false;
 
         for (let j = 0; j < header.length; j++) {
-            const normalizedHeader = header[j].replace(/\s+/g, '').toLowerCase(); // Normalize: remove spaces, lowercase
+            const normalizedHeader = header[j].replace(/\s+/g, '').toLowerCase();
             entry[normalizedHeader] = values[j]?.trim() || '';
             if (normalizedHeader === 'nome' && entry[normalizedHeader]) {
                 nameFound = true;
             }
         }
-        // Only add if 'nome' is present
         if (nameFound) {
             data.push(entry);
         } else {
@@ -140,14 +142,14 @@ export const Drivers: React.FC = () => {
         setIsSaving(true);
         try {
             const existingLocalUserByEmail = await getLocalUserByEmail(createEmail);
-            if (existingLocalUserByEmail) {
+            if (existingLocalUserByEmail && !existingLocalUserByEmail.deleted) { // Check !deleted status
                 toast({ variant: "destructive", title: "Erro", description: "Este e-mail já está cadastrado localmente." });
                 setIsSaving(false);
                 return;
             }
             const usernameFromEmail = createEmail.split('@')[0];
             const existingLocalUserByUsername = await getLocalUserByUsername(usernameFromEmail);
-            if (existingLocalUserByUsername) {
+             if (existingLocalUserByUsername && !existingLocalUserByUsername.deleted) { // Check !deleted status
                  toast({ variant: "destructive", title: "Erro", description: `O nome de usuário padrão '${usernameFromEmail}' já existe. Forneça um nome de usuário único ou altere o e-mail.` });
                  setIsSaving(false);
                  return;
@@ -157,7 +159,7 @@ export const Drivers: React.FC = () => {
             const newDriverLocalId = `local_user_${uuidv4()}`;
 
             const newDriverData: DbUser = {
-                id: newDriverLocalId, // This is the localId
+                id: newDriverLocalId, 
                 name: createName,
                 email: createEmail,
                 username: usernameFromEmail,
@@ -165,9 +167,8 @@ export const Drivers: React.FC = () => {
                 role: 'driver',
                 base: createBase.toUpperCase(),
                 lastLogin: new Date().toISOString(),
-                syncStatus: 'pending', // New users created by admin are pending sync
+                syncStatus: 'pending', 
                 deleted: false,
-                // firebaseId will be set when the user logs in online for the first time
             };
 
             await saveLocalUser(newDriverData);
@@ -182,7 +183,11 @@ export const Drivers: React.FC = () => {
 
         } catch (error: any) {
             console.error("[Drivers] Error adding new local driver:", error);
-            toast({ variant: "destructive", title: "Erro Local", description: `Não foi possível cadastrar o motorista: ${error.message}` });
+            let errorMessage = `Não foi possível cadastrar o motorista: ${error.message}`;
+            if (error.message?.includes("unique constraint")) { // More specific error for IndexedDB unique constraint
+                errorMessage = "Erro de duplicidade ao salvar motorista localmente. Verifique e-mail ou nome de usuário.";
+            }
+            toast({ variant: "destructive", title: "Erro Local", description: errorMessage });
         } finally {
             setIsSaving(false);
         }
@@ -214,11 +219,11 @@ export const Drivers: React.FC = () => {
         let usernameExists = false;
         try {
             const existingByEmail = await getLocalUserByEmail(editEmail);
-            if (existingByEmail && existingByEmail.id !== originalLocalUser.id) emailExists = true;
+            if (existingByEmail && existingByEmail.id !== originalLocalUser.id && !existingByEmail.deleted) emailExists = true;
             
             if (editUsername && editUsername !== originalLocalUser.username) {
                  const existingByUsername = await getLocalUserByUsername(editUsername);
-                 if(existingByUsername && existingByUsername.id !== originalLocalUser.id) usernameExists = true;
+                 if(existingByUsername && existingByUsername.id !== originalLocalUser.id && !existingByUsername.deleted) usernameExists = true;
             }
         } catch (checkError) {
             console.error("[Drivers] Error checking for existing user locally during edit:", checkError);
@@ -284,7 +289,8 @@ export const Drivers: React.FC = () => {
                 closeEditModal(); 
             }
             toast({ title: "Motorista marcado para exclusão.", description: "A exclusão online ocorrerá na próxima sincronização (se já existia online)." });
-
+            // After marking for deletion, re-fetch local drivers to update UI and pending count
+            await fetchLocalDriversData(); // Re-fetch to update the list
         } catch (error: any) {
             console.error("[Drivers] Error during driver deletion process:", error);
             toast({ variant: "destructive", title: "Erro Local", description: `Não foi possível processar a exclusão do motorista: ${error.message}` });
@@ -315,7 +321,7 @@ export const Drivers: React.FC = () => {
             try {
                 const parsedData = parseCSV(text);
                 if (parsedData.length === 0) {
-                    toast({ variant: "destructive", title: "Arquivo Vazio ou Inválido", description: "O CSV não contém dados ou está mal formatado." });
+                    toast({ variant: "default", title: "Arquivo Vazio ou Inválido", description: "O CSV não contém dados válidos ou os cabeçalhos obrigatórios ('Nome') estão ausentes." });
                     setIsSaving(false);
                     return;
                 }
@@ -338,32 +344,35 @@ export const Drivers: React.FC = () => {
                     const email = row['email']?.trim() || `${name.toLowerCase().replace(/\s+/g, '.')}.${uuidv4().substring(0, 4)}@imported.local`;
                     let password = row['senha']?.trim();
                     if (!password || password.length < 6) {
-                        if (password && password.length < 6) {
-                            console.warn(`[CSV Import] Senha para ${name} no CSV é muito curta. Usando senha padrão.`);
+                        if (password && password.length > 0) { // Log if password was provided but too short
+                            console.warn(`[CSV Import] Senha para ${name} no CSV é muito curta ('${password}'). Usando senha padrão.`);
                         }
                         password = DEFAULT_PASSWORD;
                         usedDefaultPassword = true;
                     }
                     
                     const base = row['base']?.trim().toUpperCase() || 'CSV_IMPORTED';
-                    const username = row['username']?.trim() || email.split('@')[0];
+                    const username = row['username']?.trim() || email.split('@')[0].replace(/[^a-zA-Z0-9]/g, '_'); // Sanitize username
 
                     const existingByEmail = await getLocalUserByEmail(email);
-                    if (existingByEmail) {
-                        const reason = `Email '${email}' (Nome: ${name}) já existe localmente.`;
+                    if (existingByEmail && !existingByEmail.deleted) {
+                        const reason = `Email '${email}' (Nome: ${name}) já existe localmente e não está marcado como excluído.`;
                         console.warn("[CSV Import]", reason);
                         skippedReasons.push(reason);
                         skippedCount++;
                         continue;
                     }
-                    const existingByUsername = await getLocalUserByUsername(username);
-                    if (existingByUsername) {
-                        const reason = `Nome de usuário '${username}' (Nome: ${name}) já existe localmente.`;
-                        console.warn("[CSV Import]", reason);
-                        skippedReasons.push(reason);
-                        skippedCount++;
-                        continue;
+                    if (username) {
+                        const existingByUsername = await getLocalUserByUsername(username);
+                        if (existingByUsername && !existingByUsername.deleted) {
+                            const reason = `Nome de usuário '${username}' (Nome: ${name}) já existe localmente e não está marcado como excluído.`;
+                            console.warn("[CSV Import]", reason);
+                            skippedReasons.push(reason);
+                            skippedCount++;
+                            continue;
+                        }
                     }
+
 
                     const passwordHash = await bcrypt.hash(password, 10);
                     const newDriverLocalId = `local_user_${uuidv4()}`;
@@ -387,19 +396,23 @@ export const Drivers: React.FC = () => {
                     } catch (saveError: any) {
                         const reason = `Erro ao salvar ${name} (Email: ${email}): ${saveError.message}`;
                         console.error(`[CSV Import] Error saving imported driver ${name} (Email: ${email}):`, saveError);
-                        toast({ variant: "destructive", title: "Erro ao Salvar Motorista Importado", description: reason});
+                        if (saveError.message?.includes("unique constraint")) {
+                             toast({ variant: "destructive", title: "Erro ao Salvar Motorista (Duplicidade)", description: `Motorista: ${name}. E-mail ou usuário já existe.`});
+                        } else {
+                            toast({ variant: "destructive", title: "Erro ao Salvar Motorista Importado", description: reason});
+                        }
                         skippedReasons.push(reason);
                         skippedCount++;
                     }
                 }
 
-                await fetchLocalDriversData(); 
+                if (importedCount > 0) await fetchLocalDriversData(); 
                 let importToastDescription = `${importedCount} motoristas importados. ${skippedCount} ignorados.`;
                 if (usedDefaultPassword) {
                     importToastDescription += ` Senha padrão "${DEFAULT_PASSWORD}" usada para alguns. Altere-as imediatamente.`;
                 }
                 if (skippedReasons.length > 0) {
-                    importToastDescription += ` Motivos para ignorados (ver console): ${skippedReasons.slice(0,2).join(', ')}${skippedReasons.length > 2 ? '...' : ''}`;
+                    importToastDescription += ` Motivos para ignorados (ver console): ${skippedReasons.slice(0,1).join(', ')}${skippedReasons.length > 1 ? '...' : ''}`;
                     console.warn("[CSV Import] Detalhes dos motoristas ignorados:", skippedReasons.join("\n"));
                 }
                 toast({
@@ -425,51 +438,54 @@ export const Drivers: React.FC = () => {
         reader.readAsText(file);
     };
 
-     const handleSyncOnlineDrivers = useCallback(async () => {
+    const handleSyncOnlineDrivers = useCallback(async () => {
         console.log("[Drivers Sync] Initiating online driver sync...");
         setIsSaving(true);
         toast({ title: "Sincronizando Online...", description: "Buscando e atualizando motoristas do servidor." });
         try {
             const onlineDriversData: DriverInfo[] = await fetchFirestoreDrivers();
-            console.log(`[Drivers Sync] Fetched ${onlineDriversData.length} drivers from Firestore.`);
+            console.log(`[Drivers Sync] Fetched ${onlineDriversData.length} drivers from Firestore. Sample:`, onlineDriversData.slice(0,2));
             let newDriversAdded = 0;
             let existingDriversUpdated = 0;
+            let syncErrors = 0;
 
             for (const onlineDriver of onlineDriversData) {
                 if (!onlineDriver.id) {
                     console.warn("[Drivers Sync] Skipping online driver due to missing ID:", onlineDriver);
                     continue;
                 }
-                const existingLocalDriver = await getLocalUser(onlineDriver.id);
+                const existingLocalDriver = await getLocalUser(onlineDriver.id).catch(() => null);
+                
                 const driverDataForSave: DbUser = {
-                    id: onlineDriver.id, // Firebase UID is the primary ID
+                    id: onlineDriver.id, 
                     firebaseId: onlineDriver.id,
                     name: onlineDriver.name || onlineDriver.email || `Motorista ${onlineDriver.id.substring(0,6)}`,
                     email: onlineDriver.email,
                     username: onlineDriver.username || onlineDriver.email.split('@')[0] || `user_${onlineDriver.id.substring(0,6)}`,
-                    role: 'driver', // Explicitly set role
+                    role: 'driver',
                     base: onlineDriver.base || 'N/A',
                     lastLogin: existingLocalDriver?.lastLogin || new Date().toISOString(),
-                    passwordHash: existingLocalDriver?.passwordHash || '', // Preserve local password hash if exists
+                    passwordHash: existingLocalDriver?.passwordHash || '', // Preserve local hash
                     syncStatus: 'synced',
                     deleted: false,
                 };
 
                 try {
                     await saveLocalUser(driverDataForSave);
-                    if (existingLocalDriver) {
+                    if (existingLocalDriver && !existingLocalDriver.deleted) { // Check if it was an update to a non-deleted user
                         existingDriversUpdated++;
                     } else {
                         newDriversAdded++;
                     }
                 } catch (saveError: any) {
+                    syncErrors++;
                     console.error(`[Drivers Sync] Error saving/updating driver ${onlineDriver.id} locally:`, saveError);
                     toast({ variant: "destructive", title: "Erro ao Salvar Local", description: `Motorista: ${onlineDriver.name}. Erro: ${saveError.message}` });
                 }
             }
-            console.log(`[Drivers Sync] Sync complete. New: ${newDriversAdded}, Updated: ${existingDriversUpdated}`);
-            toast({ title: "Sincronização Concluída!", description: `${newDriversAdded} novos motoristas adicionados, ${existingDriversUpdated} atualizados.` });
-            await fetchLocalDriversData(); // Refresh the list from local DB
+            console.log(`[Drivers Sync] Sync complete. New: ${newDriversAdded}, Updated: ${existingDriversUpdated}, Errors: ${syncErrors}`);
+            toast({ title: "Sincronização Concluída!", description: `${newDriversAdded} novos motoristas adicionados, ${existingDriversUpdated} atualizados. Falhas: ${syncErrors}.` });
+            await fetchLocalDriversData(); 
         } catch (error: any) {
             console.error("[Drivers Sync] Error during online sync:", error);
             toast({ variant: "destructive", title: "Erro na Sincronização Online", description: error.message });
@@ -528,9 +544,6 @@ export const Drivers: React.FC = () => {
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
                 <h2 className="text-2xl font-semibold">Gerenciar Motoristas</h2>
-                 <Button onClick={handleSyncOnlineDrivers} variant="outline" disabled={isSaving || loadingDrivers}>
-                    <RefreshCw className="mr-2 h-4 w-4" /> Sincronizar Online
-                </Button>
             </div>
 
             {loadingDrivers ? (
@@ -692,4 +705,3 @@ export const Drivers: React.FC = () => {
         </div>
     );
 };
-
