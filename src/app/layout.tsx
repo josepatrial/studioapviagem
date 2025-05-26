@@ -21,14 +21,13 @@ try {
     console.log('[Layout] GeistSans initialized directly.');
   } else if (GeistSansImport && typeof (GeistSansImport as any).GeistSans === 'function') {
     // This case was an attempt to handle Turbopack's specific error messages.
-    // If direct import works, this part isn't strictly necessary but can be a fallback.
     geistSansFont = (GeistSansImport as any).GeistSans({
       variable: '--font-geist-sans',
       subsets: ['latin'],
     });
     console.log('[Layout] GeistSans initialized via .GeistSans property.');
   } else {
-    console.error('[Layout] GeistSansImport is not a function and has no .GeistSans property. Using fallback.');
+    console.error('[Layout] GeistSansImport is not a function and has no .GeistSans property that is a function. Using fallback.');
     geistSansFont = { variable: '' }; // Fallback
   }
 } catch (e) {
@@ -50,7 +49,7 @@ try {
     });
     console.log('[Layout] GeistMono initialized via .GeistMono property.');
   } else {
-    console.error('[Layout] GeistMonoImport is not a function and has no .GeistMono property. Using fallback.');
+    console.error('[Layout] GeistMonoImport is not a function and has no .GeistMono property that is a function. Using fallback.');
     geistMonoFont = { variable: '' }; // Fallback
   }
 } catch (e) {
@@ -62,7 +61,7 @@ export const metadata: Metadata = {
   title: 'Grupo 2 Irmãos',
   description: 'Aplicativo de viagens para motoristas',
   icons: {
-    icon: '/favicon.ico', // This should point to public/favicon.ico
+    icon: '/favicon.ico', // This correctly points to public/favicon.ico
   },
 };
 
