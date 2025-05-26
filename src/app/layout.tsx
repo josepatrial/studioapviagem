@@ -1,7 +1,6 @@
 // src/app/layout.tsx
 import type { Metadata } from 'next';
 // Standard named imports from specific subpaths for Geist fonts
-// Aliasing to avoid any potential naming conflicts with variables
 import { GeistSans as GeistSansImport } from 'geist/font/sans';
 import { GeistMono as GeistMonoImport } from 'geist/font/mono';
 import './globals.css';
@@ -9,101 +8,59 @@ import { AuthProvider } from '@/contexts/AuthContext';
 import { Toaster } from '@/components/ui/toaster';
 import { SyncProvider } from '@/contexts/SyncContext';
 
-// Initialize the fonts, attempting to access the function based on the
-// very specific Turbopack error message structure.
-// The error "__TURBOPACK__...GeistSans.GeistSans is not a function" suggests
-// that GeistSansImport.GeistSans is an object, and *that* object has a GeistSans property which is the function.
-
+// Robust Geist font initialization with fallbacks
 let geistSansFont: any;
 let geistMonoFont: any;
 
 try {
-  // Attempt 1: GeistSansImport.GeistSans.GeistSans()
-  if (
-    GeistSansImport &&
-    (GeistSansImport as any).GeistSans &&
-    typeof (GeistSansImport as any).GeistSans.GeistSans === 'function'
-  ) {
-    geistSansFont = (GeistSansImport as any).GeistSans.GeistSans({
-      variable: '--font-geist-sans',
-      subsets: ['latin'],
-    });
-  }
-  // Attempt 2: GeistSansImport.GeistSans()
-  else if (
-    GeistSansImport &&
-    typeof (GeistSansImport as any).GeistSans === 'function'
-  ) {
-    geistSansFont = (GeistSansImport as any).GeistSans({
-      variable: '--font-geist-sans',
-      subsets: ['latin'],
-    });
-  }
-  // Attempt 3: GeistSansImport() (standard documented way)
-  else if (typeof GeistSansImport === 'function') {
+  if (typeof GeistSansImport === 'function') {
     geistSansFont = GeistSansImport({
       variable: '--font-geist-sans',
       subsets: ['latin'],
     });
+    console.log('[Layout] GeistSans initialized directly.');
+  } else if (GeistSansImport && typeof (GeistSansImport as any).GeistSans === 'function') {
+    geistSansFont = (GeistSansImport as any).GeistSans({
+      variable: '--font-geist-sans',
+      subsets: ['latin'],
+    });
+    console.log('[Layout] GeistSans initialized via .GeistSans property.');
   } else {
-    // Fallback if none of the above worked - this will likely lead to errors
-    // but prevents the app from crashing at this exact point if GeistSansImport is an object
-    console.error(
-      'GeistSans font could not be initialized. GeistSansImport:',
-      GeistSansImport
-    );
-    geistSansFont = { variable: '' }; // Provide a dummy object
+    console.error('[Layout] GeistSansImport is not a function and has no .GeistSans property. Using fallback.');
+    geistSansFont = { variable: '' }; // Fallback
   }
 } catch (e) {
-  console.error('Error initializing GeistSans font:', e);
-  geistSansFont = { variable: '' }; // Provide a dummy object on error
+  console.error('[Layout] Error initializing GeistSans. Using fallback. Error:', e);
+  geistSansFont = { variable: '' }; // Fallback
 }
 
 try {
-  // Attempt 1: GeistMonoImport.GeistMono.GeistMono()
-  if (
-    GeistMonoImport &&
-    (GeistMonoImport as any).GeistMono &&
-    typeof (GeistMonoImport as any).GeistMono.GeistMono === 'function'
-  ) {
-    geistMonoFont = (GeistMonoImport as any).GeistMono.GeistMono({
-      variable: '--font-geist-mono',
-      subsets: ['latin'],
-    });
-  }
-  // Attempt 2: GeistMonoImport.GeistMono()
-  else if (
-    GeistMonoImport &&
-    typeof (GeistMonoImport as any).GeistMono === 'function'
-  ) {
-    geistMonoFont = (GeistMonoImport as any).GeistMono({
-      variable: '--font-geist-mono',
-      subsets: ['latin'],
-    });
-  }
-  // Attempt 3: GeistMonoImport() (standard documented way)
-  else if (typeof GeistMonoImport === 'function') {
+  if (typeof GeistMonoImport === 'function') {
     geistMonoFont = GeistMonoImport({
       variable: '--font-geist-mono',
       subsets: ['latin'],
     });
+    console.log('[Layout] GeistMono initialized directly.');
+  } else if (GeistMonoImport && typeof (GeistMonoImport as any).GeistMono === 'function') {
+    geistMonoFont = (GeistMonoImport as any).GeistMono({
+      variable: '--font-geist-mono',
+      subsets: ['latin'],
+    });
+    console.log('[Layout] GeistMono initialized via .GeistMono property.');
   } else {
-    console.error(
-      'GeistMono font could not be initialized. GeistMonoImport:',
-      GeistMonoImport
-    );
-    geistMonoFont = { variable: '' }; // Provide a dummy object
+    console.error('[Layout] GeistMonoImport is not a function and has no .GeistMono property. Using fallback.');
+    geistMonoFont = { variable: '' }; // Fallback
   }
 } catch (e) {
-  console.error('Error initializing GeistMono font:', e);
-  geistMonoFont = { variable: '' }; // Provide a dummy object on error
+  console.error('[Layout] Error initializing GeistMono. Using fallback. Error:', e);
+  geistMonoFont = { variable: '' }; // Fallback
 }
 
 export const metadata: Metadata = {
   title: 'Grupo 2 Irmãos',
   description: 'Aplicativo de viagens para motoristas',
   icons: {
-    icon: '/favicon.ico', // Path relative to the public folder
+    icon: '/favicon.ico', // This correctly points to public/favicon.ico
   },
 };
 
@@ -115,7 +72,7 @@ export default function RootLayout({
   return (
     <html lang="pt-BR">
       <body
-        className={`${geistSansFont.variable} ${geistMonoFont.variable} antialiased`}
+        className={`${geistSansFont?.variable || ''} ${geistMonoFont?.variable || ''} antialiased`}
       >
         <AuthProvider>
           <SyncProvider>
