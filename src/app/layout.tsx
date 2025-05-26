@@ -1,14 +1,15 @@
 // src/app/layout.tsx
 import type { Metadata } from 'next';
 // Standard named imports from specific subpaths for Geist fonts
-import { GeistSans as GeistSansImport } from 'geist/font/sans';
-import { GeistMono as GeistMonoImport } from 'geist/font/mono';
+// import { GeistSans as GeistSansImport } from 'geist/font/sans'; // Temporarily commented out
+// import { GeistMono as GeistMonoImport } from 'geist/font/mono'; // Temporarily commented out
 import './globals.css';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { Toaster } from '@/components/ui/toaster';
 import { SyncProvider } from '@/contexts/SyncContext';
 
-// Robust Geist font initialization with fallbacks
+// Temporarily comment out Geist font initialization
+/*
 let geistSansFont: any;
 let geistMonoFont: any;
 
@@ -20,7 +21,6 @@ try {
     });
     console.log('[Layout] GeistSans initialized directly.');
   } else if (GeistSansImport && typeof (GeistSansImport as any).GeistSans === 'function') {
-    // This case was an attempt to handle Turbopack's specific error messages.
     geistSansFont = (GeistSansImport as any).GeistSans({
       variable: '--font-geist-sans',
       subsets: ['latin'],
@@ -56,12 +56,13 @@ try {
   console.error('[Layout] Error initializing GeistMono. Using fallback. Error:', e);
   geistMonoFont = { variable: '' }; // Fallback
 }
+*/
 
 export const metadata: Metadata = {
   title: 'Grupo 2 Irmãos',
   description: 'Aplicativo de viagens para motoristas',
   icons: {
-    icon: '/favicon.ico', // This correctly points to public/favicon.ico
+    icon: '/favicon.ico', // This should point to public/favicon.ico
   },
 };
 
@@ -72,9 +73,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-BR">
-      <body
-        className={`${geistSansFont?.variable || ''} ${geistMonoFont?.variable || ''} antialiased`}
-      >
+      {/* <body className={`${geistSansFont?.variable || ''} ${geistMonoFont?.variable || ''} antialiased`}> */}
+      <body className="antialiased"> {/* Temporarily remove font variables from body className */}
         <AuthProvider>
           <SyncProvider>
             <main>{children}</main>
