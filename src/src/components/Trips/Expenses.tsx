@@ -37,7 +37,6 @@ import {
 } from '@/services/localDbService';
 import { cn } from '@/lib/utils';
 import { getExpenseTypesFromFirestore } from '@/services/firestoreService';
-import { useSync } from '@/contexts/SyncContext';
 
 export interface Expense extends Omit<LocalExpense, 'localId' | 'tripLocalId'> {
   id: string;
@@ -66,8 +65,6 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
   const { toast } = useToast();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const { updatePendingCount } = useSync();
-
 
   const [description, setDescription] = useState('');
   const [value, setValue] = useState<number | ''>('');
@@ -83,36 +80,36 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
   const [availableExpenseTypes, setAvailableExpenseTypes] = useState<string[]>([]);
   const [loadingExpenseTypes, setLoadingExpenseTypes] = useState(true);
 
-  const fetchExpensesData = useCallback(async () => {
-    if (!tripLocalId) {
-        console.log("[ExpensesComponent fetchExpensesData] No tripLocalId, skipping fetch.");
-        setExpenses([]);
-        setLoading(false);
-        return;
-    }
-    setLoading(true);
-    try {
-        console.log(`[ExpensesComponent fetchExpensesData] Fetching local expenses for trip ${tripLocalId}, owner ${ownerUserId}`);
-        const localExpenses = await getLocalExpenses(tripLocalId);
-        console.log(`[ExpensesComponent fetchExpensesData] Fetched ${localExpenses.length} local expenses.`);
-        const uiExpenses = localExpenses.map(le => ({
-            ...le,
-            id: le.firebaseId || le.localId,
-            tripId: le.tripLocalId,
-            userId: le.userId || ownerUserId,
-            syncStatus: le.syncStatus,
-        })).sort((a,b) => new Date(b.expenseDate).getTime() - new Date(a.expenseDate).getTime());
-        setExpenses(uiExpenses);
-        console.log(`[ExpensesComponent fetchExpensesData] Mapped ${uiExpenses.length} expenses to UI state.`);
-    } catch (error) {
-        console.error(`[ExpensesComponent] Error fetching local expenses for trip ${tripLocalId}:`, error);
-        toast({ variant: "destructive", title: "Erro Local", description: "Não foi possível carregar as despesas locais." });
-    } finally {
-        setLoading(false);
-    }
-  }, [tripLocalId, ownerUserId, toast]);
-
   useEffect(() => {
+    console.log(`[ExpensesComponent useEffect for data fetch] Running for tripLocalId: ${tripLocalId}`);
+    const fetchExpensesData = async () => {
+        if (!tripLocalId) {
+            console.log("[ExpensesComponent useEffect] No tripLocalId, skipping fetch.");
+            setExpenses([]);
+            setLoading(false);
+            return;
+        }
+        setLoading(true);
+        try {
+            console.log(`[ExpensesComponent useEffect] Fetching local expenses for trip ${tripLocalId}, owner ${ownerUserId}`);
+            const localExpenses = await getLocalExpenses(tripLocalId);
+            console.log(`[ExpensesComponent useEffect] Fetched ${localExpenses.length} local expenses.`);
+            const uiExpenses = localExpenses.map(le => ({
+                ...le,
+                id: le.firebaseId || le.localId,
+                tripId: le.tripLocalId,
+                userId: le.userId || ownerUserId,
+                syncStatus: le.syncStatus,
+            })).sort((a,b) => new Date(b.expenseDate).getTime() - new Date(a.expenseDate).getTime());
+            setExpenses(uiExpenses);
+            console.log(`[ExpensesComponent useEffect] Mapped ${uiExpenses.length} expenses to UI state.`);
+        } catch (error) {
+            console.error(`[ExpensesComponent] Error fetching local expenses for trip ${tripLocalId}:`, error);
+            toast({ variant: "destructive", title: "Erro Local", description: "Não foi possível carregar as despesas locais." });
+        } finally {
+            setLoading(false);
+        }
+    };
     fetchExpensesData();
 
     const loadAndCacheExpenseTypes = async () => {
@@ -147,20 +144,20 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
                     });
                 });
                 await Promise.all(typePromises);
-                await new Promise<void>(resolve => transaction.oncomplete = () => resolve());
+                await new Promise(resolve => transaction.oncomplete = resolve);
                 console.log("[ExpensesComponent] Cached/updated expense types from Firestore locally.");
             } else {
                 console.log("[ExpensesComponent] Offline: Fetching expense types from LocalDB.");
                 typesToUse = await getLocalCustomTypes(STORE_EXPENSE_TYPES);
                 console.log(`[ExpensesComponent] Fetched ${typesToUse.length} types from LocalDB.`);
             }
-            setAvailableExpenseTypes(['Outro', ...typesToUse.filter(t => !t.deleted).map(t => t.name).sort()]);
+            setAvailableExpenseTypes(['Outro', ...typesToUse.map(t => t.name).sort()]);
         } catch (err) {
             console.error("[ExpensesComponent] Failed to load expense types:", err);
             try {
                 console.log("[ExpensesComponent] Attempting fallback to local types after error.");
                 const localTypes = await getLocalCustomTypes(STORE_EXPENSE_TYPES);
-                setAvailableExpenseTypes(['Outro', ...localTypes.filter(t => !t.deleted).map(t => t.name).sort()]);
+                setAvailableExpenseTypes(['Outro', ...localTypes.map(t => t.name).sort()]);
             } catch (localErr) {
                 setAvailableExpenseTypes(['Outro']);
                 toast({ variant: 'destructive', title: 'Erro ao carregar tipos de despesa', description: (err as Error).message });
@@ -172,7 +169,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
     };
     loadAndCacheExpenseTypes();
 
-  }, [tripLocalId, ownerUserId, toast, fetchExpensesData]); // Added fetchExpensesData
+  }, [tripLocalId, ownerUserId, toast]);
 
   useEffect(() => {
     if (!isCameraOpen) {
@@ -295,17 +292,26 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
     console.log("[ExpensesComponent] Attempting to save new expense locally:", expenseToConfirm);
     setIsSaving(true);
     try {
-        await addLocalExpense({
+        const localId = await addLocalExpense({
             ...expenseToConfirm,
-            userId: ownerUserId,
+            userId: ownerUserId, // ensure ownerUserId is set
             receiptUrl: typeof attachment === 'string' && attachment.startsWith('data:') ? attachment : undefined,
         });
-        await fetchExpensesData(); // Re-fetch to update the list
+        const newUIExpense: Expense = {
+            ...(expenseToConfirm as LocalExpense), // Cast for spreading
+            localId: localId,
+            id: localId,
+            tripId: tripLocalId,
+            userId: ownerUserId,
+            receiptUrl: typeof attachment === 'string' && attachment.startsWith('data:') ? attachment : undefined,
+            receiptFilename: attachmentFilename || undefined,
+            syncStatus: 'pending',
+        };
+        setExpenses(prevExpenses => [newUIExpense, ...prevExpenses].sort((a, b) => new Date(b.expenseDate).getTime() - new Date(a.expenseDate).getTime()));
         resetForm();
         setIsConfirmModalOpen(false);
         setExpenseToConfirm(null);
         toast({ title: 'Despesa criada localmente!' });
-        if (updatePendingCount) updatePendingCount();
     } catch (error) {
         console.error("[ExpensesComponent] Error adding local expense:", error);
         toast({ variant: "destructive", title: "Erro Local", description: "Não foi possível salvar a despesa localmente." });
@@ -327,7 +333,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
         return;
     }
 
-    const originalLocalExpense = await getLocalExpenses(tripLocalId).then(exps => exps.find(ex => (ex.firebaseId || ex.localId) === currentExpense.id));
+    const originalLocalExpense = await getLocalExpenses(tripLocalId).then(exps => exps.find(ex => ex.localId === currentExpense.id || ex.firebaseId === currentExpense.id));
     if (!originalLocalExpense) {
         toast({ variant: "destructive", title: "Erro", description: "Despesa original não encontrada localmente." });
         return;
@@ -336,12 +342,12 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
     setIsSaving(true);
     const updatedLocalExpenseData: LocalExpense = {
         ...originalLocalExpense,
-        userId: ownerUserId,
+        userId: ownerUserId, // Ensure ownerUserId is set
         description,
         value: numValue,
         expenseType,
         expenseDate: new Date(expenseDate).toISOString(),
-        timestamp: new Date().toISOString(),
+        timestamp: new Date().toISOString(), // Update timestamp on edit
         comments,
         receiptFilename: attachmentFilename || (attachment === null ? undefined : originalLocalExpense.receiptFilename),
         receiptUrl: typeof attachment === 'string' ? attachment : (attachment === null ? undefined : originalLocalExpense.receiptUrl),
@@ -350,12 +356,17 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
 
     try {
         await updateLocalExpense(updatedLocalExpenseData);
-        await fetchExpensesData(); // Re-fetch
+        const updatedUIExpense: Expense = {
+            ...updatedLocalExpenseData,
+            id: updatedLocalExpenseData.firebaseId || updatedLocalExpenseData.localId,
+            tripId: tripLocalId,
+            userId: ownerUserId,
+        };
+        setExpenses(prevExpenses => prevExpenses.map(ex => ex.id === currentExpense.id ? updatedUIExpense : ex).sort((a, b) => new Date(b.expenseDate).getTime() - new Date(a.expenseDate).getTime()));
         resetForm();
         setIsEditModalOpen(false);
         setCurrentExpense(null);
         toast({ title: 'Despesa atualizada localmente!' });
-        if (updatePendingCount) updatePendingCount();
     } catch (error) {
         console.error("[ExpensesComponent] Error updating local expense:", error);
         toast({ variant: "destructive", title: "Erro Local", description: "Não foi possível atualizar a despesa localmente." });
@@ -376,20 +387,19 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
 
   const confirmDeleteExpense = async () => {
     if (!expenseToDelete) return;
-    const idToDelete = expenseToDelete.firebaseId || expenseToDelete.localId;
+    const localIdToDelete = expenseToDelete.id;
     setIsSaving(true);
     try {
         const expensesInDb = await getLocalExpenses(tripLocalId);
-        const expenseRecordToDelete = expensesInDb.find(ex => (ex.firebaseId || ex.localId) === idToDelete);
+        const expenseRecordToDelete = expensesInDb.find(ex => ex.localId === localIdToDelete || ex.firebaseId === localIdToDelete);
 
         if (!expenseRecordToDelete) {
             throw new Error("Registro local da despesa não encontrado para exclusão.");
         }
         await deleteLocalExpense(expenseRecordToDelete.localId);
-        await fetchExpensesData(); // Re-fetch
+        setExpenses(expenses.filter(ex => ex.id !== expenseToDelete.id));
         toast({ title: 'Despesa marcada para exclusão.' });
         closeDeleteConfirmation();
-        if (updatePendingCount) updatePendingCount();
     } catch (error) {
         console.error("[ExpensesComponent] Error marking local expense for deletion:", error);
         toast({ variant: "destructive", title: "Erro Local", description: "Não foi possível marcar a despesa para exclusão." });
@@ -437,8 +447,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
 
   const closeConfirmModal = () => {
     setIsConfirmModalOpen(false);
-    setExpenseToConfirm(null); // Clear data
-    setIsCreateModalOpen(true); // Reopen create modal
+    setIsCreateModalOpen(true);
   };
 
   const renderAttachmentInput = (idPrefix: string) => (
@@ -543,16 +552,18 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
                 <AlertDialogHeader>
                     <AlertDialogTitle>Confirmar Dados da Despesa</AlertDialogTitle>
                 </AlertDialogHeader>
-                <div> {/* Changed from AlertDialogDescription to div */}
-                   <p className="text-sm text-muted-foreground">Por favor, revise os dados da despesa. Esta ação não pode ser facilmente desfeita após salvar.</p>
-                   <ul className="mt-3 list-disc list-inside space-y-1 text-sm text-foreground">
+                <AlertDialogDescription asChild>
+                   <div>
+                     <p>Por favor, revise os dados da despesa. Esta ação não pode ser facilmente desfeita após salvar.</p>
+                     <ul className="mt-3 list-disc list-inside space-y-1 text-sm text-foreground">
                         <li><strong>Data:</strong> {expenseToConfirm?.expenseDate ? formatDateDisplay(expenseToConfirm.expenseDate) : 'N/A'}</li>
                         <li><strong>Descrição:</strong> {expenseToConfirm?.description}</li>
                         <li><strong>Valor:</strong> {expenseToConfirm ? formatCurrency(expenseToConfirm.value) : 'N/A'}</li>
                         <li><strong>Tipo:</strong> {expenseToConfirm?.expenseType}</li>
                         <li><strong>Anexo:</strong> {attachmentFilename || 'Nenhum'}</li>
                     </ul>
-                </div>
+                   </div>
+                </AlertDialogDescription>
                 <AlertDialogFooter>
                     <AlertDialogCancel onClick={closeConfirmModal} disabled={isSaving}>Voltar e Editar</AlertDialogCancel>
                     <AlertDialogAction onClick={confirmAndSaveExpense} className="bg-primary hover:bg-primary/90" disabled={isSaving}>
@@ -649,10 +660,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
                                     </Dialog>
                                     <Dialog open={isEditModalOpen && currentExpense?.id === expense.id} onOpenChange={(isOpen) => { if (!isOpen) closeEditModal(); else openEditModal(expense); }}>
                                         <DialogTrigger asChild>
-                                            <Button variant="ghost" size="icon" onClick={() => openEditModal(expense)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving}>
-                                                <Edit className="h-4 w-4" />
-                                                <span className="sr-only">Editar Despesa</span>
-                                            </Button>
+                                            <Button variant="ghost" size="icon" onClick={() => openEditModal(expense)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving}><Edit className="h-4 w-4" /></Button>
                                         </DialogTrigger>
                                         <DialogContent className="sm:max-w-lg">
                                             <DialogHeader><DialogTitle>Editar Despesa</DialogTitle></DialogHeader>
@@ -696,10 +704,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
                                     </Dialog>
                                      <AlertDialog>
                                         <AlertDialogTrigger asChild>
-                                            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => openDeleteConfirmation(expense)} disabled={isSaving}>
-                                                <Trash2 className="h-4 w-4" />
-                                                <span className="sr-only">Excluir Despesa</span>
-                                            </Button>
+                                            <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => openDeleteConfirmation(expense)} disabled={isSaving}><Trash2 className="h-4 w-4" /></Button>
                                         </AlertDialogTrigger>
                                     </AlertDialog>
                                 </div>

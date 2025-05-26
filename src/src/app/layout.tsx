@@ -1,17 +1,24 @@
 // src/app/layout.tsx
 import type { Metadata } from 'next';
-// As importações das fontes Geist foram completamente removidas para diagnóstico.
+import { Geist, Geist_Mono } from 'next/font/google';
 import './globals.css';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { Toaster } from '@/components/ui/toaster';
-import { SyncProvider } from '@/contexts/SyncContext';
+import { SyncProvider } from '@/contexts/SyncContext'; // Import SyncProvider
 
-// Toda a lógica de inicialização das fontes Geist foi removida para diagnóstico.
+const geistSans = Geist({
+  variable: '--font-geist-sans',
+  subsets: ['latin'],
+});
+
+const geistMono = Geist_Mono({
+  variable: '--font-geist-mono',
+  subsets: ['latin'],
+});
 
 export const metadata: Metadata = {
-  title: 'Grupo 2 Irmãos',
+  title: 'Grupo 2 Irmãos', // Updated title
   description: 'Aplicativo de viagens para motoristas',
-  // A propriedade 'icons' foi completamente removida para diagnóstico.
 };
 
 export default function RootLayout({
@@ -19,11 +26,11 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  console.log('[Layout] Rendering RootLayout (simplified for debugging).');
   return (
     <html lang="pt-BR">
-      <body className="antialiased"> {/* Nenhuma variável de fonte aplicada aqui */}
+      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <AuthProvider>
+          {/* Wrap the main content area with SyncProvider */}
           <SyncProvider>
             <main>{children}</main>
           </SyncProvider>
@@ -33,3 +40,5 @@ export default function RootLayout({
     </html>
   );
 }
+
+    

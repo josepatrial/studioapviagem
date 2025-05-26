@@ -15,7 +15,7 @@
     "incremental": true,
     "baseUrl": ".", // Explicitly set baseUrl
     "paths": {
-      "@/*": ["src/*"] // Paths are now relative to baseUrl
+      "@/*": ["src2/*"] // Paths are now relative to baseUrl
     },
     "plugins": [
       {

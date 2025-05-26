@@ -1,7 +1,7 @@
 // src/components/Trips/Fuelings.tsx
 'use client';
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { PlusCircle, Edit, Trash2, Droplet, Paperclip, Camera, Upload, Check, X, Eye, Loader2, TrendingUp, Car } from 'lucide-react';
@@ -31,34 +31,34 @@ import {
     getLocalFuelings,
     LocalFueling
 } from '@/services/localDbService';
-import { uploadReceipt, deleteReceipt } from '@/services/storageService';
+import { uploadReceipt, deleteReceipt } from '@/services/storageService'; 
 import { cn } from '@/lib/utils';
 import { formatKm } from '@/lib/utils';
-import { useSync } from '@/contexts/SyncContext';
-
 
 export interface Fueling extends Omit<LocalFueling, 'localId' | 'tripLocalId'> {
   id: string;
-  tripId: string;
-  userId: string;
+  tripId: string; 
+  userId: string; 
   syncStatus?: 'pending' | 'synced' | 'error';
   odometerKm: number;
   fuelType: string;
 }
 
 interface FuelingsProps {
-  tripId: string;
+  tripId: string; 
   vehicleId: string;
-  ownerUserId: string;
+  ownerUserId: string; 
 }
 
 const fuelTypes = ['Gasolina Comum', 'Gasolina Aditivada', 'Etanol', 'Diesel Comum', 'Diesel S10', 'GNV'];
 
+// Helper function to get the last odometer reading for a vehicle
 const getLastOdometerReading = async (vehicleId: string, excludeFuelingId?: string): Promise<number | null> => {
     if (!vehicleId) return null;
     try {
         let allVehicleFuelings = await getLocalFuelings(vehicleId, 'vehicleId');
         if (excludeFuelingId) {
+            // Ensure comparison is robust for both firebaseId and localId scenarios
             allVehicleFuelings = allVehicleFuelings.filter(f => {
                 const idToCheck = f.firebaseId || f.localId;
                 return idToCheck !== excludeFuelingId;
@@ -72,10 +72,10 @@ const getLastOdometerReading = async (vehicleId: string, excludeFuelingId?: stri
             return (a.odometerKm || 0) - (b.odometerKm || 0);
         });
         const lastFueling = allVehicleFuelings[allVehicleFuelings.length - 1];
-        return lastFueling.odometerKm;
+        return lastFueling.odometerKm; // OdometerKM is not optional in LocalFueling
     } catch (error) {
         console.error("Error fetching last odometer reading for vehicle " + vehicleId + ":", error);
-        return null;
+        return null; 
     }
 };
 
@@ -93,8 +93,6 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
   const { toast } = useToast();
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const { updatePendingCount } = useSync();
-
 
   const [date, setDate] = useState('');
   const [liters, setLiters] = useState<number | ''>('');
@@ -110,35 +108,34 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
 
-  const fetchFuelingsData = useCallback(async () => {
-    if (!tripLocalId && !tripVehicleId) return;
-    setLoading(true);
-    try {
-        const filterKey = tripLocalId ? tripLocalId : tripVehicleId;
-        const filterType = tripLocalId ? 'tripLocalId' : 'vehicleId';
-
-        const localFuelings = await getLocalFuelings(filterKey, filterType);
-        const uiFuelings = localFuelings.map(lf => ({
-            ...lf,
-            id: lf.firebaseId || lf.localId,
-            tripId: lf.tripLocalId,
-            userId: lf.userId || ownerUserId,
-            syncStatus: lf.syncStatus,
-            odometerKm: lf.odometerKm,
-            fuelType: lf.fuelType
-        })).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-        setFuelings(uiFuelings);
-    } catch (error) {
-        console.error(`Error fetching local fuelings for ${tripLocalId || tripVehicleId}:`, error);
-        toast({ variant: "destructive", title: "Erro Local", description: "Não foi possível carregar os abastecimentos locais." });
-    } finally {
-        setLoading(false);
-    }
-  }, [tripLocalId, tripVehicleId, ownerUserId, toast]);
-
    useEffect(() => {
+    const fetchFuelingsData = async () => {
+        if (!tripLocalId && !tripVehicleId) return; 
+        setLoading(true);
+        try {
+            const filterKey = tripLocalId ? tripLocalId : tripVehicleId;
+            const filterType = tripLocalId ? 'tripLocalId' : 'vehicleId';
+            
+            const localFuelings = await getLocalFuelings(filterKey, filterType);
+            const uiFuelings = localFuelings.map(lf => ({
+                ...lf,
+                id: lf.firebaseId || lf.localId,
+                tripId: lf.tripLocalId, 
+                userId: lf.userId || ownerUserId, 
+                syncStatus: lf.syncStatus,
+                odometerKm: lf.odometerKm,
+                fuelType: lf.fuelType
+            })).sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+            setFuelings(uiFuelings);
+        } catch (error) {
+            console.error(`Error fetching local fuelings for ${tripLocalId || tripVehicleId}:`, error);
+            toast({ variant: "destructive", title: "Erro Local", description: "Não foi possível carregar os abastecimentos locais." });
+        } finally {
+            setLoading(false);
+        }
+    };
     fetchFuelingsData();
-  }, [fetchFuelingsData]); // Added fetchFuelingsData
+  }, [tripLocalId, tripVehicleId, ownerUserId, toast]);
 
     useEffect(() => {
         if (!isCameraOpen) {
@@ -179,7 +176,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
     }, [isCameraOpen, toast]);
 
   const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-   const formatDateDisplay = (dateString: string) => {
+   const formatDateDisplay = (dateString: string) => { 
        try {
             return new Date(dateString).toLocaleDateString('pt-BR');
        } catch {
@@ -260,9 +257,9 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
     }
 
      setIsSaving(true);
-     const newFuelingData: Omit<LocalFueling, 'localId' | 'syncStatus' | 'receiptUrl' | 'receiptPath' | 'id' | 'deleted'> = {
+     const newFuelingData: Omit<LocalFueling, 'localId' | 'syncStatus' | 'receiptUrl' | 'receiptPath'> = {
        tripLocalId: tripLocalId,
-       userId: ownerUserId,
+       userId: ownerUserId, 
        vehicleId: tripVehicleId,
        date: new Date(date).toISOString(),
        liters: litersNum,
@@ -273,17 +270,25 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
        odometerKm: odometerNum,
        fuelType,
        receiptFilename: attachmentFilename || undefined,
-       // receiptUrl: typeof attachment === 'string' ? attachment : undefined, // For data URL or if URL is already known
+       receiptUrl: typeof attachment === 'string' ? attachment : undefined,
+       deleted: false, 
      };
      console.log("[FuelingsComponent] Attempting to save new fueling locally:", newFuelingData);
 
      try {
-         await addLocalFueling({...newFuelingData, receiptUrl: typeof attachment === 'string' ? attachment : undefined});
-         await fetchFuelingsData(); // Re-fetch
+         const localId = await addLocalFueling(newFuelingData);
+          const newUIFueling: Fueling = {
+             ...newFuelingData,
+             localId: localId,
+             id: localId,
+             tripId: tripLocalId,
+             userId: ownerUserId,
+             syncStatus: 'pending'
+          };
+         setFuelings(prevFuelings => [newUIFueling, ...prevFuelings].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
          resetForm();
          setIsCreateModalOpen(false);
          toast({ title: 'Abastecimento criado localmente!' });
-         if (updatePendingCount) updatePendingCount();
      } catch (error) {
          console.error("[FuelingsComponent] Error adding local fueling:", error);
          toast({ variant: "destructive", title: "Erro Local", description: "Não foi possível salvar o abastecimento localmente." });
@@ -295,8 +300,8 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
   const handleEditFueling = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentFueling) return;
-
-    const vehicleIdForEdit = currentFueling.vehicleId || tripVehicleId;
+    
+    const vehicleIdForEdit = currentFueling.vehicleId || tripVehicleId; 
     if (!vehicleIdForEdit) {
         toast({ variant: 'destructive', title: 'Erro', description: 'ID do Veículo não encontrado para este abastecimento.' });
         return;
@@ -313,7 +318,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
          toast({ variant: 'destructive', title: 'Erro', description: 'Litros, Preço/Litro e KM do odômetro devem ser maiores que zero.' });
          return;
       }
-
+    
     const lastVehicleOdometerEdit = await getLastOdometerReading(vehicleIdForEdit, currentFueling.id);
     if (lastVehicleOdometerEdit !== null && odometerNumEdit <= lastVehicleOdometerEdit) {
          toast({
@@ -325,7 +330,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
          return;
     }
 
-       const originalLocalFueling = await getLocalFuelings(currentFueling.tripLocalId, 'tripLocalId').then(fuelings => fuelings.find(f => (f.firebaseId || f.localId) === currentFueling.id));
+       const originalLocalFueling = await getLocalFuelings(tripLocalId, 'tripLocalId').then(fuelings => fuelings.find(f => f.localId === currentFueling.id || f.firebaseId === currentFueling.id));
         if (!originalLocalFueling) {
              toast({ variant: "destructive", title: "Erro", description: "Abastecimento original não encontrado localmente." });
              return;
@@ -334,7 +339,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
      setIsSaving(true);
      const updatedLocalFuelingData: LocalFueling = {
         ...originalLocalFueling,
-        userId: ownerUserId,
+        userId: ownerUserId, 
         date: new Date(date).toISOString(),
         liters: litersNum,
         pricePerLiter: priceNum,
@@ -346,18 +351,24 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
         vehicleId: vehicleIdForEdit,
         receiptUrl: typeof attachment === 'string' ? attachment : (attachment === null ? undefined : originalLocalFueling.receiptUrl),
         receiptFilename: attachmentFilename || (attachment === null ? undefined : originalLocalFueling.receiptFilename),
-        syncStatus: originalLocalFueling.syncStatus === 'synced' && !originalLocalFueling.deleted ? 'pending' : originalLocalFueling.syncStatus,
+        syncStatus: originalLocalFueling.syncStatus === 'synced' ? 'pending' : originalLocalFueling.syncStatus,
         deleted: originalLocalFueling.deleted || false,
      };
 
     try {
         await updateLocalFueling(updatedLocalFuelingData);
-        await fetchFuelingsData(); // Re-fetch
+        const updatedUIFueling: Fueling = {
+             ...updatedLocalFuelingData,
+             id: updatedLocalFuelingData.firebaseId || updatedLocalFuelingData.localId,
+             tripId: tripLocalId,
+             userId: ownerUserId,
+             syncStatus: updatedLocalFuelingData.syncStatus
+        };
+        setFuelings(prevFuelings => prevFuelings.map(f => f.id === currentFueling.id ? updatedUIFueling : f).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
         resetForm();
         setIsEditModalOpen(false);
         setCurrentFueling(null);
         toast({ title: 'Abastecimento atualizado localmente!' });
-        if (updatePendingCount) updatePendingCount();
     } catch (error) {
         console.error("Error updating local fueling:", error);
         toast({ variant: "destructive", title: "Erro Local", description: "Não foi possível atualizar o abastecimento localmente." });
@@ -378,19 +389,18 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
 
   const confirmDeleteFueling = async () => {
      if (!fuelingToDelete) return;
-     const idToDelete = fuelingToDelete.firebaseId || fuelingToDelete.localId;
+     const localIdToDelete = fuelingToDelete.id;
     setIsSaving(true);
     try {
-        const fuelingsInDb = await getLocalFuelings(fuelingToDelete.tripLocalId, 'tripLocalId');
-        const fuelingRecordToDelete = fuelingsInDb.find(f => (f.firebaseId || f.localId) === idToDelete);
+        const fuelingsInDb = await getLocalFuelings(tripLocalId, 'tripLocalId');
+        const fuelingRecordToDelete = fuelingsInDb.find(f => f.localId === localIdToDelete || f.firebaseId === localIdToDelete);
          if (!fuelingRecordToDelete) {
              throw new Error("Registro local do abastecimento não encontrado para exclusão.");
          }
         await deleteLocalFueling(fuelingRecordToDelete.localId);
-        await fetchFuelingsData(); // Re-fetch
-        toast({ title: 'Abastecimento marcado para exclusão.' });
+        setFuelings(fuelings.filter(f => f.id !== fuelingToDelete.id));
+        toast({ title: 'Abastecimento marcado para exclusão na próxima sincronização.' });
         closeDeleteConfirmation();
-        if (updatePendingCount) updatePendingCount();
     } catch (error) {
         console.error("Error marking local fueling for deletion:", error);
         toast({ variant: "destructive", title: "Erro Local", description: "Não foi possível marcar o abastecimento para exclusão." });
@@ -491,7 +501,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
     <div className="space-y-6">
       <div className="flex justify-between items-center mb-4">
         <h3 className="text-xl font-semibold">Histórico de Abastecimentos</h3>
-        {tripLocalId && (
+        {tripLocalId && ( // Only show add button if in context of a trip
           <Dialog open={isCreateModalOpen} onOpenChange={(isOpen) => { if (!isOpen) closeCreateModal(); else setIsCreateModalOpen(true); }}>
             <DialogTrigger asChild>
               <Button onClick={() => { resetForm(); setDate(new Date().toISOString().split('T')[0]); console.log("[FuelingsComponent] Registrar Abastecimento button clicked, setting isCreateModalOpen to true."); setIsCreateModalOpen(true); }} className="bg-accent hover:bg-accent/90 text-accent-foreground" disabled={isSaving}>
@@ -605,7 +615,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
                 <AlertDialogHeader>
                     <AlertDialogTitle>Confirmar Exclusão</AlertDialogTitle>
                     <AlertDialogDescription>
-                        Tem certeza que deseja marcar este abastecimento de {fuelingToDelete ? formatDateDisplay(fuelingToDelete.date) : 'N/A'} para exclusão?
+                        Tem certeza que deseja marcar este abastecimento de {fuelingToDelete ? formatDateDisplay(fuelingToDelete.date) : 'N/A'} para exclusão? A exclusão definitiva ocorrerá na próxima sincronização.
                     </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -627,7 +637,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
         <Card className="text-center py-10 bg-card border border-border shadow-sm rounded-lg">
           <CardContent>
             <p className="text-muted-foreground">Nenhum abastecimento registrado localmente {tripLocalId ? "para esta viagem" : "para este veículo"}.</p>
-            {tripLocalId && (
+            {tripLocalId && ( // Only show add button if in context of a trip
               <Button variant="link" onClick={() => { resetForm(); setDate(new Date().toISOString().split('T')[0]); setIsCreateModalOpen(true); }} className="mt-2 text-primary">
                 Registrar o primeiro abastecimento
               </Button>
@@ -648,7 +658,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
                         {fueling.syncStatus === 'error' && <span className="ml-2 text-xs text-destructive">(Erro Sinc)</span>}
                     </CardDescription>
                   </div>
-                  {tripLocalId &&
+                  {tripLocalId && // Only show edit/delete buttons if in context of a trip where actions are appropriate
                     <div className="flex gap-1">
                       <Dialog>
                          <DialogTrigger asChild>
@@ -690,7 +700,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
                         <DialogTrigger asChild>
                           <Button variant="ghost" size="icon" onClick={() => openEditModal(fueling)} className="text-muted-foreground hover:text-accent-foreground h-8 w-8" disabled={isSaving}>
                             <Edit className="h-4 w-4" />
-                            <span className="sr-only">Editar Abastecimento</span>
+                            <span className="sr-only">Editar</span>
                           </Button>
                         </DialogTrigger>
                         <DialogContent className="sm:max-w-lg">
@@ -760,7 +770,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
                           <AlertDialogTrigger asChild>
                             <Button variant="ghost" size="icon" className="text-muted-foreground hover:text-destructive h-8 w-8" onClick={() => openDeleteConfirmation(fueling)} disabled={isSaving}>
                               <Trash2 className="h-4 w-4" />
-                              <span className="sr-only">Excluir Abastecimento</span>
+                              <span className="sr-only">Excluir</span>
                             </Button>
                           </AlertDialogTrigger>
                         </AlertDialog>
