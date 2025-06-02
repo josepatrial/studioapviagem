@@ -1,15 +1,16 @@
 // src/components/AppLayout.tsx
+// Add a comment here
 'use client';
+import { Vehicle } from '@/components/Vehicle';
 
 import React, { useState } from 'react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Trips } from '@/components/Trips/Trips';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useAuth } from '@/contexts/AuthContext';
 import { Dashboard } from '@/components/Dashboard';
-import { Trips } from './Trips/Trips';
-import { Vehicle } from '@/components/Vehicle';
 // import { Drivers } from './Drivers/Drivers'; // Removed as it's no longer used in this layout
 import { LogOut, User as UserIcon, LayoutDashboard, Truck, Car, RefreshCw, WifiOff } from 'lucide-react'; // Removed UserCog
 import {

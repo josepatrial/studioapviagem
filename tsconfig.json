@@ -13,9 +13,9 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
-    "baseUrl": ".", // Explicitly set baseUrl
+    "baseUrl": ".",
     "paths": {
-      "@/*": ["src2/*"] // Paths are now relative to baseUrl
+      "@/*": ["src/src/*"]
     },
     "plugins": [
       {

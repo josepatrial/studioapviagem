@@ -3,9 +3,9 @@ import type { Config } from "tailwindcss";
 export default {
     darkMode: ["class"],
     content: [
-    "./src/pages/**/*.{js,ts,jsx,tsx,mdx}",
-    "./src/components/**/*.{js,ts,jsx,tsx,mdx}",
     "./src/app/**/*.{js,ts,jsx,tsx,mdx}",
+    "./src/src/components/**/*.{js,ts,jsx,tsx,mdx}", // Corrigido para apontar para src/src/components
+    // "./src/pages/**/*.{js,ts,jsx,tsx,mdx}", // Removido pois o projeto usa App Router
   ],
   theme: {
   	extend: {
