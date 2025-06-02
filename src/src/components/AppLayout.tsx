@@ -73,6 +73,8 @@ const AppLayout: React.FC = () => {
   const { user, logout } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
   const [activeSubTabInTrips, setActiveSubTabInTrips] = useState<'visits' | 'expenses' | 'fuelings' | null>(null);
+  const [refreshDashboardKey, setRefreshDashboardKey] = useState(0);
+
 
   const isAdmin = user?.role === 'admin';
 
@@ -98,6 +100,14 @@ const AppLayout: React.FC = () => {
     setActiveTab('trips');
     setActiveSubTabInTrips(section);
   };
+
+  const handleTabChange = (newTab: string) => {
+    setActiveTab(newTab);
+    setActiveSubTabInTrips(null);
+    if (newTab === 'dashboard') {
+        setRefreshDashboardKey(prev => prev + 1);
+    }
+  }
 
   return (
     <SyncProvider>
@@ -137,18 +147,18 @@ const AppLayout: React.FC = () => {
           )}
         </header>
 
-         <Tabs value={activeTab} onValueChange={setActiveTab} className="flex flex-1 flex-col overflow-hidden">
+         <Tabs value={activeTab} onValueChange={handleTabChange} className="flex flex-1 flex-col overflow-hidden">
             <div className="overflow-x-auto border-b bg-background">
                <TabsList className={cn(
                   "grid w-full rounded-none bg-transparent p-0 sm:w-auto sm:inline-flex grid-cols-3" // Always 3 columns now
                )}>
-                   <TabsTrigger value="dashboard" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none" onClick={() => setActiveSubTabInTrips(null)}>
+                   <TabsTrigger value="dashboard" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
                      <LayoutDashboard className="mr-2 h-4 w-4 sm:hidden md:inline-block" /> Dashboard
                    </TabsTrigger>
-                   <TabsTrigger value="trips" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none" onClick={() => setActiveSubTabInTrips(null)}>
+                   <TabsTrigger value="trips" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
                       <Truck className="mr-2 h-4 w-4 sm:hidden md:inline-block" /> Viagens
                    </TabsTrigger>
-                   <TabsTrigger value="vehicle" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none" onClick={() => setActiveSubTabInTrips(null)}>
+                   <TabsTrigger value="vehicle" className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-accent/10 data-[state=active]:shadow-none">
                       <Car className="mr-2 h-4 w-4 sm:hidden md:inline-block" /> Veículo
                    </TabsTrigger>
                    {/* "Motoristas" tab removed */}
@@ -156,7 +166,7 @@ const AppLayout: React.FC = () => {
             </div>
 
             <div className="flex-1 overflow-y-auto p-4 md:p-6">
-              <TabsContent value="dashboard"><Dashboard setActiveTab={navigateToTripsSection} /></TabsContent>
+              <TabsContent value="dashboard"><Dashboard setActiveTab={navigateToTripsSection} refreshKey={refreshDashboardKey} /></TabsContent>
               <TabsContent value="trips"><Trips activeSubTab={activeSubTabInTrips} /></TabsContent>
               <TabsContent value="vehicle"><Vehicle /></TabsContent>
               {/* Content for "Motoristas" tab removed */}

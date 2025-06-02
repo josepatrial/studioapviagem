@@ -31,6 +31,7 @@ import { formatKm } from '@/lib/utils';
 
 interface DashboardProps {
     setActiveTab: (section: 'visits' | 'expenses' | 'fuelings' | null) => void;
+    refreshKey: number; // Nova prop para forçar atualização
 }
 
 const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -54,7 +55,7 @@ const safeFormatDate = (dateInput: string | { toDate: () => Date } | Date | unde
 
 const ALL_DRIVERS_FILTER_VALUE = "__all_drivers__"; // Special value for "All Drivers"
 
-export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }) => {
     const { user, loading: authContextLoading } = useAuth();
     const isAdmin = useMemo(() => user?.role === 'admin', [user]);
 
@@ -82,7 +83,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
 
     const initializeDashboardData = useCallback(async () => {
         const initFetchTime = Date.now();
-        console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Initializing... AuthLoading: ${authContextLoading}, User: ${user?.id}, IsAdmin: ${isAdmin}`);
+        console.log(`[Dashboard initializeDashboardData ${initFetchTime} - RefreshKey: ${refreshKey}] Initializing... AuthLoading: ${authContextLoading}, User: ${user?.id}, IsAdmin: ${isAdmin}`);
+
 
         if (authContextLoading) {
             console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Auth context still loading. Waiting...`);
@@ -297,12 +299,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
             setInitialLoading(false);
             console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Initialization complete. Total time: ${Date.now() - initFetchTime}ms`);
         }
-    }, [isAdmin, user, filterDriverId, dateRange, authContextLoading]);
+    }, [isAdmin, user, filterDriverId, dateRange, authContextLoading, refreshKey]);
 
     useEffect(() => {
         // Only run if auth context is no longer loading AND (user is present OR current session is admin)
         if (!authContextLoading && (user || isAdmin)) {
-            console.log(`[Dashboard useEffect for data fetch] AuthContext loaded. User: ${!!user}, IsAdmin: ${isAdmin}. Initializing dashboard data.`);
+            console.log(`[Dashboard useEffect for data fetch - RefreshKey: ${refreshKey}] AuthContext loaded. User: ${!!user}, IsAdmin: ${isAdmin}. Initializing dashboard data.`);
             initializeDashboardData();
         } else if (!authContextLoading && !user && !isAdmin) {
             console.log("[Dashboard useEffect for data fetch] AuthContext loaded, but no user and not admin. Skipping dashboard data initialization.");
@@ -312,7 +314,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab }) => {
             console.log("[Dashboard useEffect for data fetch] Waiting for AuthContext to finish loading before initializing dashboard data.");
             // initialLoading remains true because authContextLoading is true
         }
-    }, [authContextLoading, user, isAdmin, filterDriverId, dateRange, initializeDashboardData]);
+    }, [authContextLoading, user, isAdmin, filterDriverId, dateRange, initializeDashboardData, refreshKey]);
 
 
     const getDriverName = useCallback((driverId: string) => {
