@@ -21,7 +21,7 @@ import {
     getLocalUserByUsername,
 } from '@/services/localDbService';
 import type { DriverInfo, User as AppUser } from '@/contexts/AuthContext';
-import { LoadingSpinner } from '../LoadingSpinner';
+import { LoadingSpinner } from '@/components/LoadingSpinner';
 import { v4 as uuidv4 } from 'uuid';
 import bcrypt from 'bcryptjs';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
