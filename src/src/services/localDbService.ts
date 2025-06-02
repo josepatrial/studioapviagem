@@ -1,3 +1,4 @@
+
 // src/services/localDbService.ts
 import type { VehicleInfo } from '@/components/Vehicle';
 import type { Trip } from '@/components/Trips/Trips';
@@ -47,6 +48,15 @@ export interface CustomType extends LocalRecord {
 
 
 const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin' | 'deleted' | 'firebaseId' | 'syncStatus'> & {password: string})[] = [
+  {
+    id: 'admin@admin.com', // Novo usuário adicionado
+    email: 'admin@admin.com',
+    name: 'Admin Teste',
+    username: 'admin_teste',
+    role: 'admin',
+    base: 'ALL',
+    password: 'admin', // Senha para o novo usuário
+  },
   {
     id: 'admin@grupo2irmaos.com.br',
     email: 'admin@grupo2irmaos.com.br',
@@ -1110,4 +1120,5 @@ export const seedInitialUsers = async (): Promise<void> => {
 };
 
 openDB().then(() => seedInitialUsers()).catch(error => console.error("Failed to initialize/seed IndexedDB on load:", error));
+
 
