@@ -49,13 +49,13 @@ export interface CustomType extends LocalRecord {
 
 const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin' | 'deleted' | 'firebaseId' | 'syncStatus'> & {password: string})[] = [
   {
-    id: 'admin@admin.com', // Novo usuário adicionado
+    id: 'admin@admin.com', 
     email: 'admin@admin.com',
     name: 'Admin Teste',
     username: 'admin_teste',
     role: 'admin',
     base: 'ALL',
-    password: 'admin', // Senha para o novo usuário
+    password: 'admin',
   },
   {
     id: 'admin@grupo2irmaos.com.br',
@@ -969,7 +969,7 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
             const index = store.index('deleted');
             const writeTx = store.transaction;
 
-            let cursorReq = index.openCursor(IDBKeyRange.only(true as any));
+            let cursorReq = index.openCursor(IDBKeyRange.only(1)); // Query for deleted: true (stored as 1)
 
             await new Promise<void>((resolveCursor, rejectCursor) => {
                 const itemsToDeleteKeys: IDBValidKey[] = [];
