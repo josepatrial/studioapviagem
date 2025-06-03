@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Button } from '@/components/ui/button';
 import { MapPinIcon as MapPinLucideIcon, Wallet, Fuel, Users, Truck, Milestone, Filter, Calendar, CarIcon, UserCheck, TrendingUp, AlertCircle } from 'lucide-react'; // Renamed Map to MapPinIcon
 import { useAuth, type User as AuthContextUser, type DriverInfo } from '@/contexts/AuthContext'; // Ensure DriverInfo is imported
-import type { Trip } from './Trips/Trips';
+import type { Trip as FirestoreTripType } from '@/services/firestoreService'; // Use a distinct name for Firestore Trip
 import {
     getLocalVisits as fetchLocalDbVisits,
     getLocalExpenses as fetchLocalDbExpenses,
@@ -17,9 +17,10 @@ import {
     updateLocalRecord,
     type LocalVehicle, type LocalExpense, type LocalFueling, type LocalTrip, type LocalVisit, getLocalRecordsByRole,
     STORE_TRIPS, STORE_VISITS, STORE_EXPENSES, STORE_FUELINGS, STORE_VEHICLES, STORE_USERS,
-    type LocalUser 
+    type LocalUser, // Ensure LocalUser is imported
+    type SyncStatus, // Import SyncStatus
 } from '@/services/localDbService';
-import { getFuelings as fetchOnlineFuelings, getVehicles as fetchOnlineVehicles, getTrips as fetchOnlineTrips, getDrivers as fetchOnlineDrivers, getExpenses as fetchOnlineExpenses, getVisits as fetchOnlineVisits } from '@/services/firestoreService';
+import { getFuelings as fetchOnlineFuelings, getVehicles as fetchOnlineVehicles, getTrips as fetchOnlineTrips, getDrivers as fetchOnlineDrivers, getExpenses as fetchOnlineExpenses, getVisits as fetchOnlineVisits, Visit as FirestoreVisitType, Expense as FirestoreExpenseType, Fueling as FirestoreFuelingType, VehicleInfo as FirestoreVehicleType } from '@/services/firestoreService';
 import type { VehicleInfo as VehicleComponentInfo } from './Vehicle'; // Renamed to avoid conflict with localDbService types if any
 import { DateRangePicker } from '@/components/ui/date-range-picker';
 import type { DateRange } from 'react-day-picker';
@@ -60,6 +61,7 @@ const ALL_DRIVERS_FILTER_VALUE = "__all_drivers__"; // Special value for "All Dr
 export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }) => {
     const { user, loading: authContextLoading } = useAuth();
     const isAdmin = useMemo(() => user?.role === 'admin', [user]);
+    const ownerUserId = user?.id; // For fallback userId
 
     const [trips, setTrips] = useState<LocalTrip[]>([]);
     const [visits, setVisits] = useState<LocalVisit[]>([]);
@@ -125,14 +127,30 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
 
                 if(driverIdToFilter || isAdmin) { 
                     const tripsPromise = fetchOnlineTrips({ userId: driverIdToFilter, startDate: dateRange?.from, endDate: dateRange?.to })
-                        .then(data => {
-                            setTrips(data);
-                            console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched onlineTrips (${data.length}) for ${driverIdToFilter || 'all'}. Caching...`);
-                            data.forEach(t => {
-                                const tripToCache: LocalTrip = { ...t, localId: t.id, firebaseId: t.id, syncStatus: 'synced', deleted: false };
-                                cachePromises.push(updateLocalRecord(STORE_TRIPS, tripToCache).catch(e => console.warn(`[Dashboard Cache Fail] Trip ${t.id}:`, e)));
+                        .then(data => { // data is FirestoreTripType[]
+                            const mappedData: LocalTrip[] = data.map(t => ({
+                                ...t,
+                                id: t.id,
+                                localId: t.id,
+                                firebaseId: t.id,
+                                syncStatus: 'synced' as SyncStatus,
+                                deleted: t.deleted || false,
+                                name: t.name || `Viagem ${t.id.substring(0,6)}`,
+                                vehicleId: t.vehicleId,
+                                userId: t.userId,
+                                status: t.status || 'Andamento',
+                                createdAt: typeof t.createdAt === 'string' ? t.createdAt : (t.createdAt as any)?.toDate?.().toISOString() || new Date().toISOString(),
+                                updatedAt: typeof t.updatedAt === 'string' ? t.updatedAt : (t.updatedAt as any)?.toDate?.().toISOString() || new Date().toISOString(),
+                                base: t.base || (user?.role === 'admin' ? 'ALL_ADM_TRIP' : user?.base || 'N/A'),
+                                finalKm: t.finalKm,
+                                totalDistance: t.totalDistance,
+                            }));
+                            setTrips(mappedData);
+                            console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched onlineTrips (${mappedData.length}) for ${driverIdToFilter || 'all'}. Caching...`);
+                            mappedData.forEach(t => {
+                                cachePromises.push(updateLocalRecord(STORE_TRIPS, t).catch(e => console.warn(`[Dashboard Cache Fail] Trip ${t.id}:`, e)));
                             });
-                            return data;
+                            return mappedData;
                         })
                         .finally(() => setLoadingTrips(false));
                     fetchPromises.push(tripsPromise);
@@ -142,23 +160,31 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                 
                 if(driverIdToFilter || isAdmin) {
                     const visitsPromise = fetchOnlineVisits({ userId: driverIdToFilter, startDate: dateRange?.from, endDate: dateRange?.to })
-                        .then(data => {
-                            setVisits(data);
-                            console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched onlineVisits (${data.length}) for ${driverIdToFilter || 'all'}. Caching...`);
-                            data.forEach(v => {
-                                const visitToCache: LocalVisit = {
-                                    ...v,
-                                    localId: v.id,
-                                    firebaseId: v.id,
-                                    tripLocalId: v.tripId,
-                                    userId: v.userId,
-                                    visitType: v.visitType,
-                                    syncStatus: 'synced',
-                                    deleted: false
-                                };
-                                cachePromises.push(updateLocalRecord(STORE_VISITS, visitToCache).catch(e => console.warn(`[Dashboard Cache Fail] Visit ${v.id}:`, e)));
+                        .then(data => { // data is FirestoreVisitType[]
+                             const mappedData: LocalVisit[] = data.map(v => ({
+                                ...v,
+                                id: v.id,
+                                localId: v.id,
+                                firebaseId: v.id,
+                                syncStatus: 'synced' as SyncStatus,
+                                deleted: v.deleted || false,
+                                tripLocalId: v.tripId,
+                                userId: v.userId || ownerUserId!,
+                                clientName: v.clientName,
+                                location: v.location,
+                                latitude: v.latitude,
+                                longitude: v.longitude,
+                                initialKm: v.initialKm,
+                                reason: v.reason,
+                                timestamp: typeof v.timestamp === 'string' ? v.timestamp : (v.timestamp as any)?.toDate?.().toISOString() || new Date().toISOString(),
+                                visitType: v.visitType || 'N/A',
+                            }));
+                            setVisits(mappedData);
+                            console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched onlineVisits (${mappedData.length}) for ${driverIdToFilter || 'all'}. Caching...`);
+                            mappedData.forEach(v => {
+                                cachePromises.push(updateLocalRecord(STORE_VISITS, v).catch(e => console.warn(`[Dashboard Cache Fail] Visit ${v.id}:`, e)));
                             });
-                            return data;
+                            return mappedData;
                         })
                         .finally(() => setLoadingVisits(false));
                     fetchPromises.push(visitsPromise);
@@ -168,22 +194,32 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
 
                 if(driverIdToFilter || isAdmin) {
                     const expensesPromise = fetchOnlineExpenses({ userId: driverIdToFilter, startDate: dateRange?.from, endDate: dateRange?.to })
-                        .then(data => {
-                            setExpenses(data);
-                            console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched onlineExpenses (${data.length}) for ${driverIdToFilter || 'all'}. Caching...`);
-                            data.forEach(e => {
-                                const expenseToCache: LocalExpense = {
-                                    ...e,
-                                    localId: e.id,
-                                    firebaseId: e.id,
-                                    tripLocalId: e.tripId,
-                                    userId: e.userId,
-                                    syncStatus: 'synced',
-                                    deleted: false
-                                };
-                                cachePromises.push(updateLocalRecord(STORE_EXPENSES, expenseToCache).catch(er => console.warn(`[Dashboard Cache Fail] Expense ${e.id}:`, er)));
+                        .then(data => { // data is FirestoreExpenseType[]
+                            const mappedData: LocalExpense[] = data.map(e => ({
+                                ...e,
+                                id: e.id,
+                                localId: e.id,
+                                firebaseId: e.id,
+                                syncStatus: 'synced' as SyncStatus,
+                                deleted: e.deleted || false,
+                                tripLocalId: e.tripId,
+                                userId: e.userId || ownerUserId!,
+                                description: e.description,
+                                value: e.value,
+                                expenseType: e.expenseType,
+                                expenseDate: typeof e.expenseDate === 'string' ? e.expenseDate : (e.expenseDate as any)?.toDate?.().toISOString() || new Date().toISOString(),
+                                timestamp: typeof e.timestamp === 'string' ? e.timestamp : (e.timestamp as any)?.toDate?.().toISOString() || new Date().toISOString(),
+                                comments: e.comments,
+                                receiptFilename: e.receiptFilename,
+                                receiptUrl: e.receiptUrl,
+                                receiptPath: e.receiptPath,
+                            }));
+                            setExpenses(mappedData);
+                            console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched onlineExpenses (${mappedData.length}) for ${driverIdToFilter || 'all'}. Caching...`);
+                            mappedData.forEach(e_item => { // renamed to avoid conflict with module e
+                                cachePromises.push(updateLocalRecord(STORE_EXPENSES, e_item).catch(er => console.warn(`[Dashboard Cache Fail] Expense ${e_item.id}:`, er)));
                             });
-                            return data;
+                            return mappedData;
                         })
                         .finally(() => setLoadingExpenses(false));
                     fetchPromises.push(expensesPromise);
@@ -193,24 +229,35 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
 
                 if(driverIdToFilter || isAdmin) {
                     const fuelingsOnlinePromise = fetchOnlineFuelings({ userId: driverIdToFilter, startDate: dateRange?.from, endDate: dateRange?.to })
-                        .then(data => {
-                            setFuelings(data);
-                            console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched onlineFuelings (${data.length}) for ${driverIdToFilter || 'all'}. Caching...`);
-                            data.forEach(f => {
-                                 const fuelingToCache: LocalFueling = {
-                                    ...f,
-                                    localId: f.id,
-                                    firebaseId: f.id,
-                                    tripLocalId: f.tripId,
-                                    userId: f.userId,
-                                    odometerKm: f.odometerKm,
-                                    fuelType: f.fuelType,
-                                    syncStatus: 'synced',
-                                    deleted: false
-                                };
-                                cachePromises.push(updateLocalRecord(STORE_FUELINGS, fuelingToCache).catch(er => console.warn(`[Dashboard Cache Fail] Fueling ${f.id}:`, er)));
+                        .then(data => { // data is FirestoreFuelingType[]
+                             const mappedData: LocalFueling[] = data.map(f => ({
+                                ...f,
+                                id: f.id,
+                                localId: f.id,
+                                firebaseId: f.id,
+                                syncStatus: 'synced' as SyncStatus,
+                                deleted: f.deleted || false,
+                                tripLocalId: f.tripId!, // Assuming tripId is mandatory from Firestore for a fueling
+                                userId: f.userId || ownerUserId!,
+                                vehicleId: f.vehicleId,
+                                date: typeof f.date === 'string' ? f.date : (f.date as any)?.toDate?.().toISOString() || new Date().toISOString(),
+                                liters: f.liters,
+                                pricePerLiter: f.pricePerLiter,
+                                totalCost: f.totalCost,
+                                location: f.location,
+                                comments: f.comments,
+                                odometerKm: f.odometerKm,
+                                fuelType: f.fuelType,
+                                receiptFilename: f.receiptFilename,
+                                receiptUrl: f.receiptUrl,
+                                receiptPath: f.receiptPath,
+                            }));
+                            setFuelings(mappedData);
+                            console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched onlineFuelings (${mappedData.length}) for ${driverIdToFilter || 'all'}. Caching...`);
+                            mappedData.forEach(f => {
+                                cachePromises.push(updateLocalRecord(STORE_FUELINGS, f).catch(er => console.warn(`[Dashboard Cache Fail] Fueling ${f.id}:`, er)));
                             });
-                            return data;
+                            return mappedData;
                         })
                         .finally(() => setLoadingFuelings(false));
                     fetchPromises.push(fuelingsOnlinePromise);
@@ -219,26 +266,45 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                 }
 
                 const vehiclesPromise = fetchOnlineVehicles()
-                    .then(data => {
-                        setVehicles(data.map(v => ({...v, localId: v.id, firebaseId: v.id, syncStatus: 'synced', deleted: false})));
-                        console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched onlineVehicles (${data.length}). Caching...`);
-                        data.forEach(v => {
-                            const vehicleToCache: LocalVehicle = { ...v, localId: v.id, firebaseId: v.id, syncStatus: 'synced', deleted: false };
-                            cachePromises.push(updateLocalRecord(STORE_VEHICLES, vehicleToCache).catch(e => console.warn(`[Dashboard Cache Fail] Vehicle ${v.id}:`, e)));
+                    .then(data => { // data is FirestoreVehicleType[]
+                        const mappedData: LocalVehicle[] = data.map(v => ({
+                            ...v,
+                            localId: v.id,
+                            firebaseId: v.id,
+                            syncStatus: 'synced' as SyncStatus,
+                            deleted: v.deleted || false,
+                            model: v.model,
+                            year: v.year,
+                            licensePlate: v.licensePlate,
+                            id: v.id, // For UI Key
+                        }));
+                        setVehicles(mappedData);
+                        console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched onlineVehicles (${mappedData.length}). Caching...`);
+                        mappedData.forEach(v => {
+                            cachePromises.push(updateLocalRecord(STORE_VEHICLES, v).catch(e => console.warn(`[Dashboard Cache Fail] Vehicle ${v.id}:`, e)));
                         });
-                        return data;
+                        return mappedData;
                     })
                     .finally(() => setLoadingVehicles(false));
                 fetchPromises.push(vehiclesPromise);
 
                 if (isAdmin) {
-                    const driversPromise = fetchOnlineDrivers() // This returns DriverInfo[]
+                    const driversPromise = fetchOnlineDrivers()
                         .then((data: DriverInfo[]) => { 
                             console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched onlineDrivers (${data.length}). Caching...`);
-                            const authContextUsers: AuthContextUser[] = [];
-                            const localUserCachePromises: Promise<void>[] = [];
-
-                            data.forEach((d: DriverInfo) => { 
+                            const authContextUsers: AuthContextUser[] = data.map(d => ({
+                                id: d.id,
+                                firebaseId: d.firebaseId || d.id,
+                                name: d.name,
+                                email: d.email,
+                                username: d.username,
+                                role: d.role || 'driver',
+                                base: d.base || 'N/A',
+                                lastLogin: new Date().toISOString() // Set a recent login for context
+                            }));
+                            setDrivers(authContextUsers);
+                            
+                            const localUserCachePromises: Promise<void>[] = data.map(d => {
                                 const userToCache: LocalUser = { 
                                     id: d.id, 
                                     firebaseId: d.firebaseId || d.id, 
@@ -248,24 +314,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                                     role: d.role || 'driver', 
                                     base: d.base || 'N/A', 
                                     lastLogin: new Date().toISOString(), 
-                                    passwordHash: '', 
-                                    syncStatus: 'synced',
+                                    passwordHash: '', // No password hash from this source
+                                    syncStatus: 'synced' as SyncStatus,
                                     deleted: false,
                                 };
-                                localUserCachePromises.push(saveLocalUser(userToCache).catch(e => console.warn(`[Dashboard Cache Fail] Driver ${d.id}:`, e)));
-                                
-                                authContextUsers.push({
-                                    id: d.id,
-                                    firebaseId: d.firebaseId || d.id,
-                                    name: d.name,
-                                    email: d.email,
-                                    username: d.username,
-                                    role: d.role || 'driver',
-                                    base: d.base || 'N/A',
-                                    lastLogin: userToCache.lastLogin 
-                                });
+                                return saveLocalUser(userToCache).catch(e => console.warn(`[Dashboard Cache Fail] Driver ${d.id}:`, e));
                             });
-                            setDrivers(authContextUsers);
                             cachePromises.push(...localUserCachePromises);
                             return data;
                         })
@@ -286,7 +340,19 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                 
                 fetchPromises.push(fetchLocalDbVehicles().then(data => { setVehicles(data); console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched localVehicles (${data.length}):`, data.slice(0,2)); return data; }).finally(() => setLoadingVehicles(false)));
                 if (isAdmin) {
-                    fetchPromises.push(getLocalRecordsByRole('driver').then((data: LocalUser[]) => { setDrivers(data); console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched localDrivers (${data.length}):`, data.slice(0,2)); return data; }).finally(() => setLoadingDrivers(false)));
+                    fetchPromises.push(getLocalRecordsByRole<LocalUser>('driver').then((data: LocalUser[]) => { 
+                        setDrivers(data.map(d => ({
+                            id: d.id,
+                            firebaseId: d.firebaseId,
+                            name: d.name,
+                            email: d.email,
+                            username: d.username,
+                            role: d.role,
+                            base: d.base,
+                            lastLogin: d.lastLogin
+                        } as AuthContextUser))); 
+                        console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched localDrivers (${data.length}):`, data.slice(0,2)); return data; 
+                    }).finally(() => setLoadingDrivers(false)));
                 } else {
                      setLoadingDrivers(false);
                 }
@@ -311,7 +377,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
             setInitialLoading(false);
             console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Initialization complete. Total time: ${Date.now() - initFetchTime}ms`);
         }
-    }, [isAdmin, user, filterDriverId, dateRange, authContextLoading, refreshKey]);
+    }, [isAdmin, user, filterDriverId, dateRange, authContextLoading, refreshKey, ownerUserId]);
 
     useEffect(() => {
         if (!authContextLoading && (user || isAdmin)) {
@@ -730,3 +796,4 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
         </div>
     );
 };
+
