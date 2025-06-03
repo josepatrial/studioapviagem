@@ -38,7 +38,7 @@ export type LocalTrip = Omit<Trip, 'id'> & LocalRecord & { localId: string; id?:
 export type LocalVisit = Omit<BaseVisit, 'id'> & LocalRecord & { localId: string; tripLocalId: string; userId: string; id?: string; visitType?: string; };
 export type LocalExpense = Omit<BaseExpense, 'id'> & LocalRecord & { localId: string; tripLocalId: string; userId: string; id?: string };
 export type LocalFueling = Omit<BaseFueling, 'id'> & LocalRecord & { localId: string; tripLocalId: string; userId: string; odometerKm: number; fuelType: string; id?: string };
-export type LocalUser = User & { lastLogin?: string; passwordHash?: string; username?: string; deleted?: boolean; firebaseId?: string };
+export type LocalUser = User & { lastLogin?: string; passwordHash?: string; username?: string; deleted?: boolean; firebaseId?: string; syncStatus?: SyncStatus; };
 
 export interface CustomType extends LocalRecord {
   localId: string; // Primary key for IndexedDB
@@ -49,7 +49,7 @@ export interface CustomType extends LocalRecord {
 
 const seedUsersData: (Omit<LocalUser, 'passwordHash' | 'lastLogin' | 'deleted' | 'firebaseId' | 'syncStatus'> & {password: string})[] = [
   {
-    id: 'admin@admin.com', 
+    id: 'admin@admin.com',
     email: 'admin@admin.com',
     name: 'Admin Teste',
     username: 'admin_teste',
@@ -202,7 +202,7 @@ export const openDB = (): Promise<IDBDatabase> => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
     request.onerror = () => {
       console.error('[localDbService] IndexedDB error:', request.error);
-      db = null; 
+      db = null;
       openDBPromise = null;
       reject(`Error opening IndexedDB: ${request.error?.message}`);
     };
@@ -235,7 +235,7 @@ export const openDB = (): Promise<IDBDatabase> => {
           { name: STORE_VISITS, keyPath: 'localId', indices: [{name: 'tripLocalId', unique: false}, {name: 'firebaseId', unique: false}, {name: 'syncStatus', unique: false}, {name: 'deleted', unique: false}, {name: 'timestamp', unique: false}, {name: 'visitType', unique: false}, {name: 'userId', unique: false}]},
           { name: STORE_EXPENSES, keyPath: 'localId', indices: [{name: 'tripLocalId', unique: false}, {name: 'firebaseId', unique: false}, {name: 'syncStatus', unique: false}, {name: 'deleted', unique: false}, {name: 'timestamp', unique: false}, {name: 'userId', unique: false}]},
           { name: STORE_FUELINGS, keyPath: 'localId', indices: [{name: 'tripLocalId', unique: false}, {name: 'firebaseId', unique: false}, {name: 'syncStatus', unique: false}, {name: 'deleted', unique: false}, {name: 'date', unique: false}, {name: 'vehicleId', unique: false}, {name: 'odometerKm', unique: false}, {name: 'fuelType', unique: false}, {name: 'userId', unique: false}]},
-          { name: STORE_USERS, keyPath: 'id', indices: [{name: 'email', unique: true}, {name: 'username', unique: true}, {name: 'lastLogin', unique: false}, {name: 'role', unique: false}, {name: 'base', unique: false}, {name: 'deleted', unique: false}, {name: 'firebaseId', unique: false}]},
+          { name: STORE_USERS, keyPath: 'id', indices: [{name: 'email', unique: true}, {name: 'username', unique: true}, {name: 'lastLogin', unique: false}, {name: 'role', unique: false}, {name: 'base', unique: false}, {name: 'deleted', unique: false}, {name: 'firebaseId', unique: false}, {name: 'syncStatus', unique: false}]}, // Added syncStatus index to STORE_USERS
           { name: STORE_VISIT_TYPES, keyPath: 'localId', indices: [{ name: 'name', unique: true }, { name: 'syncStatus', unique: false }, { name: 'deleted', unique: false }, { name: 'firebaseId', unique: false }] },
           { name: STORE_EXPENSE_TYPES, keyPath: 'localId', indices: [{ name: 'name', unique: true }, { name: 'syncStatus', unique: false }, { name: 'deleted', unique: false }, { name: 'firebaseId', unique: false }] }
       ];
@@ -438,7 +438,7 @@ export const getLocalUserByUsername = (username: string): Promise<LocalUser | nu
     });
 };
 
-export const saveLocalUser = (user: DbUser): Promise<void> => {
+export const saveLocalUser = (user: LocalUser): Promise<void> => {
     console.log(`[saveLocalUser] Attempting to save/update user. ID: ${user.id}, Email: ${user.email}, FirebaseID: ${user.firebaseId}`);
     return new Promise<void>((resolve, reject) => {
         openDB().then(dbInstance => {
@@ -467,7 +467,7 @@ export const saveLocalUser = (user: DbUser): Promise<void> => {
             const getByEmailRequest = emailIndex.getAll(user.email);
 
             getByEmailRequest.onsuccess = () => {
-                const existingRecords: DbUser[] = getByEmailRequest.result;
+                const existingRecords: LocalUser[] = getByEmailRequest.result;
                 console.log(`[saveLocalUser] Found ${existingRecords.length} existing records for email ${user.email}. Record to save/update ID: ${user.id}`);
 
                 let operationsCompleted = 0;
@@ -640,8 +640,8 @@ export const getLocalTrips = (userId?: string, dateRange?: DateRange): Promise<L
             const processResults = (allRecords: LocalTrip[]) => {
                 let filteredRecords = allRecords.filter(item => !item.deleted);
                 const adminUser = allRecords.find(t => t.userId === userId && (t.base === 'ALL_ADM_TRIP' || t.base === 'ALL'));
-                
-                if (userId && !adminUser) { 
+
+                if (userId && !adminUser) {
                     filteredRecords = filteredRecords.filter(item => item.userId === userId);
                 }
                 if (dateRange?.from) {
@@ -657,7 +657,7 @@ export const getLocalTrips = (userId?: string, dateRange?: DateRange): Promise<L
                 filteredRecords.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
                 resolve(filteredRecords);
             };
-            
+
             const getAllRequest = store.getAll();
             getAllRequest.onsuccess = () => processResults(getAllRequest.result as LocalTrip[]);
             getAllRequest.onerror = () => reject(`Fallback/All getAll failed for ${STORE_TRIPS}: ${getAllRequest.error?.message}`);
@@ -701,7 +701,7 @@ export const addLocalVisit = (visit: Omit<LocalVisit, 'localId' | 'syncStatus' |
         ...visit,
         localId,
         id: localId,
-        userId: visit.userId, 
+        userId: visit.userId,
         deleted: false,
         syncStatus: 'pending',
     };
@@ -754,7 +754,7 @@ export const addLocalExpense = (expense: Omit<LocalExpense, 'localId' | 'syncSta
          ...expense,
          localId,
          id: localId,
-         userId: expense.userId, 
+         userId: expense.userId,
          deleted: false,
          syncStatus: 'pending',
      };
@@ -815,7 +815,7 @@ export const addLocalFueling = (fueling: Omit<LocalFueling, 'localId' | 'syncSta
           ...fueling,
           localId,
           id: localId,
-          userId: fueling.userId, 
+          userId: fueling.userId,
           deleted: false,
           syncStatus: 'pending',
       };
@@ -854,7 +854,7 @@ export const addLocalCustomType = (storeName: string, typeName: string): Promise
                      // If it exists but is deleted, we can proceed to add a new one,
                      // or update the existing one to not be deleted. Let's add a new one to keep it simple.
                 }
-                
+
                 // Proceed to add if name doesn't exist or the existing one was deleted
                 const localId = `local_${storeName.replace('Store', '').toLowerCase()}_type_${uuidv4()}`;
                 const newCustomType: CustomType = {
@@ -1088,7 +1088,7 @@ export const seedInitialUsers = async (): Promise<void> => {
         console.log("[seedInitialUsers] No users prepared to seed.");
         return Promise.resolve();
     }
-    
+
     const writeTransaction = dbInstance.transaction(STORE_USERS, 'readwrite');
     const store = writeTransaction.objectStore(STORE_USERS);
     const txCompletionPromise = new Promise<void>((resolve, reject) => {
