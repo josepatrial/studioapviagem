@@ -374,13 +374,13 @@ const getLocalRecordsBySyncStatus = <T>(storeName: string, status: SyncStatus | 
     });
 };
 
-export const getLocalRecordsByRole = <T extends { role: UserRole }>(role: UserRole): Promise<T[]> => {
+export const getLocalRecordsByRole = (role: UserRole): Promise<LocalUser[]> => {
     return getLocalDbStore(STORE_USERS, 'readonly').then(store => {
-        return new Promise<T[]>((resolve, reject) => {
+        return new Promise<LocalUser[]>((resolve, reject) => {
             if (!store.indexNames.contains('role')) {
                 const getAllRequest = store.getAll();
                 getAllRequest.onsuccess = () => {
-                    const allRecords = getAllRequest.result as T[];
+                    const allRecords = getAllRequest.result as LocalUser[];
                     const filtered = allRecords.filter(item => !(item as any).deleted && item.role === role);
                     resolve(filtered);
                 };
@@ -390,7 +390,7 @@ export const getLocalRecordsByRole = <T extends { role: UserRole }>(role: UserRo
             const index = store.index('role');
             const request = index.getAll(role);
             request.onsuccess = () => {
-                const results = (request.result as T[]).filter(item => !(item as any).deleted);
+                const results = (request.result as LocalUser[]).filter(item => !(item as any).deleted);
                 resolve(results);
             };
             request.onerror = () => reject(`Error getting records by role ${role}: ${request.error?.message}`);
@@ -969,7 +969,7 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
             const index = store.index('deleted');
             const writeTx = store.transaction;
 
-            let cursorReq = index.openCursor(IDBKeyRange.only(1)); // Query for deleted: true (stored as 1)
+            let cursorReq = index.openCursor(IDBKeyRange.only(true)); // Query for deleted: true
 
             await new Promise<void>((resolveCursor, rejectCursor) => {
                 const itemsToDeleteKeys: IDBValidKey[] = [];

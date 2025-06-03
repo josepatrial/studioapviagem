@@ -1,3 +1,4 @@
+
 // src/components/Dashboard.tsx
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -16,7 +17,7 @@ import {
     updateLocalRecord,
     type LocalVehicle, type LocalExpense, type LocalFueling, type LocalTrip, type LocalVisit, getLocalRecordsByRole,
     STORE_TRIPS, STORE_VISITS, STORE_EXPENSES, STORE_FUELINGS, STORE_VEHICLES, STORE_USERS,
-    type LocalUser // Import LocalUser type
+    type LocalUser 
 } from '@/services/localDbService';
 import { getFuelings as fetchOnlineFuelings, getVehicles as fetchOnlineVehicles, getTrips as fetchOnlineTrips, getDrivers as fetchOnlineDrivers, getExpenses as fetchOnlineExpenses, getVisits as fetchOnlineVisits } from '@/services/firestoreService';
 import type { VehicleInfo as VehicleComponentInfo } from './Vehicle'; // Renamed to avoid conflict with localDbService types if any
@@ -232,25 +233,40 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
 
                 if (isAdmin) {
                     const driversPromise = fetchOnlineDrivers() // This returns DriverInfo[]
-                        .then((data: DriverInfo[]) => { // Explicitly type data
-                            setDrivers(data.map(d => ({...d, id: d.id, firebaseId: d.firebaseId || d.id} as AuthContextUser))); // Map DriverInfo to AuthContextUser
+                        .then((data: DriverInfo[]) => { 
                             console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched onlineDrivers (${data.length}). Caching...`);
-                            data.forEach((d: DriverInfo) => { // Explicitly type d
-                                const userToCache: LocalUser = { // Construct LocalUser carefully
-                                    id: d.id, // from DriverInfo
-                                    firebaseId: d.firebaseId || d.id, // from DriverInfo (AuthContext.User part)
-                                    name: d.name, // from DriverInfo (AuthContext.User part)
-                                    email: d.email, // from DriverInfo (AuthContext.User part)
-                                    username: d.username, // from DriverInfo (AuthContext.User part or DriverInfo specific)
-                                    role: d.role, // 'driver' from DriverInfo
-                                    base: d.base || 'N/A', // from DriverInfo (AuthContext.User part)
-                                    lastLogin: new Date().toISOString(), // Set fresh lastLogin
-                                    passwordHash: '', // No password hash from online fetch
+                            const authContextUsers: AuthContextUser[] = [];
+                            const localUserCachePromises: Promise<void>[] = [];
+
+                            data.forEach((d: DriverInfo) => { 
+                                const userToCache: LocalUser = { 
+                                    id: d.id, 
+                                    firebaseId: d.firebaseId || d.id, 
+                                    name: d.name, 
+                                    email: d.email, 
+                                    username: d.username, 
+                                    role: d.role || 'driver', 
+                                    base: d.base || 'N/A', 
+                                    lastLogin: new Date().toISOString(), 
+                                    passwordHash: '', 
                                     syncStatus: 'synced',
                                     deleted: false,
                                 };
-                                cachePromises.push(saveLocalUser(userToCache).catch(e => console.warn(`[Dashboard Cache Fail] Driver ${d.id}:`, e)));
+                                localUserCachePromises.push(saveLocalUser(userToCache).catch(e => console.warn(`[Dashboard Cache Fail] Driver ${d.id}:`, e)));
+                                
+                                authContextUsers.push({
+                                    id: d.id,
+                                    firebaseId: d.firebaseId || d.id,
+                                    name: d.name,
+                                    email: d.email,
+                                    username: d.username,
+                                    role: d.role || 'driver',
+                                    base: d.base || 'N/A',
+                                    lastLogin: userToCache.lastLogin 
+                                });
                             });
+                            setDrivers(authContextUsers);
+                            cachePromises.push(...localUserCachePromises);
                             return data;
                         })
                         .finally(() => setLoadingDrivers(false));
