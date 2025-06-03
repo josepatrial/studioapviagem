@@ -2,10 +2,6 @@
 // src/services/localDbService.ts
 import type { VehicleInfo } from '@/components/Vehicle';
 import type { Trip } from '@/components/Trips/Trips';
-// Removidas importações que causavam ciclo:
-// import type { Visit as BaseVisit } from '@/components/Trips/Visits';
-// import type { Expense as BaseExpense } from '@/components/Trips/Expenses'; // Já foi corrigido antes
-// import type { Fueling as BaseFueling } from '@/components/Trips/Fuelings';
 import type { User, UserRole } from '@/contexts/AuthContext';
 import { v4 as uuidv4 } from 'uuid';
 import bcrypt from 'bcryptjs';
@@ -37,7 +33,6 @@ interface LocalRecord {
 export type LocalVehicle = Omit<VehicleInfo & { id: string }, 'id'> & LocalRecord & { localId: string; id?: string };
 export type LocalTrip = Omit<Trip, 'id'> & LocalRecord & { localId: string; id?: string };
 
-// Nova interface base para Despesa (já implementada anteriormente)
 interface CoreExpenseData {
   description: string;
   value: number;
@@ -51,7 +46,6 @@ interface CoreExpenseData {
 }
 export type LocalExpense = CoreExpenseData & LocalRecord & { localId: string; tripLocalId: string; userId: string; id?: string };
 
-// Nova interface base para Visita
 interface CoreVisitData {
   clientName: string;
   location: string;
@@ -64,7 +58,6 @@ interface CoreVisitData {
 }
 export type LocalVisit = CoreVisitData & LocalRecord & { localId: string; tripLocalId: string; userId: string; id?: string; };
 
-// Nova interface base para Abastecimento
 interface CoreFuelingData {
   date: string; // ISO string
   liters: number;
@@ -233,6 +226,10 @@ let openDBPromise: Promise<IDBDatabase> | null = null;
 
 
 export const openDB = (): Promise<IDBDatabase> => {
+  if (typeof window === 'undefined') {
+    // If on server, don't attempt to open IndexedDB
+    return Promise.reject(new Error("IndexedDB is not available on the server."));
+  }
   if (db) {
     return Promise.resolve(db);
   }
@@ -884,20 +881,12 @@ export const addLocalCustomType = (storeName: string, typeName: string): Promise
 
             checkNameRequest.onsuccess = () => {
                 if (checkNameRequest.result) {
-                    // If type with this name already exists and is not marked deleted, reject.
-                    // If it exists but is marked deleted, we might allow re-adding it (effectively undeleting/replacing).
-                    // For simplicity, current behavior is to reject if name exists at all.
-                    // Consider more nuanced logic if undeleting/replacing is desired.
                     if (!checkNameRequest.result.deleted) {
                          console.warn(`[addLocalCustomType] Type with name "${typeName}" already exists in ${storeName} and is not deleted.`);
                          reject(new Error(`O tipo "${typeName}" já existe.`));
                          return;
                     }
-                     // If it exists but is deleted, we can proceed to add a new one,
-                     // or update the existing one to not be deleted. Let's add a new one to keep it simple.
                 }
-
-                // Proceed to add if name doesn't exist or the existing one was deleted
                 const localId = `local_${storeName.replace('Store', '').toLowerCase()}_type_${uuidv4()}`;
                 const newCustomType: CustomType = {
                     localId,
@@ -978,9 +967,7 @@ export const updateSyncStatus = async (storeName: string, localId: string, fireb
                         ...additionalUpdates
                     };
                     if (status === 'synced' && !recordToUpdate.firebaseId && !recordToUpdate.deleted) {
-                         // Allow marking as synced if it's a deleted record without firebaseId (local only delete)
                         if(recordToUpdate.deleted) {
-                            // console.log(`[updateSyncStatus] Record ${localId} in ${storeName} is deleted and has no firebaseId. Marking as synced for local cleanup.`);
                         } else {
                             console.error(`[updateSyncStatus] Cannot mark ${localId} in ${storeName} as synced without firebaseId unless it's marked for deletion.`);
                             reject(`Cannot mark ${localId} as synced without firebaseId.`);
@@ -1067,6 +1054,10 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
 };
 
 export const seedInitialUsers = async (): Promise<void> => {
+  if (typeof window === 'undefined') {
+    console.log("[seedInitialUsers] Skipping on server.");
+    return;
+  }
     console.log("[seedInitialUsers] Attempting to seed initial users...");
     const dbInstance = await openDB();
     if (!dbInstance) {
@@ -1161,4 +1152,12 @@ export const seedInitialUsers = async (): Promise<void> => {
     return txCompletionPromise;
 };
 
-openDB().then(() => seedInitialUsers()).catch(error => console.error("Failed to initialize/seed IndexedDB on load:", error));
+// Initialize DB and seed users only on client-side
+if (typeof window !== 'undefined') {
+  openDB()
+    .then(() => {
+      console.log("[localDbService] IndexedDB opened successfully on client-side.");
+      return seedInitialUsers();
+    })
+    .catch(error => console.error("Failed to initialize/seed IndexedDB on load (client-side):", error));
+}
