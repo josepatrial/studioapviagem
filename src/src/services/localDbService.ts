@@ -2,9 +2,10 @@
 // src/services/localDbService.ts
 import type { VehicleInfo } from '@/components/Vehicle';
 import type { Trip } from '@/components/Trips/Trips';
-import type { Visit as BaseVisit } from '@/components/Trips/Visits';
-import type { Expense as BaseExpense } from '@/components/Trips/Expenses';
-import type { Fueling as BaseFueling } from '@/components/Trips/Fuelings';
+// Removidas importações que causavam ciclo:
+// import type { Visit as BaseVisit } from '@/components/Trips/Visits';
+// import type { Expense as BaseExpense } from '@/components/Trips/Expenses'; // Já foi corrigido antes
+// import type { Fueling as BaseFueling } from '@/components/Trips/Fuelings';
 import type { User, UserRole } from '@/contexts/AuthContext';
 import { v4 as uuidv4 } from 'uuid';
 import bcrypt from 'bcryptjs';
@@ -35,9 +36,50 @@ interface LocalRecord {
 
 export type LocalVehicle = Omit<VehicleInfo & { id: string }, 'id'> & LocalRecord & { localId: string; id?: string };
 export type LocalTrip = Omit<Trip, 'id'> & LocalRecord & { localId: string; id?: string };
-export type LocalVisit = Omit<BaseVisit, 'id'> & LocalRecord & { localId: string; tripLocalId: string; userId: string; id?: string; visitType?: string; };
-export type LocalExpense = Omit<BaseExpense, 'id'> & LocalRecord & { localId: string; tripLocalId: string; userId: string; id?: string };
-export type LocalFueling = Omit<BaseFueling, 'id'> & LocalRecord & { localId: string; tripLocalId: string; userId: string; odometerKm: number; fuelType: string; id?: string };
+
+// Nova interface base para Despesa (já implementada anteriormente)
+interface CoreExpenseData {
+  description: string;
+  value: number;
+  expenseType: string;
+  expenseDate: string; // ISO string
+  timestamp: string; // ISO string
+  comments?: string;
+  receiptFilename?: string;
+  receiptUrl?: string; // Could be data URL or remote URL
+  receiptPath?: string; // Storage path if applicable
+}
+export type LocalExpense = CoreExpenseData & LocalRecord & { localId: string; tripLocalId: string; userId: string; id?: string };
+
+// Nova interface base para Visita
+interface CoreVisitData {
+  clientName: string;
+  location: string;
+  latitude?: number;
+  longitude?: number;
+  initialKm: number;
+  reason: string;
+  timestamp: string; // ISO string
+  visitType?: string;
+}
+export type LocalVisit = CoreVisitData & LocalRecord & { localId: string; tripLocalId: string; userId: string; id?: string; };
+
+// Nova interface base para Abastecimento
+interface CoreFuelingData {
+  date: string; // ISO string
+  liters: number;
+  pricePerLiter: number;
+  totalCost: number;
+  location: string;
+  comments?: string;
+  receiptFilename?: string;
+  receiptUrl?: string;
+  receiptPath?: string;
+  odometerKm: number;
+  fuelType: string;
+}
+export type LocalFueling = CoreFuelingData & LocalRecord & { localId: string; tripLocalId: string; userId: string; id?: string; };
+
 export type LocalUser = User & { lastLogin?: string; passwordHash?: string; username?: string; deleted?: boolean; firebaseId?: string; syncStatus?: SyncStatus; };
 
 export interface CustomType extends LocalRecord {
@@ -1120,5 +1162,3 @@ export const seedInitialUsers = async (): Promise<void> => {
 };
 
 openDB().then(() => seedInitialUsers()).catch(error => console.error("Failed to initialize/seed IndexedDB on load:", error));
-
-
