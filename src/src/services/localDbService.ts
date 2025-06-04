@@ -227,7 +227,6 @@ let openDBPromise: Promise<IDBDatabase> | null = null;
 
 export const openDB = (): Promise<IDBDatabase> => {
   if (typeof window === 'undefined') {
-    // If on server, don't attempt to open IndexedDB
     return Promise.reject(new Error("IndexedDB is not available on the server."));
   }
   if (db) {
@@ -274,7 +273,7 @@ export const openDB = (): Promise<IDBDatabase> => {
           { name: STORE_VISITS, keyPath: 'localId', indices: [{name: 'tripLocalId', unique: false}, {name: 'firebaseId', unique: false}, {name: 'syncStatus', unique: false}, {name: 'deleted', unique: false}, {name: 'timestamp', unique: false}, {name: 'visitType', unique: false}, {name: 'userId', unique: false}]},
           { name: STORE_EXPENSES, keyPath: 'localId', indices: [{name: 'tripLocalId', unique: false}, {name: 'firebaseId', unique: false}, {name: 'syncStatus', unique: false}, {name: 'deleted', unique: false}, {name: 'timestamp', unique: false}, {name: 'userId', unique: false}]},
           { name: STORE_FUELINGS, keyPath: 'localId', indices: [{name: 'tripLocalId', unique: false}, {name: 'firebaseId', unique: false}, {name: 'syncStatus', unique: false}, {name: 'deleted', unique: false}, {name: 'date', unique: false}, {name: 'vehicleId', unique: false}, {name: 'odometerKm', unique: false}, {name: 'fuelType', unique: false}, {name: 'userId', unique: false}]},
-          { name: STORE_USERS, keyPath: 'id', indices: [{name: 'email', unique: true}, {name: 'username', unique: true}, {name: 'lastLogin', unique: false}, {name: 'role', unique: false}, {name: 'base', unique: false}, {name: 'deleted', unique: false}, {name: 'firebaseId', unique: false}, {name: 'syncStatus', unique: false}]}, // Added syncStatus index to STORE_USERS
+          { name: STORE_USERS, keyPath: 'id', indices: [{name: 'email', unique: true}, {name: 'username', unique: true}, {name: 'lastLogin', unique: false}, {name: 'role', unique: false}, {name: 'base', unique: false}, {name: 'deleted', unique: false}, {name: 'firebaseId', unique: false}, {name: 'syncStatus', unique: false}]},
           { name: STORE_VISIT_TYPES, keyPath: 'localId', indices: [{ name: 'name', unique: true }, { name: 'syncStatus', unique: false }, { name: 'deleted', unique: false }, { name: 'firebaseId', unique: false }] },
           { name: STORE_EXPENSE_TYPES, keyPath: 'localId', indices: [{ name: 'name', unique: true }, { name: 'syncStatus', unique: false }, { name: 'deleted', unique: false }, { name: 'firebaseId', unique: false }] }
       ];
@@ -502,7 +501,6 @@ export const saveLocalUser = (user: LocalUser): Promise<void> => {
                 };
             });
 
-            // Step 1: Get all users with the same email
             const getByEmailRequest = emailIndex.getAll(user.email);
 
             getByEmailRequest.onsuccess = () => {
@@ -510,7 +508,7 @@ export const saveLocalUser = (user: LocalUser): Promise<void> => {
                 console.log(`[saveLocalUser] Found ${existingRecords.length} existing records for email ${user.email}. Record to save/update ID: ${user.id}`);
 
                 let operationsCompleted = 0;
-                const totalOperationsToWaitFor = existingRecords.filter(rec => rec.id !== user.id).length + 1; // +1 for the final put
+                const totalOperationsToWaitFor = existingRecords.filter(rec => rec.id !== user.id).length + 1; 
 
                 const checkCompletion = () => {
                     operationsCompleted++;
@@ -521,11 +519,9 @@ export const saveLocalUser = (user: LocalUser): Promise<void> => {
 
                 const operationErrorHandler = (opName: string, opError: DOMException | null) => {
                     console.error(`[saveLocalUser] Error during '${opName}' for user ${user.id}:`, opError);
-                    // Don't reject here, let the transaction itself fail and be caught by txCompletionPromise
                     checkCompletion();
                 };
 
-                // Step 2: Delete any conflicting records (same email, different ID)
                 existingRecords.forEach(existingRec => {
                     if (existingRec.id !== user.id) {
                         console.log(`[saveLocalUser] Queuing delete for conflicting record ID: ${existingRec.id} (email: ${existingRec.email})`);
@@ -535,14 +531,9 @@ export const saveLocalUser = (user: LocalUser): Promise<void> => {
                             checkCompletion();
                         };
                         deleteRequest.onerror = () => operationErrorHandler(`delete ${existingRec.id}`, deleteRequest.error);
-                    } else {
-                        // This case means the record we are trying to "put" already exists with this ID and email.
-                        // No delete needed for this specific record.
-                        console.log(`[saveLocalUser] Record with ID ${user.id} and email ${user.email} already exists. Delete skipped for this, 'put' will update.`);
                     }
                 });
 
-                // Step 3: Put the new/updated user record
                 console.log(`[saveLocalUser] Queuing put for user ID: ${user.id}`);
                 const putRequest = store.put(user);
                 putRequest.onsuccess = () => {
@@ -551,16 +542,14 @@ export const saveLocalUser = (user: LocalUser): Promise<void> => {
                 };
                 putRequest.onerror = () => operationErrorHandler(`put ${user.id}`, putRequest.error);
 
-                // If there were no conflicting records to delete, the only operation is the put.
                 if (existingRecords.filter(rec => rec.id !== user.id).length === 0) {
-                    operationsCompleted = totalOperationsToWaitFor -1; // Adjust because no delete ops were queued.
+                    operationsCompleted = totalOperationsToWaitFor -1; 
                     checkCompletion();
                 }
 
             };
             getByEmailRequest.onerror = () => {
                 console.error(`[saveLocalUser] Error in getByEmailRequest for email ${user.email}:`, getByEmailRequest.error);
-                // This error will likely cause the transaction to abort or error out.
             };
 
             txCompletionPromise.then(resolve).catch(reject);
@@ -685,7 +674,7 @@ export const getLocalTrips = (userId?: string, dateRange?: DateRange): Promise<L
                 }
                 if (dateRange?.from) {
                     const startDate = startOfDay(dateRange.from);
-                    const endDate = dateRange.to ? endOfDay(dateRange.to) : new Date(8640000000000000); // Far future date
+                    const endDate = dateRange.to ? endOfDay(dateRange.to) : new Date(8640000000000000); 
                     const interval = { start: startDate, end: endDate };
                     filteredRecords = filteredRecords.filter(trip => {
                         try {
@@ -991,24 +980,21 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
     for (const storeName of stores) {
         try {
             const store = await getLocalDbStore(storeName, 'readwrite');
-            if (!store.indexNames.contains('deleted')) {
-                console.warn(`[Cleanup] Store ${storeName} does not have a 'deleted' index. Skipping cleanup for this store.`);
-                continue;
-            }
-            const index = store.index('deleted');
             const writeTx = store.transaction;
 
-            let cursorReq = index.openCursor(IDBKeyRange.only(true)); // Query for deleted: true
+            // Open cursor on the entire store, not on the 'deleted' index with a range query
+            let cursorReq = store.openCursor();
 
             await new Promise<void>((resolveCursor, rejectCursor) => {
                 const itemsToDeleteKeys: IDBValidKey[] = [];
                 cursorReq.onerror = (event: Event) => {
-                    console.error(`[Cleanup] Error opening cursor on 'deleted' index for ${storeName}:`, (event.target as IDBRequest).error);
+                    console.error(`[Cleanup] Error opening cursor for ${storeName}:`, (event.target as IDBRequest).error);
                     rejectCursor((event.target as IDBRequest).error);
                 };
                 cursorReq.onsuccess = (event) => {
                     const cursor = (event.target as IDBRequest).result as IDBCursorWithValue | null;
                     if (cursor) {
+                        // Filter here in JavaScript
                         if (cursor.value && cursor.value.deleted === true && cursor.value.syncStatus === 'synced') {
                             itemsToDeleteKeys.push(cursor.primaryKey);
                         }
@@ -1030,7 +1016,7 @@ export const cleanupDeletedRecords = async (): Promise<void> => {
                                     // Continue trying to delete others
                                     deleteCount++;
                                     if (deleteCount === itemsToDeleteKeys.length) {
-                                        resolveCursor(); // Resolve even if some deletes failed to not block the whole process
+                                        resolveCursor(); 
                                     }
                                 };
                             });
@@ -1083,7 +1069,6 @@ export const seedInitialUsers = async (): Promise<void> => {
         console.log(`[seedInitialUsers] Found ${userCount} existing users.`);
     } catch (error) {
         console.error("[seedInitialUsers] Error in read-only transaction for counting users:", error);
-        // Proceed, assuming count is 0 or error means we should try seeding
     }
 
 
@@ -1140,7 +1125,7 @@ export const seedInitialUsers = async (): Promise<void> => {
     });
 
     usersToSeedWithHashedPasswords.forEach(user => {
-        const putRequest = store.put(user); // Use put for seeding to be idempotent
+        const putRequest = store.put(user); 
         putRequest.onerror = () => {
             console.error(`[seedInitialUsers] Error putting seed user ${user.email} (ID: ${user.id}):`, putRequest.error);
         };
@@ -1159,5 +1144,11 @@ if (typeof window !== 'undefined') {
       console.log("[localDbService] IndexedDB opened successfully on client-side.");
       return seedInitialUsers();
     })
-    .catch(error => console.error("Failed to initialize/seed IndexedDB on load (client-side):", error));
+    .catch(error => {
+        if (error instanceof Error && error.message.includes("IndexedDB is not available on the server")) {
+            // Expected error on server-side, can be ignored if this module is somehow imported server-side without full tree-shaking
+        } else {
+            console.error("Failed to initialize/seed IndexedDB on load (client-side):", error);
+        }
+    });
 }
