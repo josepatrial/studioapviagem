@@ -17,32 +17,92 @@ import {
   type CollectionReference,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+// Não importar tipos de componentes como Trip, Expense, VehicleInfo daqui.
+// Manter importações de AuthContext se necessário para User/DriverInfo se firestoreService for a fonte canônica desses tipos para outros serviços.
 import type { User, DriverInfo, UserRole } from '@/contexts/AuthContext';
-import type { VehicleInfo } from '@/components/Vehicle';
-import type { Trip } from '@/components/Trips/Trips';
-import type { Visit as BaseVisit } from '@/components/Trips/Visits';
-import type { Expense } from '@/components/Trips/Expenses';
-import type { Fueling as BaseFueling } from '@/components/Trips/Fuelings';
+export type { User, DriverInfo }; // Re-exportar se usado por outros módulos através daqui
+
 import { deleteReceipt as deleteStorageReceipt } from './storageService';
 import type { DateRange } from 'react-day-picker';
-import type { CustomType as LocalCustomType } from './localDbService'; // Renamed to avoid conflict
+// import type { CustomType as LocalCustomType } from './localDbService'; // Já definido como FirestoreCustomType abaixo
 
-export interface Fueling extends BaseFueling {
- fuelType: string;
+// Definir estruturas de dados como elas existem no Firestore
+export interface FirestoreTrip {
+  id: string; // Document ID
+  name: string;
+  vehicleId: string;
+  userId: string;
+  status: 'Andamento' | 'Finalizado' | 'Cancelado';
+  createdAt: Timestamp;
+  updatedAt: Timestamp;
+  base: string;
+  finalKm?: number;
+  totalDistance?: number;
 }
 
-export interface Visit extends BaseVisit {
-    visitType?: string;
+export interface FirestoreVisit {
+  id: string; // Document ID
+  tripId: string;
+  userId: string;
+  clientName: string;
+  location: string;
+  latitude?: number;
+  longitude?: number;
+  initialKm: number;
+  reason: string;
+  timestamp: Timestamp;
+  visitType?: string;
 }
 
-// Define CustomType for Firestore (id is Firestore-generated)
+export interface FirestoreExpense {
+  id: string; // Document ID
+  tripId: string;
+  userId: string;
+  description: string;
+  value: number;
+  expenseType: string;
+  expenseDate: Timestamp;
+  timestamp: Timestamp; // Record creation/update timestamp
+  comments?: string;
+  receiptFilename?: string;
+  receiptUrl?: string;
+  receiptPath?: string;
+}
+
+export interface FirestoreFueling {
+  id: string; // Document ID
+  tripId: string;
+  userId: string;
+  vehicleId: string;
+  date: Timestamp;
+  liters: number;
+  pricePerLiter: number;
+  totalCost: number;
+  location: string;
+  comments?: string;
+  odometerKm: number;
+  fuelType: string;
+  receiptFilename?: string;
+  receiptUrl?: string;
+  receiptPath?: string;
+}
+
+export interface FirestoreVehicle {
+  id: string; // Document ID
+  model: string;
+  year: number;
+  licensePlate: string;
+  deleted?: boolean; // Adicionado para consistência com fetchOnlineVehicles
+}
+
+// Define CustomType para Firestore (id é gerado pelo Firestore)
 export interface FirestoreCustomType {
     id: string; // Firestore document ID
     name: string;
 }
 
 
-// Define collection references globally
+// Define collection references globalmente
 let usersCollectionRef: CollectionReference | null = null;
 let vehiclesCollectionRef: CollectionReference | null = null;
 let tripsCollectionRef: CollectionReference | null = null;
@@ -71,7 +131,7 @@ if (db) {
 
 const cleanUserDataForFirestore = (data: Record<string, any>): Record<string, any> => {
     const cleanedData: Record<string, any> = {};
-    const coreUserFields: (keyof User)[] = ['name', 'email', 'username', 'role', 'base'];
+    // const coreUserFields: (keyof User)[] = ['name', 'email', 'username', 'role', 'base'];
 
     for (const key in data) {
         if (data[key] !== undefined && data[key] !== null) {
@@ -83,12 +143,12 @@ const cleanUserDataForFirestore = (data: Record<string, any>): Record<string, an
     else if (!cleanedData.name) cleanedData.name = 'Usuário Desconhecido';
 
     if (!cleanedData.email) cleanedData.email = 'unknown@example.com';
-    if (!cleanedData.role) cleanedData.role = 'driver'; 
+    if (!cleanedData.role) cleanedData.role = 'driver';
 
     if (cleanedData.role === 'admin') {
-        cleanedData.base = 'ALL'; 
+        cleanedData.base = 'ALL';
     } else if (!cleanedData.base || String(cleanedData.base).trim() === '') {
-        cleanedData.base = 'N/A'; 
+        cleanedData.base = 'N/A';
     }
 
     if (!cleanedData.username && cleanedData.email) cleanedData.username = cleanedData.email.split('@')[0];
@@ -105,7 +165,7 @@ const cleanUserDataForFirestore = (data: Record<string, any>): Record<string, an
 const cleanDataForFirestore = (data: Record<string, any>): Record<string, any> => {
     const cleanedData: Record<string, any> = {};
     for (const key in data) {
-        if (data[key] !== undefined) {
+        if (data[key] !== undefined) { // Permitir null para campos que podem ser nulificados no Firestore
             cleanedData[key] = data[key];
         }
     }
@@ -130,9 +190,10 @@ export const getUserData = async (userId: string): Promise<User | null> => {
       const userDataFromSnap = userDocSnap.data();
       const userData = {
         id: userDocSnap.id,
-        name: userDataFromSnap.name || `Usuário ${userDoc.id.substring(0,6)}`,
+        firebaseId: userDocSnap.id, // Add firebaseId
+        name: userDataFromSnap.name || `Usuário ${userDocSnap.id.substring(0,6)}`,
         email: userDataFromSnap.email || 'N/A',
-        username: userDataFromSnap.username || userDataFromSnap.email?.split('@')[0] || `user_${userDoc.id.substring(0,6)}`,
+        username: userDataFromSnap.username || userDataFromSnap.email?.split('@')[0] || `user_${userDocSnap.id.substring(0,6)}`,
         role: userDataFromSnap.role || 'driver',
         base: (userDataFromSnap.role === 'admin' ? 'ALL' : userDataFromSnap.base) || 'N/A',
       } as User;
@@ -153,7 +214,7 @@ export const getUserData = async (userId: string): Promise<User | null> => {
 };
 
 
-export const setUserData = async (userId: string, data: Partial<Omit<User, 'id'>>) => {
+export const setUserData = async (userId: string, data: Partial<Omit<User, 'id' | 'firebaseId'>>) => {
     const setUserStartTime = performance.now();
     const cleanedData = cleanUserDataForFirestore(data);
     console.log(`[firestoreService setUserData ${setUserStartTime}] Setting/merging user data for ID: ${userId} in 'users' collection. Cleaned Data:`, cleanedData);
@@ -173,9 +234,9 @@ export const setUserData = async (userId: string, data: Partial<Omit<User, 'id'>
     }
 };
 
-export const addUser = async (userId: string, userData: Omit<User, 'id'>): Promise<void> => {
+export const addUser = async (userId: string, userData: Omit<User, 'id' | 'firebaseId'>): Promise<void> => {
     const addUserStartTime = performance.now();
-    const finalUserData: Omit<User, 'id'> = {
+    const finalUserData: Omit<User, 'id' | 'firebaseId'> = {
          ...userData,
          role: userData.role || 'driver',
          base: userData.role === 'admin' ? 'ALL' : (userData.base || 'N/A')
@@ -247,6 +308,7 @@ export const getDrivers = async (): Promise<DriverInfo[]> => {
             const data = docInstance.data();
             return {
                 id: docInstance.id,
+                firebaseId: docInstance.id, // Add firebaseId
                 email: data.email,
                 name: data.name || data.email || `Motorista ${docInstance.id.substring(0,6)}`,
                 username: data.username || data.email?.split('@')[0],
@@ -268,7 +330,7 @@ export const getDrivers = async (): Promise<DriverInfo[]> => {
 };
 
 // --- Vehicle Service ---
-export const getVehicles = async (): Promise<VehicleInfo[]> => {
+export const getVehicles = async (): Promise<FirestoreVehicle[]> => {
     const getVehiclesStartTime = performance.now();
     console.log(`[firestoreService getVehicles ${getVehiclesStartTime}] Fetching vehicles from 'vehicles' collection (DB: ${db?.databaseId})...`);
     if (!db || !vehiclesCollectionRef) {
@@ -277,7 +339,7 @@ export const getVehicles = async (): Promise<VehicleInfo[]> => {
     }
     try {
         const querySnapshot = await getDocs(vehiclesCollectionRef);
-        const vehicles = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as VehicleInfo);
+        const vehicles = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as FirestoreVehicle);
         const getVehiclesEndTime = performance.now();
         console.log(`[firestoreService getVehicles ${getVehiclesStartTime}] Found ${vehicles.length} vehicles. Time: ${getVehiclesEndTime - getVehiclesStartTime} ms`);
         return vehicles;
@@ -291,7 +353,7 @@ export const getVehicles = async (): Promise<VehicleInfo[]> => {
     }
 };
 
-export const addVehicle = async (vehicleData: Omit<VehicleInfo, 'id'>): Promise<string> => {
+export const addVehicle = async (vehicleData: Omit<FirestoreVehicle, 'id'>): Promise<string> => {
     const addVehicleStartTime = performance.now();
     const cleanedData = cleanDataForFirestore(vehicleData);
     console.log(`[firestoreService addVehicle ${addVehicleStartTime}] Adding new vehicle to 'vehicles' collection. Cleaned Data:`, cleanedData);
@@ -311,7 +373,7 @@ export const addVehicle = async (vehicleData: Omit<VehicleInfo, 'id'>): Promise<
     }
 };
 
-export const updateVehicle = async (vehicleId: string, data: Partial<VehicleInfo>) => {
+export const updateVehicle = async (vehicleId: string, data: Partial<Omit<FirestoreVehicle, 'id'>>) => {
     const updateVehicleStartTime = performance.now();
     const cleanedData = cleanDataForFirestore(data);
     console.log(`[firestoreService updateVehicle ${updateVehicleStartTime}] Updating vehicle ID: ${vehicleId} in 'vehicles' collection. Cleaned Data:`, cleanedData);
@@ -354,11 +416,11 @@ export const deleteVehicle = async (vehicleId: string) => {
 export interface TripFilter {
     userId?: string;
     startDate?: string | Date;
-    endDate?: string | Date;  
+    endDate?: string | Date;
     base?: string;
 }
 
-export const getTrips = async (filters: TripFilter = {}): Promise<Trip[]> => {
+export const getTrips = async (filters: TripFilter = {}): Promise<FirestoreTrip[]> => {
     const getTripsStartTime = performance.now();
     console.log(`[firestoreService getTrips ${getTripsStartTime}] Fetching trips from 'trips' collection with filters:`, filters);
     if (!db || !tripsCollectionRef) {
@@ -387,7 +449,21 @@ export const getTrips = async (filters: TripFilter = {}): Promise<Trip[]> => {
 
         const q = query(tripsCollectionRef, ...constraints);
         const querySnapshot = await getDocs(q);
-        let trips = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Trip);
+        const trips = querySnapshot.docs.map(docInstance => { // Renamed doc to docInstance
+            const data = docInstance.data();
+            return {
+                id: docInstance.id,
+                name: data.name,
+                vehicleId: data.vehicleId,
+                userId: data.userId,
+                status: data.status,
+                createdAt: data.createdAt as Timestamp,
+                updatedAt: data.updatedAt as Timestamp,
+                base: data.base,
+                finalKm: data.finalKm,
+                totalDistance: data.totalDistance,
+            } as FirestoreTrip;
+        });
 
         const getTripsEndTime = performance.now();
         console.log(`[firestoreService getTrips ${getTripsStartTime}] Found ${trips.length} trips. Time: ${getTripsEndTime - getTripsStartTime} ms`);
@@ -403,7 +479,7 @@ export const getTrips = async (filters: TripFilter = {}): Promise<Trip[]> => {
     }
 };
 
-export const addTrip = async (tripData: Omit<Trip, 'id' | 'updatedAt' | 'createdAt' | 'firebaseId' | 'localId' | 'syncStatus'>): Promise<string> => {
+export const addTrip = async (tripData: Omit<FirestoreTrip, 'id' | 'updatedAt' | 'createdAt'>): Promise<string> => {
     const addTripStartTime = performance.now();
     const cleanedData = cleanDataForFirestore(tripData);
     console.log(`[firestoreService addTrip ${addTripStartTime}] Adding new trip to 'trips' collection. Cleaned Data:`, cleanedData);
@@ -428,7 +504,7 @@ export const addTrip = async (tripData: Omit<Trip, 'id' | 'updatedAt' | 'created
     }
 };
 
-export const updateTrip = async (tripId: string, data: Partial<Omit<Trip, 'id' | 'createdAt' | 'firebaseId' | 'localId' | 'syncStatus'>>) => {
+export const updateTrip = async (tripId: string, data: Partial<Omit<FirestoreTrip, 'id' | 'createdAt'>>) => {
     const updateTripStartTime = performance.now();
     const cleanedData = cleanDataForFirestore(data);
     console.log(`[firestoreService updateTrip ${updateTripStartTime}] Updating trip ID: ${tripId} in 'trips' collection. Cleaned Data:`, cleanedData);
@@ -438,10 +514,14 @@ export const updateTrip = async (tripId: string, data: Partial<Omit<Trip, 'id' |
     }
     const tripDocRef = doc(tripsCollectionRef, tripId);
     try {
-        const dataToUpdate = {
+        const dataToUpdate: any = { // Use any for flexibility before casting to Firestore types
             ...cleanedData,
             updatedAt: Timestamp.now(),
         };
+        // Ensure Timestamp fields are correctly formatted if they are part of `data`
+        if (data.createdAt && !(data.createdAt instanceof Timestamp)) dataToUpdate.createdAt = Timestamp.fromDate(new Date(data.createdAt as any));
+
+
         await updateDoc(tripDocRef, dataToUpdate);
         const updateTripEndTime = performance.now();
         console.log(`[firestoreService updateTrip ${updateTripStartTime}] Trip updated successfully for ID: ${tripId}. Time: ${updateTripEndTime - updateTripStartTime} ms`);
@@ -455,12 +535,12 @@ export const updateTrip = async (tripId: string, data: Partial<Omit<Trip, 'id' |
 // --- Visit Service ---
 export interface VisitFilter {
     userId?: string;
-    tripId?: string; 
+    tripId?: string;
     startDate?: Date;
     endDate?: Date;
 }
 
-export const getVisits = async (filters: VisitFilter = {}): Promise<Visit[]> => {
+export const getVisits = async (filters: VisitFilter = {}): Promise<FirestoreVisit[]> => {
     const getVisitsStartTime = performance.now();
     console.log(`[firestoreService getVisits ${getVisitsStartTime}] Fetching visits from 'visits' collection with filters:`, filters);
     if (!db || !visitsCollectionRef) {
@@ -483,11 +563,26 @@ export const getVisits = async (filters: VisitFilter = {}): Promise<Visit[]> => 
             endDatePlusOne.setDate(endDatePlusOne.getDate() + 1);
             constraints.push(where('timestamp', '<', Timestamp.fromDate(endDatePlusOne)));
         }
-        constraints.push(orderBy('timestamp', 'desc')); 
+        constraints.push(orderBy('timestamp', 'desc'));
 
         const q = query(visitsCollectionRef, ...constraints);
         const querySnapshot = await getDocs(q);
-        const visits = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Visit);
+        const visits = querySnapshot.docs.map(docInstance => { // Renamed doc to docInstance
+            const data = docInstance.data();
+            return {
+                id: docInstance.id,
+                tripId: data.tripId,
+                userId: data.userId,
+                clientName: data.clientName,
+                location: data.location,
+                latitude: data.latitude,
+                longitude: data.longitude,
+                initialKm: data.initialKm,
+                reason: data.reason,
+                timestamp: data.timestamp as Timestamp,
+                visitType: data.visitType
+            } as FirestoreVisit;
+        });
         const getVisitsEndTime = performance.now();
         console.log(`[firestoreService getVisits ${getVisitsStartTime}] Found ${visits.length} visits. Time: ${getVisitsEndTime - getVisitsStartTime} ms`);
         return visits;
@@ -502,7 +597,7 @@ export const getVisits = async (filters: VisitFilter = {}): Promise<Visit[]> => 
 };
 
 
-export const addVisit = async (visitData: Omit<Visit, 'id' | 'firebaseId' | 'localId' | 'syncStatus'>): Promise<string> => {
+export const addVisit = async (visitData: Omit<FirestoreVisit, 'id'>): Promise<string> => {
     const addVisitStartTime = performance.now();
     const cleanedData = cleanDataForFirestore(visitData);
     console.log(`[firestoreService addVisit ${addVisitStartTime}] Adding new visit to 'visits' collection. Cleaned Data:`, cleanedData);
@@ -511,7 +606,7 @@ export const addVisit = async (visitData: Omit<Visit, 'id' | 'firebaseId' | 'loc
         throw new Error("Firestore DB or visitsCollectionRef not initialized.");
     }
     try {
-        const dataWithTimestamp = { ...cleanedData, timestamp: Timestamp.fromDate(new Date(cleanedData.timestamp)) };
+        const dataWithTimestamp = { ...cleanedData, timestamp: cleanedData.timestamp instanceof Timestamp ? cleanedData.timestamp : Timestamp.fromDate(new Date(cleanedData.timestamp)) };
         const docRef = await addDoc(visitsCollectionRef, dataWithTimestamp);
         const addVisitEndTime = performance.now();
         console.log(`[firestoreService addVisit ${addVisitStartTime}] Visit added successfully to 'visits' with ID: ${docRef.id}. Time: ${addVisitEndTime - addVisitStartTime} ms`);
@@ -523,7 +618,7 @@ export const addVisit = async (visitData: Omit<Visit, 'id' | 'firebaseId' | 'loc
     }
 };
 
-export const updateVisit = async (visitId: string, data: Partial<Omit<Visit, 'id' | 'firebaseId' | 'localId' | 'syncStatus'>>) => {
+export const updateVisit = async (visitId: string, data: Partial<Omit<FirestoreVisit, 'id'>>) => {
     const updateVisitStartTime = performance.now();
     const cleanedData = cleanDataForFirestore(data);
     console.log(`[firestoreService updateVisit ${updateVisitStartTime}] Updating visit ID: ${visitId} in 'visits' collection. Cleaned Data:`, cleanedData);
@@ -533,7 +628,7 @@ export const updateVisit = async (visitId: string, data: Partial<Omit<Visit, 'id
     }
     const visitDocRef = doc(visitsCollectionRef, visitId);
     try {
-        const dataWithTimestamp = cleanedData.timestamp ? { ...cleanedData, timestamp: Timestamp.fromDate(new Date(cleanedData.timestamp)) } : cleanedData;
+        const dataWithTimestamp = cleanedData.timestamp && !(cleanedData.timestamp instanceof Timestamp) ? { ...cleanedData, timestamp: Timestamp.fromDate(new Date(cleanedData.timestamp)) } : cleanedData;
         await updateDoc(visitDocRef, dataWithTimestamp);
         const updateVisitEndTime = performance.now();
         console.log(`[firestoreService updateVisit ${updateVisitStartTime}] Visit updated successfully for ID: ${visitId}. Time: ${updateVisitEndTime - updateVisitStartTime} ms`);
@@ -571,7 +666,7 @@ export interface ExpenseFilter {
     endDate?: Date;
 }
 
-export const getExpenses = async (filters: ExpenseFilter = {}): Promise<Expense[]> => {
+export const getExpenses = async (filters: ExpenseFilter = {}): Promise<FirestoreExpense[]> => {
     const getExpensesStartTime = performance.now();
     console.log(`[firestoreService getExpenses ${getExpensesStartTime}] Fetching expenses from 'expenses' collection with filters:`, filters);
     if (!db || !expensesCollectionRef) {
@@ -587,18 +682,34 @@ export const getExpenses = async (filters: ExpenseFilter = {}): Promise<Expense[
             constraints.push(where('tripId', '==', filters.tripId));
         }
         if (filters.startDate) {
-            constraints.push(where('expenseDate', '>=', Timestamp.fromDate(filters.startDate))); 
+            constraints.push(where('expenseDate', '>=', Timestamp.fromDate(filters.startDate)));
         }
         if (filters.endDate) {
             const endDatePlusOne = new Date(filters.endDate);
             endDatePlusOne.setDate(endDatePlusOne.getDate() + 1);
             constraints.push(where('expenseDate', '<', Timestamp.fromDate(endDatePlusOne)));
         }
-        constraints.push(orderBy('expenseDate', 'desc')); 
+        constraints.push(orderBy('expenseDate', 'desc'));
 
         const q = query(expensesCollectionRef, ...constraints);
         const querySnapshot = await getDocs(q);
-        const expenses = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Expense);
+        const expenses = querySnapshot.docs.map(docInstance => { // Renamed doc to docInstance
+            const data = docInstance.data();
+            return {
+                id: docInstance.id,
+                tripId: data.tripId,
+                userId: data.userId,
+                description: data.description,
+                value: data.value,
+                expenseType: data.expenseType,
+                expenseDate: data.expenseDate as Timestamp,
+                timestamp: data.timestamp as Timestamp,
+                comments: data.comments,
+                receiptFilename: data.receiptFilename,
+                receiptUrl: data.receiptUrl,
+                receiptPath: data.receiptPath,
+            } as FirestoreExpense;
+        });
         const getExpensesEndTime = performance.now();
         console.log(`[firestoreService getExpenses ${getExpensesStartTime}] Found ${expenses.length} expenses. Time: ${getExpensesEndTime - getExpensesStartTime} ms`);
         return expenses;
@@ -612,12 +723,12 @@ export const getExpenses = async (filters: ExpenseFilter = {}): Promise<Expense[
     }
 };
 
-export const addExpense = async (expenseData: Omit<Expense, 'id' | 'firebaseId' | 'localId' | 'syncStatus'>): Promise<string> => {
+export const addExpense = async (expenseData: Omit<FirestoreExpense, 'id'>): Promise<string> => {
     const addExpenseStartTime = performance.now();
     const dataToFirestore = { ...cleanDataForFirestore(expenseData) };
-    
-    if (dataToFirestore.timestamp) dataToFirestore.timestamp = Timestamp.fromDate(new Date(dataToFirestore.timestamp));
-    if (dataToFirestore.expenseDate) dataToFirestore.expenseDate = Timestamp.fromDate(new Date(dataToFirestore.expenseDate));
+
+    if (dataToFirestore.timestamp && !(dataToFirestore.timestamp instanceof Timestamp)) dataToFirestore.timestamp = Timestamp.fromDate(new Date(dataToFirestore.timestamp));
+    if (dataToFirestore.expenseDate && !(dataToFirestore.expenseDate instanceof Timestamp)) dataToFirestore.expenseDate = Timestamp.fromDate(new Date(dataToFirestore.expenseDate));
 
     const receiptFields = ['receiptFilename', 'receiptUrl', 'receiptPath'];
     receiptFields.forEach(field => {
@@ -644,22 +755,20 @@ export const addExpense = async (expenseData: Omit<Expense, 'id' | 'firebaseId' 
     }
 };
 
-export const updateExpense = async (expenseId: string, data: Partial<Omit<Expense, 'id' | 'firebaseId' | 'localId' | 'syncStatus'>>) => {
+export const updateExpense = async (expenseId: string, data: Partial<Omit<FirestoreExpense, 'id'>>) => {
     const updateExpenseStartTime = performance.now();
     const dataToFirestore = { ...cleanDataForFirestore(data) };
 
-    if (dataToFirestore.timestamp) dataToFirestore.timestamp = Timestamp.fromDate(new Date(dataToFirestore.timestamp));
-    if (dataToFirestore.expenseDate) dataToFirestore.expenseDate = Timestamp.fromDate(new Date(dataToFirestore.expenseDate));
+    if (dataToFirestore.timestamp && !(dataToFirestore.timestamp instanceof Timestamp)) dataToFirestore.timestamp = Timestamp.fromDate(new Date(dataToFirestore.timestamp));
+    if (dataToFirestore.expenseDate && !(dataToFirestore.expenseDate instanceof Timestamp)) dataToFirestore.expenseDate = Timestamp.fromDate(new Date(dataToFirestore.expenseDate));
 
     const receiptFields = ['receiptFilename', 'receiptUrl', 'receiptPath'];
      receiptFields.forEach(field => {
-        if (data.hasOwnProperty(field)) { 
-            if (data[field as keyof typeof data] === null || data[field as keyof typeof data] === undefined) {
-                delete dataToFirestore[field]; 
+        if (data.hasOwnProperty(field)) {
+            if ((data as any)[field] === null || (data as any)[field] === undefined) { // Corrected type assertion
+                delete dataToFirestore[field];
             }
         } else {
-            // If the field is not in the partial update `data`, we don't want to accidentally send `undefined`
-            // if `cleanedDataForFirestore` didn't have it.
             if (dataToFirestore[field] === undefined) delete dataToFirestore[field];
         }
     });
@@ -693,7 +802,7 @@ export const deleteExpense = async (expenseId: string) => {
     try {
         const expenseSnap = await getDoc(expenseDocRef);
         if (expenseSnap.exists()) {
-            const expenseData = expenseSnap.data() as Expense;
+            const expenseData = expenseSnap.data() as FirestoreExpense;
             if (expenseData.receiptPath) {
                 try {
                     console.log(`[firestoreService deleteExpense] Deleting receipt from storage: ${expenseData.receiptPath}`);
@@ -721,7 +830,7 @@ export interface FuelingFilter {
     startDate?: Date;
     endDate?: Date;
 }
-export const getFuelings = async (filter?: FuelingFilter): Promise<Fueling[]> => {
+export const getFuelings = async (filter?: FuelingFilter): Promise<FirestoreFueling[]> => {
     const getFuelingsStartTime = performance.now();
     console.log(`[firestoreService getFuelings ${getFuelingsStartTime}] Fetching fuelings from 'fuelings' collection with filter:`, filter);
     if (!db || !fuelingsCollectionRef) {
@@ -751,7 +860,26 @@ export const getFuelings = async (filter?: FuelingFilter): Promise<Fueling[]> =>
 
         const q = query(fuelingsCollectionRef, ...constraints);
         const querySnapshot = await getDocs(q);
-        const fuelings = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }) as Fueling);
+        const fuelings = querySnapshot.docs.map(docInstance => { // Renamed doc to docInstance
+            const data = docInstance.data();
+            return {
+                id: docInstance.id,
+                tripId: data.tripId,
+                userId: data.userId,
+                vehicleId: data.vehicleId,
+                date: data.date as Timestamp,
+                liters: data.liters,
+                pricePerLiter: data.pricePerLiter,
+                totalCost: data.totalCost,
+                location: data.location,
+                comments: data.comments,
+                odometerKm: data.odometerKm,
+                fuelType: data.fuelType,
+                receiptFilename: data.receiptFilename,
+                receiptUrl: data.receiptUrl,
+                receiptPath: data.receiptPath,
+            } as FirestoreFueling;
+        });
         const getFuelingsEndTime = performance.now();
         console.log(`[firestoreService getFuelings ${getFuelingsStartTime}] Found ${fuelings.length} fuelings. Time: ${getFuelingsEndTime - getFuelingsStartTime} ms`);
         return fuelings;
@@ -765,12 +893,12 @@ export const getFuelings = async (filter?: FuelingFilter): Promise<Fueling[]> =>
     }
 };
 
-export const addFueling = async (fuelingData: Omit<Fueling, 'id' | 'firebaseId' | 'localId' | 'syncStatus'>): Promise<string> => {
+export const addFueling = async (fuelingData: Omit<FirestoreFueling, 'id'>): Promise<string> => {
     const addFuelingStartTime = performance.now();
     const dataToFirestore = { ...cleanDataForFirestore(fuelingData) };
 
-    if (dataToFirestore.date) dataToFirestore.date = Timestamp.fromDate(new Date(dataToFirestore.date));
-    
+    if (dataToFirestore.date && !(dataToFirestore.date instanceof Timestamp)) dataToFirestore.date = Timestamp.fromDate(new Date(dataToFirestore.date));
+
     const receiptFields = ['receiptFilename', 'receiptUrl', 'receiptPath'];
     receiptFields.forEach(field => {
         if (dataToFirestore[field] === null || dataToFirestore[field] === undefined) {
@@ -795,16 +923,16 @@ export const addFueling = async (fuelingData: Omit<Fueling, 'id' | 'firebaseId' 
     }
 };
 
-export const updateFueling = async (fuelingId: string, data: Partial<Omit<Fueling, 'id' | 'firebaseId' | 'localId' | 'syncStatus'>>) => {
+export const updateFueling = async (fuelingId: string, data: Partial<Omit<FirestoreFueling, 'id'>>) => {
     const updateFuelingStartTime = performance.now();
     const dataToFirestore = { ...cleanDataForFirestore(data) };
 
-    if (dataToFirestore.date) dataToFirestore.date = Timestamp.fromDate(new Date(dataToFirestore.date));
+    if (dataToFirestore.date && !(dataToFirestore.date instanceof Timestamp)) dataToFirestore.date = Timestamp.fromDate(new Date(dataToFirestore.date));
 
     const receiptFields = ['receiptFilename', 'receiptUrl', 'receiptPath'];
     receiptFields.forEach(field => {
         if (data.hasOwnProperty(field)) {
-            if (data[field as keyof typeof data] === null || data[field as keyof typeof data] === undefined) {
+            if ((data as any)[field] === null || (data as any)[field] === undefined) { // Corrected type assertion
                 delete dataToFirestore[field];
             }
         } else {
@@ -841,7 +969,7 @@ export const deleteFueling = async (fuelingId: string) => {
     try {
         const fuelingSnap = await getDoc(fuelingDocRef);
         if (fuelingSnap.exists()) {
-            const fuelingData = fuelingSnap.data() as Fueling;
+            const fuelingData = fuelingSnap.data() as FirestoreFueling;
             if (fuelingData.receiptPath) {
                 try {
                     console.log(`[firestoreService deleteFueling] Deleting receipt from storage: ${fuelingData.receiptPath}`);
@@ -870,13 +998,12 @@ const addCustomTypeToFirestore = async (
     if (!db || !collectionRef) {
         throw new Error(`Firestore DB or collection reference for custom types is not initialized.`);
     }
-    // Check for existing type with the same name to prevent duplicates in Firestore directly
     const q = query(collectionRef, where("name", "==", typeName));
     const querySnapshot = await getDocs(q);
     if (!querySnapshot.empty) {
         const existingDoc = querySnapshot.docs[0];
         console.warn(`[addCustomTypeToFirestore ${addTypeStartTime}] Type "${typeName}" already exists in Firestore with ID ${existingDoc.id}. Returning existing ID.`);
-        return existingDoc.id; // Return existing ID if name is already there
+        return existingDoc.id;
     }
 
     console.log(`[addCustomTypeToFirestore ${addTypeStartTime}] Adding new custom type "${typeName}" to collection ${collectionRef.id}.`);
@@ -971,7 +1098,7 @@ export const deleteTripAndRelatedData = async (tripId: string) => {
         console.log(`[deleteTripAndRelatedData] Found ${expensesSnapshot.docs.length} expenses to delete for trip ${tripId}.`);
         expensesSnapshot.docs.forEach(expenseDoc => {
             batch.delete(expenseDoc.ref);
-            const expenseData = expenseDoc.data() as Expense;
+            const expenseData = expenseDoc.data() as FirestoreExpense;
             if (expenseData.receiptPath) relatedReceiptPaths.push(expenseData.receiptPath);
         });
 
@@ -980,7 +1107,7 @@ export const deleteTripAndRelatedData = async (tripId: string) => {
          console.log(`[deleteTripAndRelatedData] Found ${fuelingsSnapshot.docs.length} fuelings to delete for trip ${tripId}.`);
          fuelingsSnapshot.docs.forEach(fuelingDoc => {
             batch.delete(fuelingDoc.ref);
-            const fuelingData = fuelingDoc.data() as Fueling;
+            const fuelingData = fuelingDoc.data() as FirestoreFueling;
             if (fuelingData.receiptPath) relatedReceiptPaths.push(fuelingData.receiptPath);
         });
 
@@ -1022,6 +1149,7 @@ export const getUserByEmail = async (email: string): Promise<User | null> => {
             const userDataFromSnap = userDoc.data();
             const userData = {
                 id: userDoc.id,
+                firebaseId: userDoc.id,
                 name: userDataFromSnap.name || `Usuário ${userDoc.id.substring(0,6)}`,
                 email: userDataFromSnap.email || 'N/A',
                 username: userDataFromSnap.username || userDataFromSnap.email?.split('@')[0] || `user_${userDoc.id.substring(0,6)}`,
@@ -1042,7 +1170,7 @@ export const getUserByEmail = async (email: string): Promise<User | null> => {
     }
 };
 
-export const getVehicleByLicensePlate = async (licensePlate: string): Promise<VehicleInfo | null> => {
+export const getVehicleByLicensePlate = async (licensePlate: string): Promise<FirestoreVehicle | null> => {
     const getVehicleByPlateStartTime = performance.now();
     console.log(`[firestoreService getVehicleByLicensePlate ${getVehicleByPlateStartTime}] Getting vehicle by license plate: ${licensePlate} from 'vehicles' collection`);
     if (!db || !vehiclesCollectionRef) {
@@ -1054,7 +1182,7 @@ export const getVehicleByLicensePlate = async (licensePlate: string): Promise<Ve
         const querySnapshot = await getDocs(q);
         if (!querySnapshot.empty) {
             const vehicleDoc = querySnapshot.docs[0];
-            const vehicleData = { id: vehicleDoc.id, ...vehicleDoc.data() } as VehicleInfo;
+            const vehicleData = { id: vehicleDoc.id, ...vehicleDoc.data() } as FirestoreVehicle;
             const getVehicleByPlateEndTime = performance.now();
             console.log(`[firestoreService getVehicleByLicensePlate ${getVehicleByPlateStartTime}] Vehicle found. Time: ${getVehicleByPlateEndTime - getVehicleByPlateStartTime} ms`);
             return vehicleData;
@@ -1068,4 +1196,3 @@ export const getVehicleByLicensePlate = async (licensePlate: string): Promise<Ve
         throw error;
     }
 };
-

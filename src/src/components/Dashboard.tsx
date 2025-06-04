@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Button } from '@/components/ui/button';
 import { MapPinIcon as MapPinLucideIcon, Wallet, Fuel, Users, Truck, Milestone, Filter, Calendar, CarIcon, UserCheck, TrendingUp, AlertCircle } from 'lucide-react'; // Renamed Map to MapPinIcon
 import { useAuth, type User as AuthContextUser, type DriverInfo } from '@/contexts/AuthContext'; // Ensure DriverInfo is imported
-import type { Trip as FirestoreTripType } from '@/services/firestoreService'; // Use a distinct name for Firestore Trip
+import type { FirestoreTrip, FirestoreVisit, FirestoreExpense, FirestoreFueling, FirestoreVehicle } from '@/services/firestoreService';
 import {
     getLocalVisits as fetchLocalDbVisits,
     getLocalExpenses as fetchLocalDbExpenses,
@@ -20,8 +20,8 @@ import {
     type LocalUser, // Ensure LocalUser is imported
     type SyncStatus, // Import SyncStatus
 } from '@/services/localDbService';
-import { getFuelings as fetchOnlineFuelings, getVehicles as fetchOnlineVehicles, getTrips as fetchOnlineTrips, getDrivers as fetchOnlineDrivers, getExpenses as fetchOnlineExpenses, getVisits as fetchOnlineVisits, Visit as FirestoreVisitType, Expense as FirestoreExpenseType, Fueling as FirestoreFuelingType, VehicleInfo as FirestoreVehicleType } from '@/services/firestoreService';
-import type { VehicleInfo as VehicleComponentInfo } from './Vehicle'; // Renamed to avoid conflict with localDbService types if any
+import { getFuelings as fetchOnlineFuelings, getVehicles as fetchOnlineVehicles, getTrips as fetchOnlineTrips, getDrivers as fetchOnlineDrivers, getExpenses as fetchOnlineExpenses, getVisits as fetchOnlineVisits } from '@/services/firestoreService';
+// import type { VehicleInfo as VehicleComponentInfo } from './Vehicle'; // Unused
 import { DateRangePicker } from '@/components/ui/date-range-picker';
 import type { DateRange } from 'react-day-picker';
 import { isWithinInterval, parseISO, format as formatDateFn } from 'date-fns';
@@ -34,7 +34,7 @@ import { formatKm } from '@/lib/utils';
 
 interface DashboardProps {
     setActiveTab: (section: 'visits' | 'expenses' | 'fuelings' | null) => void;
-    refreshKey: number; // Nova prop para forçar atualização
+    refreshKey: number;
 }
 
 const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -44,9 +44,9 @@ const safeFormatDate = (dateInput: string | { toDate: () => Date } | Date | unde
     try {
       if (typeof dateInput === 'string') {
         return formatDateFn(parseISO(dateInput), formatStr);
-      } else if (dateInput && typeof (dateInput as any).toDate === 'function') { // Firebase Timestamp
+      } else if (dateInput && typeof (dateInput as any).toDate === 'function') {
         return formatDateFn((dateInput as any).toDate(), formatStr);
-      } else if (dateInput instanceof Date) { // JavaScript Date
+      } else if (dateInput instanceof Date) {
         return formatDateFn(dateInput, formatStr);
       }
       return 'Data inválida';
@@ -56,19 +56,19 @@ const safeFormatDate = (dateInput: string | { toDate: () => Date } | Date | unde
     }
   };
 
-const ALL_DRIVERS_FILTER_VALUE = "__all_drivers__"; // Special value for "All Drivers"
+const ALL_DRIVERS_FILTER_VALUE = "__all_drivers__";
 
 export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }) => {
     const { user, loading: authContextLoading } = useAuth();
     const isAdmin = useMemo(() => user?.role === 'admin', [user]);
-    const ownerUserId = user?.id; // For fallback userId
+    const ownerUserId = user?.id;
 
     const [trips, setTrips] = useState<LocalTrip[]>([]);
     const [visits, setVisits] = useState<LocalVisit[]>([]);
     const [expenses, setExpenses] = useState<LocalExpense[]>([]);
     const [fuelings, setFuelings] = useState<LocalFueling[]>([]);
     const [vehicles, setVehicles] = useState<LocalVehicle[]>([]);
-    const [drivers, setDrivers] = useState<AuthContextUser[]>([]); // Using AuthContextUser type for drivers list
+    const [drivers, setDrivers] = useState<AuthContextUser[]>([]);
 
     const [filterDriverId, setFilterDriverId] = useState<string>('');
     const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
@@ -94,27 +94,27 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
             console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Auth context still loading. Waiting...`);
             return;
         }
-        
+
         if (!user && !isAdmin) {
             console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Auth context loaded, but no user and not admin. Clearing data and stopping dashboard loading.`);
             setTrips([]); setVisits([]); setExpenses([]); setFuelings([]); setVehicles([]); setDrivers([]);
-            setInitialLoading(false); 
+            setInitialLoading(false);
             setDataError(null);
             return;
         }
-        
+
         setInitialLoading(true);
         setDataError(null);
 
         const driverIdToFilter = isAdmin && filterDriverId ? filterDriverId : (!isAdmin && user ? user.id : undefined);
         const filterContext = isAdmin ? (filterDriverId ? `Driver: ${filterDriverId}` : 'All Drivers') : (user ? `User: ${user.id}` : 'No User Context');
         console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Effective driverIdToFilter for Firestore: ${driverIdToFilter}, FilterContext: ${filterContext}`);
-        
+
         if (!driverIdToFilter && !isAdmin) {
             console.warn(`[Dashboard initializeDashboardData ${initFetchTime}] No driverIdToFilter for non-admin, and not admin. Firestore fetch for user-specific data (trips, visits, expenses, fuelings) will be skipped.`);
             setTrips([]); setVisits([]); setExpenses([]); setFuelings([]);
         }
-        
+
         const fetchPromises: Promise<any>[] = [];
         const cachePromises: Promise<void>[] = [];
 
@@ -125,25 +125,24 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
             if (navigator.onLine) {
                 console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Online: Fetching all data from Firestore.`);
 
-                if(driverIdToFilter || isAdmin) { 
+                if(driverIdToFilter || isAdmin) {
                     const tripsPromise = fetchOnlineTrips({ userId: driverIdToFilter, startDate: dateRange?.from, endDate: dateRange?.to })
-                        .then(data => { // data is FirestoreTripType[]
-                            const mappedData: LocalTrip[] = data.map(t => ({
-                                ...t,
-                                id: t.id,
-                                localId: t.id,
-                                firebaseId: t.id,
+                        .then((data: FirestoreTrip[]) => {
+                            const mappedData: LocalTrip[] = data.map(ft => ({
+                                id: ft.id,
+                                localId: ft.id,
+                                firebaseId: ft.id,
+                                name: ft.name || `Viagem ${ft.id.substring(0,6)}`,
+                                vehicleId: ft.vehicleId,
+                                userId: ft.userId,
+                                status: ft.status || 'Andamento',
+                                createdAt: ft.createdAt.toDate().toISOString(),
+                                updatedAt: ft.updatedAt.toDate().toISOString(),
+                                base: ft.base || (user?.role === 'admin' ? 'ALL_ADM_TRIP' : user?.base || 'N/A'),
+                                finalKm: ft.finalKm,
+                                totalDistance: ft.totalDistance,
                                 syncStatus: 'synced' as SyncStatus,
-                                deleted: t.deleted || false,
-                                name: t.name || `Viagem ${t.id.substring(0,6)}`,
-                                vehicleId: t.vehicleId,
-                                userId: t.userId,
-                                status: t.status || 'Andamento',
-                                createdAt: typeof t.createdAt === 'string' ? t.createdAt : (t.createdAt as any)?.toDate?.().toISOString() || new Date().toISOString(),
-                                updatedAt: typeof t.updatedAt === 'string' ? t.updatedAt : (t.updatedAt as any)?.toDate?.().toISOString() || new Date().toISOString(),
-                                base: t.base || (user?.role === 'admin' ? 'ALL_ADM_TRIP' : user?.base || 'N/A'),
-                                finalKm: t.finalKm,
-                                totalDistance: t.totalDistance,
+                                deleted: false,
                             }));
                             setTrips(mappedData);
                             console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched onlineTrips (${mappedData.length}) for ${driverIdToFilter || 'all'}. Caching...`);
@@ -157,27 +156,26 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                 } else {
                     setLoadingTrips(false); setTrips([]);
                 }
-                
+
                 if(driverIdToFilter || isAdmin) {
                     const visitsPromise = fetchOnlineVisits({ userId: driverIdToFilter, startDate: dateRange?.from, endDate: dateRange?.to })
-                        .then(data => { // data is FirestoreVisitType[]
-                             const mappedData: LocalVisit[] = data.map(v => ({
-                                ...v,
-                                id: v.id,
-                                localId: v.id,
-                                firebaseId: v.id,
+                        .then((data: FirestoreVisit[]) => {
+                             const mappedData: LocalVisit[] = data.map(fv => ({
+                                id: fv.id,
+                                localId: fv.id,
+                                firebaseId: fv.id,
+                                tripLocalId: fv.tripId,
+                                userId: fv.userId || ownerUserId!,
+                                clientName: fv.clientName,
+                                location: fv.location,
+                                latitude: fv.latitude,
+                                longitude: fv.longitude,
+                                initialKm: fv.initialKm,
+                                reason: fv.reason,
+                                timestamp: fv.timestamp.toDate().toISOString(),
+                                visitType: fv.visitType || 'N/A',
                                 syncStatus: 'synced' as SyncStatus,
-                                deleted: v.deleted || false,
-                                tripLocalId: v.tripId,
-                                userId: v.userId || ownerUserId!,
-                                clientName: v.clientName,
-                                location: v.location,
-                                latitude: v.latitude,
-                                longitude: v.longitude,
-                                initialKm: v.initialKm,
-                                reason: v.reason,
-                                timestamp: typeof v.timestamp === 'string' ? v.timestamp : (v.timestamp as any)?.toDate?.().toISOString() || new Date().toISOString(),
-                                visitType: v.visitType || 'N/A',
+                                deleted: false,
                             }));
                             setVisits(mappedData);
                             console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched onlineVisits (${mappedData.length}) for ${driverIdToFilter || 'all'}. Caching...`);
@@ -194,29 +192,28 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
 
                 if(driverIdToFilter || isAdmin) {
                     const expensesPromise = fetchOnlineExpenses({ userId: driverIdToFilter, startDate: dateRange?.from, endDate: dateRange?.to })
-                        .then(data => { // data is FirestoreExpenseType[]
-                            const mappedData: LocalExpense[] = data.map(e => ({
-                                ...e,
-                                id: e.id,
-                                localId: e.id,
-                                firebaseId: e.id,
+                        .then((data: FirestoreExpense[]) => {
+                            const mappedData: LocalExpense[] = data.map(fe => ({
+                                id: fe.id,
+                                localId: fe.id,
+                                firebaseId: fe.id,
+                                tripLocalId: fe.tripId,
+                                userId: fe.userId || ownerUserId!,
+                                description: fe.description,
+                                value: fe.value,
+                                expenseType: fe.expenseType,
+                                expenseDate: fe.expenseDate.toDate().toISOString(),
+                                timestamp: fe.timestamp.toDate().toISOString(),
+                                comments: fe.comments,
+                                receiptFilename: fe.receiptFilename,
+                                receiptUrl: fe.receiptUrl,
+                                receiptPath: fe.receiptPath,
                                 syncStatus: 'synced' as SyncStatus,
-                                deleted: e.deleted || false,
-                                tripLocalId: e.tripId,
-                                userId: e.userId || ownerUserId!,
-                                description: e.description,
-                                value: e.value,
-                                expenseType: e.expenseType,
-                                expenseDate: typeof e.expenseDate === 'string' ? e.expenseDate : (e.expenseDate as any)?.toDate?.().toISOString() || new Date().toISOString(),
-                                timestamp: typeof e.timestamp === 'string' ? e.timestamp : (e.timestamp as any)?.toDate?.().toISOString() || new Date().toISOString(),
-                                comments: e.comments,
-                                receiptFilename: e.receiptFilename,
-                                receiptUrl: e.receiptUrl,
-                                receiptPath: e.receiptPath,
+                                deleted: false,
                             }));
                             setExpenses(mappedData);
                             console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched onlineExpenses (${mappedData.length}) for ${driverIdToFilter || 'all'}. Caching...`);
-                            mappedData.forEach(e_item => { // renamed to avoid conflict with module e
+                            mappedData.forEach(e_item => {
                                 cachePromises.push(updateLocalRecord(STORE_EXPENSES, e_item).catch(er => console.warn(`[Dashboard Cache Fail] Expense ${e_item.id}:`, er)));
                             });
                             return mappedData;
@@ -229,28 +226,27 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
 
                 if(driverIdToFilter || isAdmin) {
                     const fuelingsOnlinePromise = fetchOnlineFuelings({ userId: driverIdToFilter, startDate: dateRange?.from, endDate: dateRange?.to })
-                        .then(data => { // data is FirestoreFuelingType[]
-                             const mappedData: LocalFueling[] = data.map(f => ({
-                                ...f,
-                                id: f.id,
-                                localId: f.id,
-                                firebaseId: f.id,
+                        .then((data: FirestoreFueling[]) => {
+                             const mappedData: LocalFueling[] = data.map(ff => ({
+                                id: ff.id,
+                                localId: ff.id,
+                                firebaseId: ff.id,
+                                tripLocalId: ff.tripId!,
+                                userId: ff.userId || ownerUserId!,
+                                vehicleId: ff.vehicleId,
+                                date: ff.date.toDate().toISOString(),
+                                liters: ff.liters,
+                                pricePerLiter: ff.pricePerLiter,
+                                totalCost: ff.totalCost,
+                                location: ff.location,
+                                comments: ff.comments,
+                                odometerKm: ff.odometerKm,
+                                fuelType: ff.fuelType,
+                                receiptFilename: ff.receiptFilename,
+                                receiptUrl: ff.receiptUrl,
+                                receiptPath: ff.receiptPath,
                                 syncStatus: 'synced' as SyncStatus,
-                                deleted: f.deleted || false,
-                                tripLocalId: f.tripId!, // Assuming tripId is mandatory from Firestore for a fueling
-                                userId: f.userId || ownerUserId!,
-                                vehicleId: f.vehicleId,
-                                date: typeof f.date === 'string' ? f.date : (f.date as any)?.toDate?.().toISOString() || new Date().toISOString(),
-                                liters: f.liters,
-                                pricePerLiter: f.pricePerLiter,
-                                totalCost: f.totalCost,
-                                location: f.location,
-                                comments: f.comments,
-                                odometerKm: f.odometerKm,
-                                fuelType: f.fuelType,
-                                receiptFilename: f.receiptFilename,
-                                receiptUrl: f.receiptUrl,
-                                receiptPath: f.receiptPath,
+                                deleted: false,
                             }));
                             setFuelings(mappedData);
                             console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched onlineFuelings (${mappedData.length}) for ${driverIdToFilter || 'all'}. Caching...`);
@@ -266,17 +262,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                 }
 
                 const vehiclesPromise = fetchOnlineVehicles()
-                    .then(data => { // data is FirestoreVehicleType[]
-                        const mappedData: LocalVehicle[] = data.map(v => ({
-                            ...v,
-                            localId: v.id,
-                            firebaseId: v.id,
+                    .then((data: FirestoreVehicle[]) => {
+                        const mappedData: LocalVehicle[] = data.map(fv => ({
+                            id: fv.id,
+                            localId: fv.id,
+                            firebaseId: fv.id,
+                            model: fv.model,
+                            year: fv.year,
+                            licensePlate: fv.licensePlate,
                             syncStatus: 'synced' as SyncStatus,
-                            deleted: v.deleted || false,
-                            model: v.model,
-                            year: v.year,
-                            licensePlate: v.licensePlate,
-                            id: v.id, // For UI Key
+                            deleted: fv.deleted || false,
                         }));
                         setVehicles(mappedData);
                         console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched onlineVehicles (${mappedData.length}). Caching...`);
@@ -290,7 +285,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
 
                 if (isAdmin) {
                     const driversPromise = fetchOnlineDrivers()
-                        .then((data: DriverInfo[]) => { 
+                        .then((data: DriverInfo[]) => {
                             console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched onlineDrivers (${data.length}). Caching...`);
                             const authContextUsers: AuthContextUser[] = data.map(d => ({
                                 id: d.id,
@@ -300,21 +295,21 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                                 username: d.username,
                                 role: d.role || 'driver',
                                 base: d.base || 'N/A',
-                                lastLogin: new Date().toISOString() // Set a recent login for context
+                                lastLogin: new Date().toISOString()
                             }));
                             setDrivers(authContextUsers);
-                            
+
                             const localUserCachePromises: Promise<void>[] = data.map(d => {
-                                const userToCache: LocalUser = { 
-                                    id: d.id, 
-                                    firebaseId: d.firebaseId || d.id, 
-                                    name: d.name, 
-                                    email: d.email, 
-                                    username: d.username, 
-                                    role: d.role || 'driver', 
-                                    base: d.base || 'N/A', 
-                                    lastLogin: new Date().toISOString(), 
-                                    passwordHash: '', // No password hash from this source
+                                const userToCache: LocalUser = {
+                                    id: d.id,
+                                    firebaseId: d.firebaseId || d.id,
+                                    name: d.name,
+                                    email: d.email,
+                                    username: d.username,
+                                    role: d.role || 'driver',
+                                    base: d.base || 'N/A',
+                                    lastLogin: new Date().toISOString(),
+                                    passwordHash: '',
                                     syncStatus: 'synced' as SyncStatus,
                                     deleted: false,
                                 };
@@ -326,10 +321,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                         .finally(() => setLoadingDrivers(false));
                     fetchPromises.push(driversPromise);
                 } else {
-                    setLoadingDrivers(false); 
+                    setLoadingDrivers(false);
                 }
 
-            } else { 
+            } else {
                 console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Offline: Fetching all data from LocalDB.`);
                 const localDriverId = isAdmin && filterDriverId ? filterDriverId : (!isAdmin && user ? user.id : undefined);
 
@@ -337,10 +332,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                 fetchPromises.push(fetchLocalDbVisits(localDriverId).then(data => { setVisits(data); console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched localVisits (${data.length}):`, data.slice(0,2)); return data; }).finally(() => setLoadingVisits(false)));
                 fetchPromises.push(fetchLocalDbExpenses(localDriverId).then(data => { setExpenses(data); console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched localExpenses (${data.length}):`, data.slice(0,2)); return data; }).finally(() => setLoadingExpenses(false)));
                 fetchPromises.push(fetchLocalDbFuelings(localDriverId).then(data => { setFuelings(data); console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched localFuelings (${data.length}):`, data.slice(0,2)); return data; }).finally(() => setLoadingFuelings(false)));
-                
+
                 fetchPromises.push(fetchLocalDbVehicles().then(data => { setVehicles(data); console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched localVehicles (${data.length}):`, data.slice(0,2)); return data; }).finally(() => setLoadingVehicles(false)));
                 if (isAdmin) {
-                    fetchPromises.push(getLocalRecordsByRole<LocalUser>('driver').then((data: LocalUser[]) => { 
+                    fetchPromises.push(getLocalRecordsByRole<LocalUser>('driver').then((data: LocalUser[]) => {
                         setDrivers(data.map(d => ({
                             id: d.id,
                             firebaseId: d.firebaseId,
@@ -350,8 +345,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                             role: d.role,
                             base: d.base,
                             lastLogin: d.lastLogin
-                        } as AuthContextUser))); 
-                        console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched localDrivers (${data.length}):`, data.slice(0,2)); return data; 
+                        } as AuthContextUser)));
+                        console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched localDrivers (${data.length}):`, data.slice(0,2)); return data;
                     }).finally(() => setLoadingDrivers(false)));
                 } else {
                      setLoadingDrivers(false);
@@ -385,7 +380,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
             initializeDashboardData();
         } else if (!authContextLoading && !user && !isAdmin) {
             console.log("[Dashboard useEffect for data fetch] AuthContext loaded, but no user and not admin. Skipping dashboard data initialization.");
-            setInitialLoading(false); 
+            setInitialLoading(false);
             setTrips([]); setVisits([]); setExpenses([]); setFuelings([]); setVehicles([]); setDrivers([]);
         } else {
             console.log("[Dashboard useEffect for data fetch] Waiting for AuthContext to finish loading before initializing dashboard data.");
@@ -408,7 +403,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
         if (vehicle.firebaseId) return `fb-${vehicle.firebaseId}`;
         if (vehicle.localId) return `local-${vehicle.localId}`;
         console.warn("[Dashboard getEffectiveVehicleId] Vehicle found with no firebaseId or localId:", vehicle);
-        return `unknown-${Math.random().toString(36).substring(2, 9)}`; 
+        return `unknown-${Math.random().toString(36).substring(2, 9)}`;
     };
 
     const summaryData = useMemo(() => {
@@ -444,7 +439,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
         let currentVisitsSource = [...visits];
         if (dateRange?.from) {
             const fromDate = dateRange.from;
-            const toDate = dateRange.to || new Date(); 
+            const toDate = dateRange.to || new Date();
             currentVisitsSource = currentVisitsSource.filter(visit => {
                 try {
                     const visitDate = visit.timestamp instanceof Date ? visit.timestamp : parseISO(visit.timestamp);
@@ -472,23 +467,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
 
         const uniqueVehiclesForPerf = Array.from(new Map(vehicles.filter(v => v.localId || v.firebaseId).map(v => [getEffectiveVehicleId(v), v])).values());
         console.log(`[Dashboard adminDashboardData] uniqueVehiclesForPerf for perf table:`, uniqueVehiclesForPerf.map(v => ({effId: getEffectiveVehicleId(v), model: v.model}) ));
-        
+
         let filteredVehiclesForPerfTable = uniqueVehiclesForPerf;
         if (selectedVehicleIdsForPerf.length > 0) {
             const selectedIdsSet = new Set(selectedVehicleIdsForPerf);
             filteredVehiclesForPerfTable = uniqueVehiclesForPerf.filter(v => selectedIdsSet.has(getEffectiveVehicleId(v)));
         }
-        
+
         const uniqueVehiclesForPerfTableFinal = Array.from(new Map(filteredVehiclesForPerfTable.map(v => [getEffectiveVehicleId(v), v])).values());
         console.log(`[Dashboard adminDashboardData] uniqueVehiclesForPerfTableFinal (after multi-select filter AND de-duplication):`, uniqueVehiclesForPerfTableFinal.map(v => ({effId: getEffectiveVehicleId(v), model: v.model}) ));
 
 
         const vehiclePerformanceCalc = uniqueVehiclesForPerfTableFinal.map(vehicle => {
             const vehicleIdToMatch = getEffectiveVehicleId(vehicle);
-            
+
             let vehicleFuelings = fuelings.filter(f => {
-                const vehicleForFueling = vehicles.find(v => 
-                    (v.localId && v.localId === f.vehicleId) || 
+                const vehicleForFueling = vehicles.find(v =>
+                    (v.localId && v.localId === f.vehicleId) ||
                     (v.firebaseId && v.firebaseId === f.vehicleId)
                 );
                 if (!vehicleForFueling) {
@@ -510,10 +505,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
             }
 
             vehicleFuelings.sort((a, b) => {
-                 try { 
+                 try {
                     const dateA = a.date instanceof Date ? a.date : parseISO(a.date);
                     const dateB = b.date instanceof Date ? b.date : parseISO(b.date);
-                    return dateA.getTime() - dateB.getTime(); 
+                    return dateA.getTime() - dateB.getTime();
                 } catch { return 0; }
             });
 
@@ -544,7 +539,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                 lastFuelingType: lastFueling ? lastFueling.fuelType : 'N/A',
             };
         });
-        
+
         const finalUniqueVehiclePerformance = Array.from(
             new Map(vehiclePerformanceCalc.map(item => [item.id, item])).values()
         );
@@ -566,22 +561,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
         };
     }, [
         isAdmin, user,
-        trips, visits, expenses, fuelings, vehicles, drivers, 
-        loadingDrivers, loadingVisits, loadingTrips, loadingVehicles, loadingFuelings, 
-        getDriverName, getVehicleName, 
-        selectedVehicleIdsForPerf, vehiclePerformanceDateRange, dateRange 
+        trips, visits, expenses, fuelings, vehicles, drivers,
+        loadingDrivers, loadingVisits, loadingTrips, loadingVehicles, loadingFuelings,
+        getDriverName, getVehicleName,
+        selectedVehicleIdsForPerf, vehiclePerformanceDateRange, dateRange
     ]);
 
     const vehicleOptions: MultiSelectOption[] = useMemo(() => {
         const uniqueVehicleMap = new Map<string, LocalVehicle>();
         vehicles.forEach(v => {
-            const id = getEffectiveVehicleId(v); 
-            if (id && !uniqueVehicleMap.has(id)) { 
+            const id = getEffectiveVehicleId(v);
+            if (id && !uniqueVehicleMap.has(id)) {
                 uniqueVehicleMap.set(id, v);
             }
         });
         return Array.from(uniqueVehicleMap.values()).map(v => ({
-            value: getEffectiveVehicleId(v), 
+            value: getEffectiveVehicleId(v),
             label: `${v.model} (${v.licensePlate})`,
             icon: CarIcon
         }));
@@ -634,9 +629,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                     {isAdmin && (
                         <div className="space-y-1.5">
                             <Label htmlFor="driverFilterGlobal">Filtrar por Motorista (Global)</Label>
-                            <Select 
-                                value={filterDriverId || ALL_DRIVERS_FILTER_VALUE} 
-                                onValueChange={(value) => setFilterDriverId(value === ALL_DRIVERS_FILTER_VALUE ? '' : value)} 
+                            <Select
+                                value={filterDriverId || ALL_DRIVERS_FILTER_VALUE}
+                                onValueChange={(value) => setFilterDriverId(value === ALL_DRIVERS_FILTER_VALUE ? '' : value)}
                                 disabled={loadingDrivers || drivers.length === 0}
                             >
                                 <SelectTrigger id="driverFilterGlobal">
@@ -796,4 +791,3 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
         </div>
     );
 };
-
