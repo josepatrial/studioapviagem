@@ -17,11 +17,10 @@ import {
     updateLocalRecord,
     type LocalVehicle, type LocalExpense, type LocalFueling, type LocalTrip, type LocalVisit, getLocalRecordsByRole,
     STORE_TRIPS, STORE_VISITS, STORE_EXPENSES, STORE_FUELINGS, STORE_VEHICLES, STORE_USERS,
-    type LocalUser, // Ensure LocalUser is imported
-    type SyncStatus, // Import SyncStatus
+    type LocalUser,
+    type SyncStatus,
 } from '@/services/localDbService';
 import { getFuelings as fetchOnlineFuelings, getVehicles as fetchOnlineVehicles, getTrips as fetchOnlineTrips, getDrivers as fetchOnlineDrivers, getExpenses as fetchOnlineExpenses, getVisits as fetchOnlineVisits } from '@/services/firestoreService';
-// import type { VehicleInfo as VehicleComponentInfo } from './Vehicle'; // Unused
 import { DateRangePicker } from '@/components/ui/date-range-picker';
 import type { DateRange } from 'react-day-picker';
 import { isWithinInterval, parseISO, format as formatDateFn } from 'date-fns';
@@ -55,6 +54,28 @@ const safeFormatDate = (dateInput: string | { toDate: () => Date } | Date | unde
       return 'Data inválida';
     }
   };
+
+const safeTimestampToISOString = (timestampField: any): string => {
+    if (timestampField && typeof timestampField.toDate === 'function') {
+      return timestampField.toDate().toISOString();
+    }
+    if (timestampField instanceof Date) {
+      return timestampField.toISOString();
+    }
+    if (typeof timestampField === 'string') {
+      try {
+        // Attempt to parse if it's a string, assuming it might be a valid date string
+        return new Date(timestampField).toISOString();
+      } catch (e) {
+        console.warn("Could not parse date string during safeTimestampToISOString:", timestampField, e);
+        // Fallback for unparseable strings or other types
+        return new Date().toISOString();
+      }
+    }
+    console.warn("Timestamp field is not a Firebase Timestamp, Date, or recognized string:", timestampField, ". Falling back to current ISO string.");
+    return new Date().toISOString(); // Fallback
+};
+
 
 const ALL_DRIVERS_FILTER_VALUE = "__all_drivers__";
 
@@ -136,8 +157,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                                 vehicleId: ft.vehicleId,
                                 userId: ft.userId,
                                 status: ft.status || 'Andamento',
-                                createdAt: ft.createdAt.toDate().toISOString(),
-                                updatedAt: ft.updatedAt.toDate().toISOString(),
+                                createdAt: safeTimestampToISOString(ft.createdAt),
+                                updatedAt: safeTimestampToISOString(ft.updatedAt),
                                 base: ft.base || (user?.role === 'admin' ? 'ALL_ADM_TRIP' : user?.base || 'N/A'),
                                 finalKm: ft.finalKm,
                                 totalDistance: ft.totalDistance,
@@ -172,7 +193,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                                 longitude: fv.longitude,
                                 initialKm: fv.initialKm,
                                 reason: fv.reason,
-                                timestamp: fv.timestamp.toDate().toISOString(),
+                                timestamp: safeTimestampToISOString(fv.timestamp),
                                 visitType: fv.visitType || 'N/A',
                                 syncStatus: 'synced' as SyncStatus,
                                 deleted: false,
@@ -202,8 +223,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                                 description: fe.description,
                                 value: fe.value,
                                 expenseType: fe.expenseType,
-                                expenseDate: fe.expenseDate.toDate().toISOString(),
-                                timestamp: fe.timestamp.toDate().toISOString(),
+                                expenseDate: safeTimestampToISOString(fe.expenseDate),
+                                timestamp: safeTimestampToISOString(fe.timestamp),
                                 comments: fe.comments,
                                 receiptFilename: fe.receiptFilename,
                                 receiptUrl: fe.receiptUrl,
@@ -234,7 +255,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                                 tripLocalId: ff.tripId!,
                                 userId: ff.userId || ownerUserId!,
                                 vehicleId: ff.vehicleId,
-                                date: ff.date.toDate().toISOString(),
+                                date: safeTimestampToISOString(ff.date),
                                 liters: ff.liters,
                                 pricePerLiter: ff.pricePerLiter,
                                 totalCost: ff.totalCost,
@@ -791,3 +812,5 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
         </div>
     );
 };
+
+
