@@ -261,7 +261,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                                 firebaseId: ff.id,
                                 tripLocalId: ff.tripId!,
                                 userId: ff.userId || ownerUserId!,
-                                vehicleId: ff.vehicleId,
+                                vehicleId: ff.vehicleId, // FirestoreFueling has vehicleId
                                 date: safeTimestampToISOString(ff.date),
                                 liters: ff.liters,
                                 pricePerLiter: ff.pricePerLiter,
@@ -514,10 +514,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                     (v.localId && v.localId === f.vehicleId) ||
                     (v.firebaseId && v.firebaseId === f.vehicleId)
                 );
-                if (!vehicleForFueling) {
-                    return false;
-                }
-                return getEffectiveVehicleId(vehicleForFueling) === vehicleIdToMatch;
+                 return vehicleForFueling ? getEffectiveVehicleId(vehicleForFueling) === vehicleIdToMatch : false;
             });
 
 
@@ -820,3 +817,4 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
     );
 };
 
+    

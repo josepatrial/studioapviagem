@@ -70,6 +70,7 @@ interface CoreFuelingData {
   receiptPath?: string;
   odometerKm: number;
   fuelType: string;
+  vehicleId: string; // Adicionado vehicleId
 }
 export type LocalFueling = CoreFuelingData & LocalRecord & { localId: string; tripLocalId: string; userId: string; id?: string; };
 
@@ -1152,3 +1153,5 @@ if (typeof window !== 'undefined') {
         }
     });
 }
+
+    
