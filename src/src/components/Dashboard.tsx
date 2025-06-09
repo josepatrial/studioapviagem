@@ -57,40 +57,30 @@ const safeFormatDate = (dateInput: string | { toDate: () => Date } | Date | unde
 
 const safeTimestampToISOString = (timestampField: any): string => {
     if (!timestampField) {
-        // Se o campo for nulo ou indefinido, podemos querer retornar uma string vazia,
-        // ou um valor padrão, ou lançar um erro dependendo da lógica de negócio.
-        // Para consistência com o mapeamento de dados, retornar uma string ISO de agora pode ser um fallback,
-        // mas idealmente, a lógica de chamada deve lidar com campos de data ausentes.
         console.warn("Timestamp field is null or undefined in safeTimestampToISOString. Falling back to current ISO string.");
         return new Date().toISOString();
     }
     if (timestampField && typeof timestampField.toDate === 'function') {
-      // É um Timestamp do Firebase
       return timestampField.toDate().toISOString();
     }
     if (timestampField instanceof Date) {
-      // Já é um objeto Date
       return timestampField.toISOString();
     }
     if (typeof timestampField === 'string') {
       try {
-        // Tenta parsear se for uma string, assumindo que pode ser uma string de data válida
         const date = new Date(timestampField);
         if (isNaN(date.getTime())) {
-            // Se o parse resultar em Data Inválida, loga e retorna um fallback
             console.warn("Could not parse date string during safeTimestampToISOString, resulted in Invalid Date:", timestampField);
-            return new Date().toISOString(); // Fallback para data atual
+            return new Date().toISOString();
         }
         return date.toISOString();
       } catch (e) {
         console.warn("Could not parse date string during safeTimestampToISOString (exception):", timestampField, e);
-        // Fallback para strings não parseáveis ou outros tipos
         return new Date().toISOString();
       }
     }
-    // Se não for nenhum dos tipos esperados, loga e retorna um fallback
     console.warn("Timestamp field is not a Firebase Timestamp, Date, or recognized string:", timestampField, ". Falling back to current ISO string.");
-    return new Date().toISOString(); // Fallback
+    return new Date().toISOString();
 };
 
 
@@ -165,10 +155,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
 
                 if(driverIdToFilter || isAdmin) {
                     const tripsPromise = fetchOnlineTrips({ userId: driverIdToFilter, startDate: dateRange?.from, endDate: dateRange?.to })
-                        .then((data: FirestoreTrip[]) => { 
-                            const mappedData: LocalTrip[] = data.map(ft => ({ 
-                                id: ft.id, 
-                                localId: ft.id, 
+                        .then((data: FirestoreTrip[]) => {
+                            const mappedData: LocalTrip[] = data.map(ft => ({
+                                id: ft.id,
+                                localId: ft.id,
                                 firebaseId: ft.id,
                                 name: ft.name || `Viagem ${ft.id.substring(0,6)}`,
                                 vehicleId: ft.vehicleId,
@@ -197,12 +187,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
 
                 if(driverIdToFilter || isAdmin) {
                     const visitsPromise = fetchOnlineVisits({ userId: driverIdToFilter, startDate: dateRange?.from, endDate: dateRange?.to })
-                        .then((data: FirestoreVisit[]) => { 
-                             const mappedData: LocalVisit[] = data.map(fv => ({ 
-                                id: fv.id, 
-                                localId: fv.id, 
+                        .then((data: FirestoreVisit[]) => {
+                             const mappedData: LocalVisit[] = data.map(fv => ({
+                                id: fv.id,
+                                localId: fv.id,
                                 firebaseId: fv.id,
-                                tripLocalId: fv.tripId, 
+                                tripLocalId: fv.tripId,
                                 userId: fv.userId || ownerUserId!,
                                 clientName: fv.clientName,
                                 location: fv.location,
@@ -230,10 +220,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
 
                 if(driverIdToFilter || isAdmin) {
                     const expensesPromise = fetchOnlineExpenses({ userId: driverIdToFilter, startDate: dateRange?.from, endDate: dateRange?.to })
-                        .then((data: FirestoreExpense[]) => { 
-                            const mappedData: LocalExpense[] = data.map(fe => ({ 
-                                id: fe.id, 
-                                localId: fe.id, 
+                        .then((data: FirestoreExpense[]) => {
+                            const mappedData: LocalExpense[] = data.map(fe => ({
+                                id: fe.id,
+                                localId: fe.id,
                                 firebaseId: fe.id,
                                 tripLocalId: fe.tripId,
                                 userId: fe.userId || ownerUserId!,
@@ -264,12 +254,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
 
                 if(driverIdToFilter || isAdmin) {
                     const fuelingsOnlinePromise = fetchOnlineFuelings({ userId: driverIdToFilter, startDate: dateRange?.from, endDate: dateRange?.to })
-                        .then((data: FirestoreFueling[]) => { 
-                             const mappedData: LocalFueling[] = data.map(ff => ({ 
-                                id: ff.id, 
-                                localId: ff.id, 
+                        .then((data: FirestoreFueling[]) => {
+                             const mappedData: LocalFueling[] = data.map(ff => ({
+                                id: ff.id,
+                                localId: ff.id,
                                 firebaseId: ff.id,
-                                tripLocalId: ff.tripId!, 
+                                tripLocalId: ff.tripId!,
                                 userId: ff.userId || ownerUserId!,
                                 vehicleId: ff.vehicleId,
                                 date: safeTimestampToISOString(ff.date),
@@ -300,10 +290,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                 }
 
                 const vehiclesPromise = fetchOnlineVehicles()
-                    .then((data: FirestoreVehicle[]) => { 
-                        const mappedData: LocalVehicle[] = data.map(fv => ({ 
-                            id: fv.id, 
-                            localId: fv.id, 
+                    .then((data: FirestoreVehicle[]) => {
+                        const mappedData: LocalVehicle[] = data.map(fv => ({
+                            id: fv.id,
+                            localId: fv.id,
                             firebaseId: fv.id,
                             model: fv.model,
                             year: fv.year,
@@ -323,23 +313,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
 
                 if (isAdmin) {
                     const driversPromise = fetchOnlineDrivers()
-                        .then((data: DriverInfo[]) => { 
+                        .then((data: DriverInfo[]) => {
                             console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched onlineDrivers (${data.length}). Caching...`);
                             const authContextUsers: AuthContextUserType[] = data.map(d => ({
                                 id: d.id,
-                                firebaseId: d.firebaseId || d.id, 
+                                firebaseId: d.firebaseId || d.id,
                                 name: d.name,
                                 email: d.email,
                                 username: d.username,
                                 role: d.role || 'driver',
                                 base: d.base || 'N/A',
-                                lastLogin: new Date().toISOString() 
+                                lastLogin: new Date().toISOString()
                             }));
                             setDrivers(authContextUsers);
 
                             const localUserCachePromises: Promise<void>[] = data.map(d => {
-                                const userToCache: LocalUser = { 
-                                    id: d.id, 
+                                const userToCache: LocalUser = {
+                                    id: d.id,
                                     firebaseId: d.firebaseId || d.id,
                                     name: d.name,
                                     email: d.email,
@@ -347,7 +337,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                                     role: d.role || 'driver',
                                     base: d.base || 'N/A',
                                     lastLogin: new Date().toISOString(),
-                                    passwordHash: '', 
+                                    passwordHash: '',
                                     syncStatus: 'synced' as SyncStatus,
                                     deleted: false,
                                 };
@@ -373,7 +363,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
 
                 fetchPromises.push(fetchLocalDbVehicles().then(data => { setVehicles(data); console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched localVehicles (${data.length}):`, data.slice(0,2)); return data; }).finally(() => setLoadingVehicles(false)));
                 if (isAdmin) {
-                    fetchPromises.push(getLocalRecordsByRole('driver').then((data: LocalUser[]) => { 
+                    fetchPromises.push(getLocalRecordsByRole('driver').then((data: LocalUser[]) => {
                         setDrivers(data.map(d => ({
                             id: d.id,
                             firebaseId: d.firebaseId,
@@ -480,7 +470,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
             const toDate = dateRange.to || new Date();
             currentVisitsSource = currentVisitsSource.filter(visit => {
                 try {
-                    const visitDate = visit.timestamp instanceof Date ? visit.timestamp : parseISO(visit.timestamp);
+                    const visitDate = parseISO(visit.timestamp);
                     return isWithinInterval(visitDate, { start: fromDate, end: toDate });
                 } catch { return false; }
             });
@@ -536,7 +526,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                 const vTo = vehiclePerformanceDateRange.to || new Date();
                 vehicleFuelings = vehicleFuelings.filter(f => {
                     try {
-                        const fuelingDate = f.date instanceof Date ? f.date : parseISO(f.date);
+                        const fuelingDate = parseISO(f.date);
                         return isWithinInterval(fuelingDate, { start: vFrom, end: vTo });
                     } catch { return false; }
                 });
@@ -544,8 +534,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
 
             vehicleFuelings.sort((a, b) => {
                  try {
-                    const dateA = a.date instanceof Date ? a.date : parseISO(a.date);
-                    const dateB = b.date instanceof Date ? b.date : parseISO(b.date);
+                    const dateA = parseISO(a.date);
+                    const dateB = parseISO(b.date);
                     return dateA.getTime() - dateB.getTime();
                 } catch { return 0; }
             });
