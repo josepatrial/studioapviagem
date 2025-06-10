@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertDescription as UiAlertDescription, AlertTitle } from "@/components/ui/alert"; // Renomeado para UiAlertDescription
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from '@/hooks/use-toast';
 import { LoadingSpinner } from '@/components/LoadingSpinner';
@@ -33,16 +33,17 @@ import {
     getLocalCustomTypes,
     STORE_EXPENSE_TYPES,
     CustomType,
-    getLocalDbStore
+    getLocalDbStore,
+    SyncStatus // Importado SyncStatus
 } from '@/services/localDbService';
 import { cn } from '@/lib/utils';
 import { getExpenseTypesFromFirestore } from '@/services/firestoreService';
 
-export interface Expense extends Omit<LocalExpense, 'localId' | 'tripLocalId'> {
+export interface Expense extends Omit<LocalExpense, 'localId' | 'tripLocalId' | 'syncStatus'> { // syncStatus adicionado ao Omit
   id: string;
   tripId: string;
   userId: string;
-  syncStatus?: 'pending' | 'synced' | 'error';
+  syncStatus: SyncStatus; // syncStatus agora é obrigatório e usa o tipo SyncStatus
 }
 
 interface ExpensesProps {
@@ -99,7 +100,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
                 id: le.firebaseId || le.localId,
                 tripId: le.tripLocalId,
                 userId: le.userId || ownerUserId,
-                syncStatus: le.syncStatus,
+                syncStatus: le.syncStatus, // syncStatus é obrigatório em LocalExpense
             })).sort((a,b) => new Date(b.expenseDate).getTime() - new Date(a.expenseDate).getTime());
             setExpenses(uiExpenses);
             console.log(`[ExpensesComponent useEffect] Mapped ${uiExpenses.length} expenses to UI state.`);
@@ -298,14 +299,14 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
             receiptUrl: typeof attachment === 'string' && attachment.startsWith('data:') ? attachment : undefined,
         });
         const newUIExpense: Expense = {
-            ...(expenseToConfirm as LocalExpense), // Cast for spreading
-            localId: localId,
+            ...(expenseToConfirm as Omit<LocalExpense, 'localId' | 'id' | 'deleted'>), // Base fields
+            localId: localId, // Not directly part of Expense, but useful for keying if needed before full map
             id: localId,
             tripId: tripLocalId,
             userId: ownerUserId,
             receiptUrl: typeof attachment === 'string' && attachment.startsWith('data:') ? attachment : undefined,
             receiptFilename: attachmentFilename || undefined,
-            syncStatus: 'pending',
+            syncStatus: 'pending', // Explicitly set for new items
         };
         setExpenses(prevExpenses => [newUIExpense, ...prevExpenses].sort((a, b) => new Date(b.expenseDate).getTime() - new Date(a.expenseDate).getTime()));
         resetForm();
@@ -361,6 +362,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
             id: updatedLocalExpenseData.firebaseId || updatedLocalExpenseData.localId,
             tripId: tripLocalId,
             userId: ownerUserId,
+            syncStatus: updatedLocalExpenseData.syncStatus, // Pass syncStatus from updated data
         };
         setExpenses(prevExpenses => prevExpenses.map(ex => ex.id === currentExpense.id ? updatedUIExpense : ex).sort((a, b) => new Date(b.expenseDate).getTime() - new Date(a.expenseDate).getTime()));
         resetForm();
@@ -584,7 +586,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
                             <div className="absolute inset-0 flex items-center justify-center bg-black/50 p-4">
                                 <Alert variant="destructive" className="max-w-sm">
                                     <AlertTitle>Acesso à Câmera Negado</AlertTitle>
-                                    <AlertDescription>Por favor, permita o acesso nas configurações.</AlertDescription>
+                                    <UiAlertDescription>Por favor, permita o acesso nas configurações.</UiAlertDescription>
                                 </Alert>
                             </div>
                         )}
