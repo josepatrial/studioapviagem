@@ -1,3 +1,4 @@
+
 // src/components/Trips/Expenses.tsx
 'use client';
 
@@ -34,16 +35,16 @@ import {
     STORE_EXPENSE_TYPES,
     CustomType,
     getLocalDbStore,
-    SyncStatus // Importado SyncStatus
+    SyncStatus
 } from '@/services/localDbService';
 import { cn } from '@/lib/utils';
 import { getExpenseTypesFromFirestore } from '@/services/firestoreService';
 
-export interface Expense extends Omit<LocalExpense, 'localId' | 'tripLocalId' | 'syncStatus'> { // syncStatus adicionado ao Omit
+export interface Expense extends Omit<LocalExpense, 'localId' | 'tripLocalId' | 'syncStatus'> {
   id: string;
   tripId: string;
   userId: string;
-  syncStatus: SyncStatus; // syncStatus agora é obrigatório e usa o tipo SyncStatus
+  syncStatus: SyncStatus;
 }
 
 interface ExpensesProps {
@@ -145,7 +146,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
                     });
                 });
                 await Promise.all(typePromises);
-                await new Promise(resolve => transaction.oncomplete = resolve);
+                await new Promise<void>(resolve => transaction.oncomplete = () => resolve(undefined));
                 console.log("[ExpensesComponent] Cached/updated expense types from Firestore locally.");
             } else {
                 console.log("[ExpensesComponent] Offline: Fetching expense types from LocalDB.");
@@ -299,14 +300,13 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
             receiptUrl: typeof attachment === 'string' && attachment.startsWith('data:') ? attachment : undefined,
         });
         const newUIExpense: Expense = {
-            ...(expenseToConfirm as Omit<LocalExpense, 'localId' | 'id' | 'deleted'>), // Base fields
-            localId: localId, // Not directly part of Expense, but useful for keying if needed before full map
+            ...(expenseToConfirm as Omit<LocalExpense, 'localId' | 'id' | 'deleted'>),
             id: localId,
             tripId: tripLocalId,
             userId: ownerUserId,
             receiptUrl: typeof attachment === 'string' && attachment.startsWith('data:') ? attachment : undefined,
             receiptFilename: attachmentFilename || undefined,
-            syncStatus: 'pending', // Explicitly set for new items
+            syncStatus: 'pending',
         };
         setExpenses(prevExpenses => [newUIExpense, ...prevExpenses].sort((a, b) => new Date(b.expenseDate).getTime() - new Date(a.expenseDate).getTime()));
         resetForm();
@@ -362,7 +362,7 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
             id: updatedLocalExpenseData.firebaseId || updatedLocalExpenseData.localId,
             tripId: tripLocalId,
             userId: ownerUserId,
-            syncStatus: updatedLocalExpenseData.syncStatus, // Pass syncStatus from updated data
+            syncStatus: updatedLocalExpenseData.syncStatus,
         };
         setExpenses(prevExpenses => prevExpenses.map(ex => ex.id === currentExpense.id ? updatedUIExpense : ex).sort((a, b) => new Date(b.expenseDate).getTime() - new Date(a.expenseDate).getTime()));
         resetForm();
@@ -735,3 +735,4 @@ export const Expenses: React.FC<ExpensesProps> = ({ tripId: tripLocalId, ownerUs
 };
 
 export default Expenses;
+
