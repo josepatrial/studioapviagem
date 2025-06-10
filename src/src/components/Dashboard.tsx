@@ -262,7 +262,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                                 firebaseId: ff.id,
                                 tripLocalId: ff.tripId!,
                                 userId: ff.userId || ownerUserId!,
-                                vehicleId: ff.vehicleId, 
+                                vehicleId: ff.vehicleId,
                                 date: safeTimestampToISOString(ff.date),
                                 liters: ff.liters,
                                 pricePerLiter: ff.pricePerLiter,
@@ -685,7 +685,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                 <h2 className="text-2xl font-semibold mb-6 text-foreground">Resumo Geral</h2>
                 <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
                     {summaryCardsConfig.map((card) => (
-                        <Card key={card.title} className="shadow-lg hover:shadow-xl transition-shadow duration-300 rounded-xl border-border/60">
+                        <Card key={card.title} className="shadow-lg hover:shadow-xl transition-shadow duration-300 rounded-xl border border-border/60">
                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                 <CardTitle className="text-base font-semibold text-card-foreground">{card.title}</CardTitle>
                                 <card.icon className={cn("h-7 w-7", card.color)} />
@@ -701,7 +701,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
 
             {isAdmin && user.email === 'grupo2irmaos@grupo2irmaos.com.br' && (
                 <section className="space-y-8 pt-6 border-t border-border/60 mt-10">
-                    <h2 className="text-2xl font-semibold text-foreground">Painel Detalhado do Administrador</h2>
+                    <h2 className="text-2xl font-semibold text-foreground pb-2 border-b border-border/40">Painel Detalhado do Administrador</h2>
                     <Alert variant="default" className="bg-accent/30 dark:bg-accent/20 border-accent/50 text-accent-foreground/90">
                         <AlertCircle className="h-5 w-5 text-accent-foreground/80" />
                         <AlertTitle className="font-semibold">Visão Detalhada e Ferramentas</AlertTitle>
