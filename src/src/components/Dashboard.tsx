@@ -4,8 +4,8 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
-import { MapPinIcon as MapPinLucideIcon, Wallet, Fuel, Users, Truck, Milestone, Filter, Calendar, CarIcon, UserCheck, TrendingUp, AlertCircle } from 'lucide-react'; // Renamed Map to MapPinIcon
-import { useAuth, type User as AuthContextUserType, type DriverInfo } from '@/contexts/AuthContext'; // Ensure DriverInfo is imported
+import { MapPin as MapPinLucideIcon, Wallet, Fuel, Users, Truck, Milestone, Filter, Calendar, CarIcon, UserCheck, TrendingUp, AlertCircle } from 'lucide-react';
+import { useAuth, type User as AuthContextUserType, type DriverInfo } from '@/contexts/AuthContext';
 import type { FirestoreTrip, FirestoreVisit, FirestoreExpense, FirestoreFueling, FirestoreVehicle } from '@/services/firestoreService';
 import {
     getLocalVisits as fetchLocalDbVisits,
@@ -25,11 +25,12 @@ import { DateRangePicker } from '@/components/ui/date-range-picker';
 import type { DateRange } from 'react-day-picker';
 import { isWithinInterval, parseISO, format as formatDateFn } from 'date-fns';
 import { LoadingSpinner } from './LoadingSpinner';
-import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertTitle, AlertDescription as UiAlertDescription } from "@/components/ui/alert"; // Renomeado para evitar conflito com CardDescription
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
 import { Label } from '@/components/ui/label';
 import { MultiSelectCombobox, MultiSelectOption } from '@/components/ui/multi-select-combobox';
 import { formatKm } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 
 interface DashboardProps {
     setActiveTab: (section: 'visits' | 'expenses' | 'fuelings' | null) => void;
@@ -261,7 +262,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                                 firebaseId: ff.id,
                                 tripLocalId: ff.tripId!,
                                 userId: ff.userId || ownerUserId!,
-                                vehicleId: ff.vehicleId, // FirestoreFueling has vehicleId
+                                vehicleId: ff.vehicleId, 
                                 date: safeTimestampToISOString(ff.date),
                                 liters: ff.liters,
                                 pricePerLiter: ff.pricePerLiter,
@@ -510,11 +511,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
             const vehicleIdToMatch = getEffectiveVehicleId(vehicle);
 
             let vehicleFuelings = fuelings.filter(f => {
-                const vehicleForFueling = vehicles.find(v =>
-                    (v.localId && v.localId === f.vehicleId) ||
-                    (v.firebaseId && v.firebaseId === f.vehicleId)
-                );
-                 return vehicleForFueling ? getEffectiveVehicleId(vehicleForFueling) === vehicleIdToMatch : false;
+                 return f.vehicleId === vehicle.localId || f.vehicleId === vehicle.firebaseId;
             });
 
 
@@ -588,7 +585,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
         isAdmin, user,
         trips, visits, expenses, fuelings, vehicles, drivers,
         loadingDrivers, loadingVisits, loadingTrips, loadingVehicles, loadingFuelings,
-        getDriverName, getVehicleName,
+        getDriverName, getVehicleName, getEffectiveVehicleId,
         selectedVehicleIdsForPerf, vehiclePerformanceDateRange, dateRange
     ]);
 
@@ -605,7 +602,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
             label: `${v.model} (${v.licensePlate})`,
             icon: CarIcon
         }));
-    }, [vehicles]);
+    }, [vehicles, getEffectiveVehicleId]);
 
 
     if (authContextLoading || initialLoading) {
@@ -618,7 +615,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
             <Alert variant="destructive">
               <AlertCircle className="h-4 w-4" />
               <AlertTitle>Erro ao Carregar Dados</AlertTitle>
-              <AlertDescription>{dataError}</AlertDescription>
+              <UiAlertDescription>{dataError}</UiAlertDescription>
             </Alert>
           </div>
         );
@@ -632,35 +629,37 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
         );
     }
 
-
-    const summaryCards = [
-        { title: "Viagens Ativas", value: summaryData.activeTrips, icon: Truck, description: summaryData.filterContext },
-        { title: "Total de Visitas", value: summaryData.totalVisits, icon: MapPinLucideIcon, description: summaryData.filterContext },
-        { title: "Distância Percorrida", value: `${formatKm(summaryData.totalDistance)}`, icon: Milestone, description: `Viagens finalizadas (${summaryData.filterContext})` },
-        { title: "Valor Total Despesas", value: formatCurrency(summaryData.totalExpensesValue), icon: Wallet, description: `${expenses.length} registros (${summaryData.filterContext})` },
-        { title: "Custo Total Abastecimento", value: formatCurrency(summaryData.totalFuelingCost), icon: Fuel, description: `${fuelings.length} registros (${summaryData.filterContext})` },
-        { title: "Veículos", value: summaryData.totalVehicles, icon: CarIcon, description: "Total de veículos na frota" },
-        ...(isAdmin ? [{ title: "Motoristas", value: summaryData.totalDrivers, icon: Users, description: "Total de motoristas ativos" }] : [])
+    const summaryCardsConfig = [
+        { title: "Viagens Ativas", value: summaryData.activeTrips, icon: Truck, description: summaryData.filterContext, color: "text-sky-600 dark:text-sky-400" },
+        { title: "Total de Visitas", value: summaryData.totalVisits, icon: MapPinLucideIcon, description: summaryData.filterContext, color: "text-violet-600 dark:text-violet-400" },
+        { title: "Distância Percorrida", value: `${formatKm(summaryData.totalDistance)}`, icon: Milestone, description: `Viagens finalizadas (${summaryData.filterContext})`, color: "text-amber-600 dark:text-amber-400" },
+        { title: "Valor Total Despesas", value: formatCurrency(summaryData.totalExpensesValue), icon: Wallet, description: `${expenses.length} registros (${summaryData.filterContext})`, color: "text-red-600 dark:text-red-400" },
+        { title: "Custo Total Abastecimento", value: formatCurrency(summaryData.totalFuelingCost), icon: Fuel, description: `${fuelings.length} registros (${summaryData.filterContext})`, color: "text-lime-600 dark:text-lime-400" },
+        { title: "Veículos na Frota", value: summaryData.totalVehicles, icon: CarIcon, description: "Total de veículos cadastrados", color: "text-teal-600 dark:text-teal-400" },
+        ...(isAdmin ? [{ title: "Motoristas Ativos", value: summaryData.totalDrivers, icon: Users, description: "Total de motoristas cadastrados", color: "text-fuchsia-600 dark:text-fuchsia-400" }] : [])
     ];
 
 
     return (
-        <div className="container mx-auto p-4 md:p-6 space-y-6">
-            <Card>
+        <div className="container mx-auto p-4 md:p-6 space-y-8">
+            <Card className="shadow-lg rounded-xl border-border/60">
                 <CardHeader>
-                    <CardTitle className="text-lg flex items-center gap-2"><Filter className="h-5 w-5" /> Filtros Globais do Painel</CardTitle>
+                    <CardTitle className="text-xl flex items-center gap-2 font-semibold">
+                        <Filter className="h-5 w-5 text-primary" /> Filtros Globais do Painel
+                    </CardTitle>
+                    <CardDescription>Ajuste os filtros para refinar os dados exibidos em todo o painel.</CardDescription>
                 </CardHeader>
-                <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4 items-end">
+                <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end pt-4">
                     {isAdmin && (
                         <div className="space-y-1.5">
-                            <Label htmlFor="driverFilterGlobal">Filtrar por Motorista (Global)</Label>
+                            <Label htmlFor="driverFilterGlobal" className="text-sm font-medium text-foreground/90">Motorista</Label>
                             <Select
                                 value={filterDriverId || ALL_DRIVERS_FILTER_VALUE}
                                 onValueChange={(value) => setFilterDriverId(value === ALL_DRIVERS_FILTER_VALUE ? '' : value)}
                                 disabled={loadingDrivers || drivers.length === 0}
                             >
-                                <SelectTrigger id="driverFilterGlobal">
-                                    <SelectValue placeholder={loadingDrivers ? "Carregando..." : (drivers.length === 0 ? "Nenhum motorista" : "Todos os Motoristas")} />
+                                <SelectTrigger id="driverFilterGlobal" className="h-10 bg-background hover:bg-muted/50 transition-colors">
+                                    <SelectValue placeholder={loadingDrivers ? "Carregando motoristas..." : (drivers.length === 0 ? "Nenhum motorista" : "Todos os Motoristas")} />
                                 </SelectTrigger>
                                 <SelectContent>
                                     {loadingDrivers ? <SelectItem value="loading_drivers_global" disabled><LoadingSpinner className="h-4 w-4 inline-block mr-2" />Carregando...</SelectItem> :
@@ -676,142 +675,151 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                         </div>
                     )}
                     <div className="space-y-1.5">
-                        <Label>Filtrar por Data (Global)</Label>
+                        <Label className="text-sm font-medium text-foreground/90">Período</Label>
                         <DateRangePicker date={dateRange} onDateChange={setDateRange} />
                     </div>
                 </CardContent>
             </Card>
 
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-                {summaryCards.map(card => (
-                    <Card key={card.title}>
-                        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                            <CardTitle className="text-sm font-medium">{card.title}</CardTitle>
-                            <card.icon className="h-4 w-4 text-muted-foreground" />
-                        </CardHeader>
-                        <CardContent>
-                            <div className="text-2xl font-bold">{card.value}</div>
-                            <p className="text-xs text-muted-foreground">{card.description}</p>
-                        </CardContent>
-                    </Card>
-                ))}
-            </div>
+            <section>
+                <h2 className="text-2xl font-semibold mb-6 text-foreground">Resumo Geral</h2>
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                    {summaryCardsConfig.map((card) => (
+                        <Card key={card.title} className="shadow-lg hover:shadow-xl transition-shadow duration-300 rounded-xl border-border/60">
+                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                                <CardTitle className="text-base font-semibold text-card-foreground">{card.title}</CardTitle>
+                                <card.icon className={cn("h-7 w-7", card.color)} />
+                            </CardHeader>
+                            <CardContent className="pt-2">
+                                <div className="text-3xl font-bold text-primary">{card.value}</div>
+                                <p className="text-xs text-muted-foreground pt-1 line-clamp-2">{card.description}</p>
+                            </CardContent>
+                        </Card>
+                    ))}
+                </div>
+            </section>
 
             {isAdmin && user.email === 'grupo2irmaos@grupo2irmaos.com.br' && (
-                <div className="space-y-6">
-                    <h2 className="text-xl font-semibold">Painel do Administrador</h2>
-                    <Alert>
-                        <AlertCircle className="h-4 w-4" />
-                        <AlertTitle>Dashboard do Administrador</AlertTitle>
-                        <AlertDescription>
-                            Este é um painel com visualizações de dados agregados. Os filtros globais acima se aplicam a estas seções.
-                        </AlertDescription>
+                <section className="space-y-8 pt-6 border-t border-border/60 mt-10">
+                    <h2 className="text-2xl font-semibold text-foreground">Painel Detalhado do Administrador</h2>
+                    <Alert variant="default" className="bg-accent/30 dark:bg-accent/20 border-accent/50 text-accent-foreground/90">
+                        <AlertCircle className="h-5 w-5 text-accent-foreground/80" />
+                        <AlertTitle className="font-semibold">Visão Detalhada e Ferramentas</AlertTitle>
+                        <UiAlertDescription>
+                            Esta seção apresenta dados agregados e ferramentas de gerenciamento. Os filtros globais aplicados acima afetam estas visualizações.
+                        </UiAlertDescription>
                     </Alert>
 
-                    <Card>
+                    <Card className="shadow-lg rounded-xl border-border/60">
                         <CardHeader>
-                            <CardTitle className="flex items-center gap-2"><MapPinLucideIcon className="h-5 w-5" /> Lista de Visitas Recentes</CardTitle>
+                            <CardTitle className="text-xl flex items-center gap-2 font-semibold">
+                                <MapPinLucideIcon className="h-5 w-5 text-primary" /> Lista de Visitas Recentes
+                            </CardTitle>
                             <CardDescription>As últimas 10 visitas registradas, considerando os filtros globais.</CardDescription>
                         </CardHeader>
                         <CardContent>
-                            {loadingVisits || loadingTrips ? <LoadingSpinner /> : adminDashboardData.adminVisitsTableData.length === 0 ? (
-                                <p className="text-muted-foreground">Nenhuma visita para exibir com os filtros atuais.</p>
+                            {loadingVisits || loadingTrips ? <div className="flex justify-center py-8"><LoadingSpinner /></div> : adminDashboardData.adminVisitsTableData.length === 0 ? (
+                                <p className="text-muted-foreground text-center py-4">Nenhuma visita para exibir com os filtros atuais.</p>
                             ) : (
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>Data</TableHead>
-                                            <TableHead>Motorista</TableHead>
-                                            <TableHead>Cliente</TableHead>
-                                            <TableHead>Tipo</TableHead>
-                                            <TableHead>Cidade</TableHead>
-                                            <TableHead>Veículo</TableHead>
-                                            <TableHead>KM</TableHead>
-                                            <TableHead>Motivo</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {adminDashboardData.adminVisitsTableData.map(visit => (
-                                            <TableRow key={visit.id}>
-                                                <TableCell>{visit.date}</TableCell>
-                                                <TableCell>{visit.driverName}</TableCell>
-                                                <TableCell>{visit.clientName}</TableCell>
-                                                <TableCell>{visit.visitType}</TableCell>
-                                                <TableCell>{visit.city}</TableCell>
-                                                <TableCell>{visit.vehicleName}</TableCell>
-                                                <TableCell>{visit.kmAtVisit}</TableCell>
-                                                <TableCell className="max-w-xs truncate" title={visit.reason}>{visit.reason}</TableCell>
+                                <div className="overflow-x-auto rounded-md border">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Data</TableHead>
+                                                <TableHead>Motorista</TableHead>
+                                                <TableHead>Cliente</TableHead>
+                                                <TableHead>Tipo</TableHead>
+                                                <TableHead>Cidade</TableHead>
+                                                <TableHead>Veículo</TableHead>
+                                                <TableHead>KM</TableHead>
+                                                <TableHead className="min-w-[200px]">Motivo</TableHead>
                                             </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {adminDashboardData.adminVisitsTableData.map(visit => (
+                                                <TableRow key={visit.id} className="hover:bg-muted/50">
+                                                    <TableCell className="whitespace-nowrap">{visit.date}</TableCell>
+                                                    <TableCell>{visit.driverName}</TableCell>
+                                                    <TableCell>{visit.clientName}</TableCell>
+                                                    <TableCell>{visit.visitType}</TableCell>
+                                                    <TableCell>{visit.city}</TableCell>
+                                                    <TableCell>{visit.vehicleName}</TableCell>
+                                                    <TableCell>{visit.kmAtVisit}</TableCell>
+                                                    <TableCell className="max-w-xs truncate" title={visit.reason}>{visit.reason}</TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </div>
                             )}
                         </CardContent>
                     </Card>
 
-                    <Card>
-                        <CardHeader>
-                             <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-                                 <div className="flex-1">
-                                    <CardTitle className="flex items-center gap-2"><CarIcon className="h-5 w-5" /> Performance de Veículos</CardTitle>
-                                    <CardDescription>Dados de performance por veículo, considerando filtros globais e específicos abaixo.</CardDescription>
-                                 </div>
-                                 <div className="w-full sm:w-auto min-w-[200px]">
-                                     <Label htmlFor="vehiclePerfDateFilter">Filtrar Período (Performance)</Label>
+                    <Card className="shadow-lg rounded-xl border-border/60">
+                        <CardHeader className="space-y-4">
+                             <CardTitle className="text-xl flex items-center gap-2 font-semibold">
+                                 <CarIcon className="h-5 w-5 text-primary" /> Performance de Veículos
+                             </CardTitle>
+                             <CardDescription>Dados de performance por veículo, afetados por filtros globais e específicos abaixo.</CardDescription>
+                             <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 pt-2 items-end">
+                                 <div className="space-y-1.5">
+                                     <Label htmlFor="vehiclePerfDateFilter" className="text-sm font-medium text-foreground/90">Período (Performance)</Label>
                                      <DateRangePicker date={vehiclePerformanceDateRange} onDateChange={setVehiclePerformanceDateRange} />
                                  </div>
-                             </div>
-                             <div className="mt-4 w-full sm:w-1/2 md:w-1/3">
-                                 <Label htmlFor="vehicleMultiSelect">Filtrar Veículos Específicos</Label>
-                                 <MultiSelectCombobox
-                                     options={vehicleOptions}
-                                     selected={selectedVehicleIdsForPerf}
-                                     onChange={setSelectedVehicleIdsForPerf}
-                                     placeholder="Selecionar veículos..."
-                                     searchPlaceholder="Buscar veículo..."
-                                     emptySearchMessage="Nenhum veículo encontrado."
-                                     className="w-full"
-                                 />
+                                 <div className="space-y-1.5">
+                                     <Label htmlFor="vehicleMultiSelect" className="text-sm font-medium text-foreground/90">Veículos Específicos</Label>
+                                     <MultiSelectCombobox
+                                         options={vehicleOptions}
+                                         selected={selectedVehicleIdsForPerf}
+                                         onChange={setSelectedVehicleIdsForPerf}
+                                         placeholder="Selecionar veículos..."
+                                         searchPlaceholder="Buscar veículo..."
+                                         emptySearchMessage="Nenhum veículo encontrado."
+                                         className="w-full"
+                                     />
+                                 </div>
                              </div>
                         </CardHeader>
-                        <CardContent>
-                            {loadingVehicles || loadingFuelings ? <LoadingSpinner /> : adminDashboardData.vehiclePerformance.length === 0 ? (
-                                <p className="text-muted-foreground">Nenhum dado de performance de veículos para exibir com os filtros atuais.</p>
+                        <CardContent className="mt-2">
+                            {loadingVehicles || loadingFuelings ? <div className="flex justify-center py-8"><LoadingSpinner /></div> : adminDashboardData.vehiclePerformance.length === 0 ? (
+                                <p className="text-muted-foreground text-center py-4">Nenhum dado de performance de veículos para exibir com os filtros atuais.</p>
                             ) : (
-                                <Table>
-                                    <TableHeader>
-                                        <TableRow>
-                                            <TableHead>Veículo</TableHead>
-                                            <TableHead className="text-right">Custo Total Abastec.</TableHead>
-                                            <TableHead className="text-right">Total Litros</TableHead>
-                                            <TableHead className="text-right">KM Total (Base Abastec.)</TableHead>
-                                            <TableHead className="text-right">KM/Litro</TableHead>
-                                            <TableHead className="text-right">Custo/KM</TableHead>
-                                            <TableHead>Último Abastec.</TableHead>
-                                            <TableHead className="text-right">Preço/L Últ. Abastec.</TableHead>
-                                            <TableHead>Tipo Comb. Últ. Abastec.</TableHead>
-                                        </TableRow>
-                                    </TableHeader>
-                                    <TableBody>
-                                        {adminDashboardData.vehiclePerformance.map(vehicleData => (
-                                            <TableRow key={vehicleData.id}>
-                                                <TableCell>{vehicleData.name}</TableCell>
-                                                <TableCell className="text-right">{formatCurrency(vehicleData.totalFuelingCost)}</TableCell>
-                                                <TableCell className="text-right">{vehicleData.totalLiters.toFixed(2)} L</TableCell>
-                                                <TableCell className="text-right">{formatKm(vehicleData.totalKm)}</TableCell>
-                                                <TableCell className="text-right">{vehicleData.avgKmPerLiter.toFixed(2)}</TableCell>
-                                                <TableCell className="text-right">{formatCurrency(vehicleData.avgCostPerKm)}</TableCell>
-                                                <TableCell>{vehicleData.lastFuelingDate}</TableCell>
-                                                <TableCell className="text-right">{formatCurrency(vehicleData.lastFuelingUnitPrice)}</TableCell>
-                                                <TableCell>{vehicleData.lastFuelingType}</TableCell>
+                                <div className="overflow-x-auto rounded-md border">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Veículo</TableHead>
+                                                <TableHead className="text-right">Custo Total Abastec.</TableHead>
+                                                <TableHead className="text-right">Total Litros</TableHead>
+                                                <TableHead className="text-right">KM Total (Base Abastec.)</TableHead>
+                                                <TableHead className="text-right">KM/Litro</TableHead>
+                                                <TableHead className="text-right">Custo/KM</TableHead>
+                                                <TableHead>Último Abastec.</TableHead>
+                                                <TableHead className="text-right">Preço/L Últ. Abastec.</TableHead>
+                                                <TableHead>Tipo Comb. Últ. Abastec.</TableHead>
                                             </TableRow>
-                                        ))}
-                                    </TableBody>
-                                </Table>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {adminDashboardData.vehiclePerformance.map(vehicleData => (
+                                                <TableRow key={vehicleData.id} className="hover:bg-muted/50">
+                                                    <TableCell>{vehicleData.name}</TableCell>
+                                                    <TableCell className="text-right">{formatCurrency(vehicleData.totalFuelingCost)}</TableCell>
+                                                    <TableCell className="text-right">{vehicleData.totalLiters.toFixed(2)} L</TableCell>
+                                                    <TableCell className="text-right">{formatKm(vehicleData.totalKm)}</TableCell>
+                                                    <TableCell className="text-right">{vehicleData.avgKmPerLiter.toFixed(2)}</TableCell>
+                                                    <TableCell className="text-right">{formatCurrency(vehicleData.avgCostPerKm)}</TableCell>
+                                                    <TableCell className="whitespace-nowrap">{vehicleData.lastFuelingDate}</TableCell>
+                                                    <TableCell className="text-right">{formatCurrency(vehicleData.lastFuelingUnitPrice)}</TableCell>
+                                                    <TableCell>{vehicleData.lastFuelingType}</TableCell>
+                                                </TableRow>
+                                            ))}
+                                        </TableBody>
+                                    </Table>
+                                </div>
                             )}
                         </CardContent>
                     </Card>
-                </div>
+                </section>
             )}
         </div>
     );
