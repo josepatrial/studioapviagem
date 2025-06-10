@@ -32,26 +32,26 @@ import type { VehicleInfo } from '../Vehicle';
 import { Badge } from '@/components/ui/badge';
 import { FinishTripDialog } from './FinishTripDialog';
 import { cn } from '@/lib/utils';
-import { getDrivers as fetchOnlineDrivers } from '@/services/firestoreService'; // For fetching drivers for filter
+// Removed getDrivers as fetchOnlineDrivers from firestoreService, will use local
 import {
   addLocalTrip,
   updateLocalTrip,
   deleteLocalTrip,
-  getLocalTrips as fetchLocalDbTrips, // Renamed to avoid conflict
+  getLocalTrips as fetchLocalDbTrips, 
   getLocalVisits,
   getLocalExpenses,
   getLocalFuelings,
-  LocalTrip as DbLocalTrip, // Renamed to avoid confusion with the Trip interface below
+  LocalTrip as DbLocalTrip, 
   LocalVehicle,
-  getLocalRecordsByRole,
-  getLocalVehicles as fetchLocalDbVehicles, // Renamed
-  saveLocalUser, // For caching Firestore data for users
-  updateLocalRecord, // Generic upsert for other types
-  STORE_VEHICLES, // Store name for vehicles
-  STORE_TRIPS,    // Store name for trips
+  getLocalRecordsByRole, // For fetching drivers locally
+  getLocalVehicles as fetchLocalDbVehicles, 
+  // saveLocalUser, // Keep if SyncContext needs it, but Trips component won't call it directly
+  // updateLocalRecord, // Keep if SyncContext needs it
+  // STORE_VEHICLES, 
+  // STORE_TRIPS,    
   LocalUser as DbUser,
 } from '@/services/localDbService';
-import { getTrips as fetchOnlineTrips, getVehicles as fetchOnlineVehicles } from '@/services/firestoreService';
+// Removed getTrips as fetchOnlineTrips, getVehicles as fetchOnlineVehicles
 import { LoadingSpinner } from '../LoadingSpinner';
 import { DateRangePicker } from '@/components/ui/date-range-picker';
 import type { DateRange } from 'react-day-picker';
@@ -61,14 +61,12 @@ import { TripAccordionItem } from './TripAccordionItem';
 import { Textarea } from '../ui/textarea';
 
 
-// This is the primary Trip interface used within the Trips component and passed to children.
-// It extends DbLocalTrip by adding counts and ensuring 'id' and 'localId' are always present.
 export interface Trip extends Omit<DbLocalTrip, 'localId' | 'syncStatus' | 'deleted' | 'firebaseId'> {
-    id: string; // This will be firebaseId if synced, otherwise localId for local-only items.
-    localId: string; // Always the IndexedDB key.
+    id: string; 
+    localId: string; 
     firebaseId?: string;
-    syncStatus: DbLocalTrip['syncStatus']; // Explicitly include from base
-    deleted?: DbLocalTrip['deleted'];     // Explicitly include from base
+    syncStatus: DbLocalTrip['syncStatus']; 
+    deleted?: DbLocalTrip['deleted'];     
     visitCount?: number;
     expenseCount?: number;
     fuelingCount?: number;
@@ -94,8 +92,8 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
   const isAdmin = user?.role === 'admin';
   const [allTrips, setAllTrips] = useState<Trip[]>([]);
   const [vehicles, setVehicles] = useState<LocalVehicle[]>([]);
-  const [drivers, setDrivers] = useState<User[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [drivers, setDrivers] = useState<User[]>([]); // Will be populated from localDb
+  // loading state is managed by initialLoading
   const [loadingVehicles, setLoadingVehicles] = useState(true);
   const [loadingDrivers, setLoadingDrivers] = useState(isAdmin);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -135,60 +133,37 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
             if (isAdmin) {
                 setLoadingDrivers(true);
                 try {
-                    let fetchedDrivers: User[];
-                    if (navigator.onLine) {
-                        console.log("[Trips] Online: Fetching drivers from Firestore...");
-                        const onlineDrivers = await fetchOnlineDrivers();
-                        fetchedDrivers = onlineDrivers.map(d => ({...d, id: d.id, firebaseId: d.id, role: d.role || 'driver', base: d.base || 'N/A'} as User));
-                        Promise.all(fetchedDrivers.map(d => saveLocalUser({...d, id:d.id, firebaseId: d.id, role: d.role || 'driver', base: d.base || 'N/A', lastLogin: new Date().toISOString(), syncStatus: 'synced'} as DbUser)))
-                               .catch(e => console.warn("[Trips] Error caching drivers:", e));
-                    } else {
-                        console.log("[Trips] Offline: Fetching drivers from LocalDB...");
-                        fetchedDrivers = await getLocalRecordsByRole('driver');
-                    }
-                    setDrivers(fetchedDrivers.filter(d => d.role === 'driver').map(d => ({...d, name: d.name || d.email || `ID ${d.id.substring(0,6)}...`})));
+                    console.log("[Trips] Fetching drivers from LocalDB (for admin filter)...");
+                    const localDrivers = await getLocalRecordsByRole('driver');
+                    setDrivers(localDrivers.map(d => ({...d, name: d.name || d.email || `ID ${d.id.substring(0,6)}...` } as User)));
                 } catch (error) {
-                    console.error("Error fetching drivers:", error);
-                    toast({ variant: "destructive", title: "Erro ao Carregar Motoristas", description: "Não foi possível buscar motoristas." });
+                    console.error("Error fetching local drivers:", error);
+                    toast({ variant: "destructive", title: "Erro ao Carregar Motoristas Locais", description: "Não foi possível buscar motoristas." });
                 } finally {
                     setLoadingDrivers(false);
                 }
+            } else {
+                // If not admin, set current user as the only "driver" for context
+                if (user) setDrivers([user]); else setDrivers([]);
+                setLoadingDrivers(false);
             }
         };
         initializeDriversData();
-    }, [isAdmin, toast]);
+    }, [isAdmin, user, toast]);
 
      const initializeTripsAndVehiclesData = useCallback(async () => {
         setInitialLoading(true);
-        setLoadingVehicles(true);
+        setLoadingVehicles(true); // Keep this for vehicle list population
+        // setLoading(true) is covered by setInitialLoading(true)
         try {
-             let localVehiclesData: LocalVehicle[];
-             if(navigator.onLine){
-                console.log("[Trips] Online: Fetching vehicles from Firestore...");
-                const onlineVehicles = await fetchOnlineVehicles();
-                localVehiclesData = onlineVehicles.map(v => ({ ...v, localId: v.id, firebaseId: v.id, syncStatus: 'synced', deleted: false } as LocalVehicle));
-                Promise.all(localVehiclesData.map(v => updateLocalRecord(STORE_VEHICLES, v)))
-                       .catch(e => console.warn("[Trips] Error caching vehicles:", e));
-             } else {
-                console.log("[Trips] Offline: Fetching vehicles from LocalDB...");
-                localVehiclesData = await fetchLocalDbVehicles();
-             }
+             console.log("[Trips] Fetching vehicles from LocalDB...");
+             const localVehiclesData = await fetchLocalDbVehicles();
              setVehicles(localVehiclesData);
              setLoadingVehicles(false);
 
             const driverIdToFilter = isAdmin && filterDriver ? filterDriver : (!isAdmin && user ? user.id : undefined);
-            let dbLocalTripsData: DbLocalTrip[];
-
-            if(navigator.onLine) {
-                console.log("[Trips] Online: Fetching trips from Firestore...");
-                const onlineTrips = await fetchOnlineTrips({ userId: driverIdToFilter, startDate: filterDateRange?.from?.toISOString(), endDate: filterDateRange?.to?.toISOString() });
-                dbLocalTripsData = onlineTrips.map(t => ({ ...t, localId: t.id, firebaseId: t.id, syncStatus: 'synced', deleted: false } as DbLocalTrip));
-                Promise.all(dbLocalTripsData.map(t => updateLocalRecord(STORE_TRIPS, t)))
-                       .catch(e => console.warn("[Trips] Error caching trips:", e));
-            } else {
-                console.log("[Trips] Offline: Fetching trips from LocalDB...");
-                dbLocalTripsData = await fetchLocalDbTrips(driverIdToFilter, filterDateRange);
-            }
+            console.log(`[Trips] Fetching trips from LocalDB for driver: ${driverIdToFilter || 'all relevant'}, dateRange:`, filterDateRange);
+            const dbLocalTripsData = await fetchLocalDbTrips(driverIdToFilter, filterDateRange);
 
             const countsPromises = dbLocalTripsData.map(async (trip) => {
                  const [visits, expenses, fuelings] = await Promise.all([
@@ -228,25 +203,24 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
 
             const uiTrips = dbLocalTripsData.map(dbt => ({
                 ...dbt,
-                id: dbt.firebaseId || dbt.localId, // Ensures 'id' for UI key is primary (Firebase if synced)
-                // localId, firebaseId, syncStatus, deleted are already part of DbLocalTrip
+                id: dbt.firebaseId || dbt.localId, 
             })).sort((a, b) => {
                  if (a.status === 'Andamento' && b.status !== 'Andamento') return -1;
                  if (a.status !== 'Andamento' && b.status === 'Andamento') return 1;
                  return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-            }) as Trip[]; // Cast to Trip array
+            }) as Trip[]; 
             setAllTrips(uiTrips);
 
         } catch (error) {
-            console.error("Error fetching trips and vehicles data:", error);
+            console.error("Error fetching trips and vehicles data from LocalDB:", error);
             toast({ variant: "destructive", title: "Erro Local", description: "Não foi possível carregar dados locais." });
             setAllTrips([]);
-            setVehicles([]);
+            setVehicles([]); // Ensure vehicles are also cleared on error
         } finally {
             setInitialLoading(false);
-            setLoadingVehicles(false);
+            setLoadingVehicles(false); // Already set, but good to be sure
         }
-    }, [isAdmin, user?.id, toast, filterDriver, filterDateRange]);
+    }, [isAdmin, user, toast, filterDriver, filterDateRange]); // Added user to dependencies
 
     useEffect(() => {
         initializeTripsAndVehiclesData();
@@ -317,7 +291,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
 
     const newTripDataForDb: Omit<DbLocalTrip, 'localId' | 'syncStatus' | 'deleted' | 'firebaseId' | 'finalKm' | 'totalDistance'> = {
       name: generatedTripName,
-      vehicleId: vehicleForTrip.firebaseId || vehicleForTrip.localId,
+      vehicleId: vehicleForTrip.firebaseId || vehicleForTrip.localId, // Use the primary ID of the vehicle record
       userId: user.id,
       status: 'Andamento',
       createdAt: now,
@@ -332,8 +306,8 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
          const newUITrip: Trip = {
             ...newTripDataForDb,
             localId,
-            id: localId, // For UI key, initially same as localId
-            firebaseId: undefined, // No firebaseId yet
+            id: localId, 
+            firebaseId: undefined, 
             syncStatus: 'pending',
             deleted: false,
          };
@@ -362,7 +336,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
   const handleOpenEditModal = (tripToEdit: Trip) => {
     console.log("[Trips] handleOpenEditModal called for trip:", tripToEdit.localId);
     setCurrentTripForEdit(tripToEdit);
-    setSelectedVehicleIdForEdit(tripToEdit.vehicleId);
+    setSelectedVehicleIdForEdit(tripToEdit.vehicleId); // This should be the localId or firebaseId stored in trip
     setEditingTripId(tripToEdit.localId);
   };
 
@@ -397,7 +371,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
 
     const updatedLocalTripData: DbLocalTrip = {
        ...originalLocalTrip,
-       vehicleId: vehicleForEdit.firebaseId || vehicleForEdit.localId,
+       vehicleId: vehicleForEdit.firebaseId || vehicleForEdit.localId, // Use the vehicle's primary ID
        updatedAt: new Date().toISOString(),
        syncStatus: originalLocalTrip.syncStatus === 'synced' && !originalLocalTrip.deleted ? 'pending' : originalLocalTrip.syncStatus,
      };
@@ -460,10 +434,10 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
      console.log(`[Trips confirmFinishTrip] Finalizing trip ${tripLocalId} with finalKm: ${finalKm}, totalDistance: ${totalDistance}`);
 
      const updatedLocalTripData: DbLocalTrip = {
-        ...(tripToUpdate as DbLocalTrip), // Cast to base DbLocalTrip for spread
+        ...(tripToUpdate as DbLocalTrip), 
         status: 'Finalizado',
         finalKm: finalKm,
-        totalDistance: totalDistance, // Ensure this is a number, can be 0
+        totalDistance: totalDistance, 
         updatedAt: new Date().toISOString(),
         syncStatus: tripToUpdate.syncStatus === 'synced' && !tripToUpdate.deleted ? 'pending' : tripToUpdate.syncStatus,
       };
@@ -563,13 +537,11 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
     const currentTripData = allTrips.find(t => t.localId === tripId);
     let firstToLastKm = null;
 
-    // Prioritize stored totalDistance if trip is finalized
     if (currentTripData?.status === 'Finalizado' && typeof currentTripData.totalDistance === 'number') {
         firstToLastKm = currentTripData.totalDistance;
     } else if (currentTripData?.status === 'Finalizado' && currentTripData.finalKm != null && firstVisitKm != null) {
-        // Fallback to recalculate if totalDistance isn't available but finalKm is
         const diff = currentTripData.finalKm - firstVisitKm;
-        firstToLastKm = diff >= 0 ? diff : 0; // Ensure non-negative
+        firstToLastKm = diff >= 0 ? diff : 0; 
         console.warn(`[getTripSummaryKm] Trip ${tripId} is Finalizado but totalDistance was not a number. Recalculated as ${firstToLastKm}. finalKm: ${currentTripData.finalKm}, firstVisitKm: ${firstVisitKm}`);
     }
 
@@ -578,7 +550,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
         betweenVisits: betweenVisitsKm > 0 ? betweenVisitsKm : null,
         firstToLast: firstToLastKm
     };
-  }, [allTrips]); // allTrips is a dependency, so this recalculates if trips change
+  }, [allTrips]); 
 
 
   const handleGenerateTripReportData = useCallback(async (trip: Trip): Promise<TripReportData | null> => {
