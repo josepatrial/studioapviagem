@@ -56,10 +56,6 @@ const safeFormatDate = (dateInput: string | { toDate: () => Date } | Date | unde
     }
   };
 
-// safeTimestampToISOString can be removed if no longer directly converting Firestore timestamps here.
-// It was primarily for mapping Firestore data. If it's used elsewhere, keep it.
-// For now, assuming it might not be needed with local-first data loading.
-
 const ALL_DRIVERS_FILTER_VALUE = "__all_drivers__";
 
 export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }) => {
@@ -123,13 +119,16 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
 
             fetchPromises.push(fetchLocalDbTrips(driverIdToFilterForLocal, dateRange).then(data => { setTrips(data); console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched localTrips (${data.length}) for ${driverIdToFilterForLocal || 'all'}.`); return data; }).finally(() => setLoadingTrips(false)));
             
-            // For visits, expenses, fuelings - if admin and no specific driver, fetch all. Otherwise, filter by driver.
-            // The local fetch functions should handle undefined driverId gracefully (fetch all for that user type or all if admin and no filter).
-            const childDataDriverId = isAdmin && !filterDriverId ? undefined : driverIdToFilterForLocal;
+            const childDataFilterId = isAdmin && filterDriverId ? filterDriverId : (!isAdmin && user ? user.id : undefined);
+            const childDataFilterType: 'userId' | undefined = childDataFilterId ? 'userId' : undefined;
 
-            fetchPromises.push(fetchLocalDbVisits(childDataDriverId).then(data => { setVisits(data); console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched localVisits (${data.length}) for ${childDataDriverId || 'all relevant'}.`); return data; }).finally(() => setLoadingVisits(false)));
-            fetchPromises.push(fetchLocalDbExpenses(childDataDriverId).then(data => { setExpenses(data); console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched localExpenses (${data.length}) for ${childDataDriverId || 'all relevant'}.`); return data; }).finally(() => setLoadingExpenses(false)));
-            fetchPromises.push(fetchLocalDbFuelings(childDataDriverId).then(data => { setFuelings(data); console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched localFuelings (${data.length}) for ${childDataDriverId || 'all relevant'}.`); return data; }).finally(() => setLoadingFuelings(false)));
+            fetchPromises.push(fetchLocalDbVisits(childDataFilterId, childDataFilterType).then(data => { setVisits(data); console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched localVisits (${data.length}) for ID ${childDataFilterId || 'all'} with filterType ${childDataFilterType || '(none)'}.`); return data; }).finally(() => setLoadingVisits(false)));
+            fetchPromises.push(fetchLocalDbExpenses(childDataFilterId, childDataFilterType).then(data => { setExpenses(data); console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched localExpenses (${data.length}) for ID ${childDataFilterId || 'all'} with filterType ${childDataFilterType || '(none)'}.`); return data; }).finally(() => setLoadingExpenses(false)));
+            
+            // For fuelings, if childDataFilterId is a userId, localDbService doesn't support direct userId filter.
+            // It will fall back to fetching all fuelings or filter by tripId/vehicleId if childDataFilterId happens to match one.
+            // This means fuel-related summaries might not be accurately filtered by driver unless further logic is added.
+            fetchPromises.push(fetchLocalDbFuelings(childDataFilterId).then(data => { setFuelings(data); console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched localFuelings (${data.length}) for ${childDataFilterId || 'all relevant'}. Note: Driver filter may not apply directly here.`); return data; }).finally(() => setLoadingFuelings(false)));
 
             fetchPromises.push(fetchLocalDbVehicles().then(data => { setVehicles(data); console.log(`[Dashboard initializeDashboardData ${initFetchTime}] Fetched localVehicles (${data.length}).`); return data; }).finally(() => setLoadingVehicles(false)));
             
@@ -149,7 +148,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                 }).finally(() => setLoadingDrivers(false)));
             } else {
                  setLoadingDrivers(false);
-                 // If not admin, set current user as the only "driver" for non-admin view context if needed
                  if (user) setDrivers([user as AuthContextUserType]); else setDrivers([]);
             }
 
@@ -220,7 +218,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
 
 
     const adminDashboardData = useMemo(() => {
-        if (!isAdmin || user?.email !== 'grupo2irmaos@grupo2irmaos.com.br' || loadingDrivers || loadingVisits || loadingTrips || loadingVehicles || loadingFuelings) {
+        if (!isAdmin || loadingDrivers || loadingVisits || loadingTrips || loadingVehicles || loadingFuelings) {
             return {
                 adminVisitsTableData: [],
                 vehiclePerformance: [],
@@ -230,16 +228,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
         const tripDetailsMap = new Map(trips.map(trip => [trip.localId || trip.firebaseId, { driverName: getDriverName(trip.userId), vehicleName: getVehicleName(trip.vehicleId), userId: trip.userId }]));
 
         let currentVisitsSource = [...visits];
-        // Date filtering for visits is already handled by initializeDashboardData if dateRange is set for trips,
-        // but if visits are fetched independently or with different criteria, this explicit filter is needed.
-        // Assuming visits are fetched related to the filtered trips (or all if admin + no driver filter)
-        // If `initializeDashboardData` already filters visits by date range, this might be redundant.
-        // However, if `fetchLocalDbVisits` inside `initializeDashboardData` doesn't take dateRange, then it's needed here.
-        // For now, assuming `fetchLocalDbVisits` gets all visits for the relevant driver(s) and we filter here if needed.
-
-        if (dateRange?.from) { // This dateRange applies to the global dashboard filter
+        
+        if (dateRange?.from) { 
             const fromDate = dateRange.from;
-            const toDate = dateRange.to || new Date(); // Default to today if 'to' is not set
+            const toDate = dateRange.to || new Date(); 
             currentVisitsSource = currentVisitsSource.filter(visit => {
                 try {
                     const visitDate = parseISO(visit.timestamp);
@@ -340,8 +332,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
             vehiclePerformance: finalUniqueVehiclePerformance,
         };
     }, [
-        isAdmin, user,
-        trips, visits, expenses, fuelings, vehicles, drivers,
+        isAdmin,
+        trips, visits, expenses, fuelings, vehicles, drivers, // Removed user here, isAdmin covers user.role check.
         loadingDrivers, loadingVisits, loadingTrips, loadingVehicles, loadingFuelings,
         getDriverName, getVehicleName, getEffectiveVehicleId,
         selectedVehicleIdsForPerf, vehiclePerformanceDateRange, dateRange
@@ -457,7 +449,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
                 </div>
             </section>
 
-            {isAdmin && user.email === 'grupo2irmaos@grupo2irmaos.com.br' && (
+            {isAdmin && (
                  <section className="space-y-8 pt-6 border-t border-border/60 mt-10">
                     <h2 className="text-2xl font-semibold text-foreground pb-2 border-b border-border/40">Painel Detalhado do Administrador</h2>
                     <Alert variant="default" className="bg-accent/30 dark:bg-accent/20 border-accent/50 text-accent-foreground/90">
@@ -582,3 +574,4 @@ export const Dashboard: React.FC<DashboardProps> = ({ setActiveTab, refreshKey }
         </div>
     );
 };
+
