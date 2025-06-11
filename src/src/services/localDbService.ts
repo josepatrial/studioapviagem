@@ -694,34 +694,21 @@ export const getLocalTrips = (userId?: string, dateRange?: DateRange): Promise<L
     });
 };
 
-export const getLocalVisits = (tripLocalId?: string): Promise<LocalVisit[]> => {
-     return getLocalDbStore(STORE_VISITS, 'readonly').then(store => {
-         return new Promise<LocalVisit[]>((resolve, reject) => {
-            if (tripLocalId && store.indexNames.contains('tripLocalId')) {
-                 const index = store.index('tripLocalId');
-                 const request = index.getAll(tripLocalId);
-                 request.onsuccess = () => {
-                     const results = (request.result as LocalVisit[]).filter(item => !item.deleted);
-                     results.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-                     resolve(results);
-                 };
-                 request.onerror = () => reject(`Error getting visits for trip ${tripLocalId}: ${request.error?.message}`);
-             } else {
-                 const getAllRequest = store.getAll();
-                 getAllRequest.onsuccess = () => {
-                    let allRecords = getAllRequest.result as LocalVisit[];
-                     if (tripLocalId) {
-                         allRecords = allRecords.filter(item => !item.deleted && item.tripLocalId === tripLocalId);
-                     } else {
-                         allRecords = allRecords.filter(item => !item.deleted);
-                     }
-                     allRecords.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-                     resolve(allRecords);
-                  };
-                  getAllRequest.onerror = () => reject(`Fallback/All getAll failed for ${STORE_VISITS}: ${getAllRequest.error?.message}`);
-              }
-         });
-     });
+export const getLocalVisits = (filterValue?: string, filterType?: 'tripLocalId' | 'userId'): Promise<LocalVisit[]> => {
+    return getLocalDbStore(STORE_VISITS, 'readonly').then(store => {
+        return new Promise<LocalVisit[]>((resolve, reject) => {
+            const getAllRequest = store.getAll();
+            getAllRequest.onsuccess = () => {
+                let results = (getAllRequest.result as LocalVisit[]).filter(item => !item.deleted);
+                if (filterValue && filterType) {
+                    results = results.filter(item => item[filterType] === filterValue);
+                }
+                results.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+                resolve(results);
+            };
+            getAllRequest.onerror = () => reject(`Error getting all visits from ${STORE_VISITS}: ${getAllRequest.error?.message}`);
+        });
+    });
 };
 
 export const addLocalVisit = (visit: Omit<LocalVisit, 'localId' | 'syncStatus' | 'id' | 'deleted'>): Promise<string> => {
@@ -747,34 +734,21 @@ export const deleteLocalVisit = (localId: string): Promise<void> => {
     return markRecordForDeletion(STORE_VISITS, localId);
 };
 
-export const getLocalExpenses = (tripLocalId?: string): Promise<LocalExpense[]> => {
-     return getLocalDbStore(STORE_EXPENSES, 'readonly').then(store => {
-         return new Promise<LocalExpense[]>((resolve, reject) => {
-            if (tripLocalId && store.indexNames.contains('tripLocalId')) {
-                  const index = store.index('tripLocalId');
-                  const request = index.getAll(tripLocalId);
-                  request.onsuccess = () => {
-                      const results = (request.result as LocalExpense[]).filter(item => !item.deleted);
-                      results.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-                      resolve(results);
-                  };
-                  request.onerror = () => reject(`Error getting expenses for trip ${tripLocalId}: ${request.error?.message}`);
-              } else {
-                 const getAllRequest = store.getAll();
-                 getAllRequest.onsuccess = () => {
-                    let allRecords = getAllRequest.result as LocalExpense[];
-                     if (tripLocalId) {
-                         allRecords = allRecords.filter(item => !item.deleted && item.tripLocalId === tripLocalId);
-                     } else {
-                         allRecords = allRecords.filter(item => !item.deleted);
-                     }
-                     allRecords.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-                     resolve(allRecords);
-                  };
-                  getAllRequest.onerror = () => reject(`Fallback/All getAll failed for ${STORE_EXPENSES}: ${getAllRequest.error?.message}`);
-              }
-         });
-     });
+export const getLocalExpenses = (filterValue?: string, filterType?: 'tripLocalId' | 'userId'): Promise<LocalExpense[]> => {
+    return getLocalDbStore(STORE_EXPENSES, 'readonly').then(store => {
+        return new Promise<LocalExpense[]>((resolve, reject) => {
+           const getAllRequest = store.getAll();
+           getAllRequest.onsuccess = () => {
+               let results = (getAllRequest.result as LocalExpense[]).filter(item => !item.deleted);
+               if (filterValue && filterType) {
+                   results = results.filter(item => item[filterType] === filterValue);
+               }
+               results.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+               resolve(results);
+           };
+           getAllRequest.onerror = () => reject(`Error getting all expenses from ${STORE_EXPENSES}: ${getAllRequest.error?.message}`);
+        });
+    });
 };
 
 export const addLocalExpense = (expense: Omit<LocalExpense, 'localId' | 'syncStatus' | 'id' | 'deleted'>): Promise<string> => {
