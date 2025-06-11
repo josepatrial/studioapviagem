@@ -29,25 +29,26 @@ import {
     updateLocalFueling,
     deleteLocalFueling,
     getLocalFuelings,
-    LocalFueling
+    LocalFueling,
+    SyncStatus // Importado SyncStatus
 } from '@/services/localDbService';
-import { uploadReceipt, deleteReceipt } from '@/services/storageService'; 
+import { uploadReceipt, deleteReceipt } from '@/services/storageService';
 import { cn } from '@/lib/utils';
 import { formatKm } from '@/lib/utils';
 
-export interface Fueling extends Omit<LocalFueling, 'localId' | 'tripLocalId'> {
+export interface Fueling extends Omit<LocalFueling, 'localId' | 'tripLocalId' | 'syncStatus'> { // syncStatus adicionado ao Omit
   id: string;
-  tripId: string; 
-  userId: string; 
-  syncStatus?: 'pending' | 'synced' | 'error';
+  tripId: string;
+  userId: string;
+  syncStatus: SyncStatus; // Agora obrigatório e usa o tipo SyncStatus
   odometerKm: number;
   fuelType: string;
 }
 
 interface FuelingsProps {
-  tripId: string; 
+  tripId: string;
   vehicleId: string;
-  ownerUserId: string; 
+  ownerUserId: string;
 }
 
 const fuelTypes = ['Gasolina Comum', 'Gasolina Aditivada', 'Etanol', 'Diesel Comum', 'Diesel S10', 'GNV'];
@@ -75,7 +76,7 @@ const getLastOdometerReading = async (vehicleId: string, excludeFuelingId?: stri
         return lastFueling.odometerKm; // OdometerKM is not optional in LocalFueling
     } catch (error) {
         console.error("Error fetching last odometer reading for vehicle " + vehicleId + ":", error);
-        return null; 
+        return null;
     }
 };
 
@@ -110,18 +111,18 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
 
    useEffect(() => {
     const fetchFuelingsData = async () => {
-        if (!tripLocalId && !tripVehicleId) return; 
+        if (!tripLocalId && !tripVehicleId) return;
         setLoading(true);
         try {
             const filterKey = tripLocalId ? tripLocalId : tripVehicleId;
             const filterType = tripLocalId ? 'tripLocalId' : 'vehicleId';
-            
+
             const localFuelings = await getLocalFuelings(filterKey, filterType);
             const uiFuelings = localFuelings.map(lf => ({
                 ...lf,
                 id: lf.firebaseId || lf.localId,
-                tripId: lf.tripLocalId, 
-                userId: lf.userId || ownerUserId, 
+                tripId: lf.tripLocalId,
+                userId: lf.userId || ownerUserId,
                 syncStatus: lf.syncStatus,
                 odometerKm: lf.odometerKm,
                 fuelType: lf.fuelType
@@ -176,7 +177,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
     }, [isCameraOpen, toast]);
 
   const formatCurrency = (value: number) => value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-   const formatDateDisplay = (dateString: string) => { 
+   const formatDateDisplay = (dateString: string) => {
        try {
             return new Date(dateString).toLocaleDateString('pt-BR');
        } catch {
@@ -257,9 +258,9 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
     }
 
      setIsSaving(true);
-     const newFuelingData: Omit<LocalFueling, 'localId' | 'syncStatus' | 'receiptUrl' | 'receiptPath'> = {
+     const newFuelingData: Omit<LocalFueling, 'localId' | 'syncStatus' | 'receiptUrl' | 'receiptPath' | 'id' | 'deleted' > = {
        tripLocalId: tripLocalId,
-       userId: ownerUserId, 
+       userId: ownerUserId,
        vehicleId: tripVehicleId,
        date: new Date(date).toISOString(),
        liters: litersNum,
@@ -270,20 +271,22 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
        odometerKm: odometerNum,
        fuelType,
        receiptFilename: attachmentFilename || undefined,
-       receiptUrl: typeof attachment === 'string' ? attachment : undefined,
-       deleted: false, 
      };
      console.log("[FuelingsComponent] Attempting to save new fueling locally:", newFuelingData);
 
      try {
-         const localId = await addLocalFueling(newFuelingData);
+         const localId = await addLocalFueling({
+            ...newFuelingData,
+            receiptUrl: typeof attachment === 'string' ? attachment : undefined, // Adicionado aqui para a chamada addLocalFueling
+         });
           const newUIFueling: Fueling = {
              ...newFuelingData,
-             localId: localId,
              id: localId,
              tripId: tripLocalId,
              userId: ownerUserId,
-             syncStatus: 'pending'
+             syncStatus: 'pending',
+             receiptUrl: typeof attachment === 'string' ? attachment : undefined,
+             receiptFilename: attachmentFilename || undefined,
           };
          setFuelings(prevFuelings => [newUIFueling, ...prevFuelings].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
          resetForm();
@@ -300,8 +303,8 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
   const handleEditFueling = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!currentFueling) return;
-    
-    const vehicleIdForEdit = currentFueling.vehicleId || tripVehicleId; 
+
+    const vehicleIdForEdit = currentFueling.vehicleId || tripVehicleId;
     if (!vehicleIdForEdit) {
         toast({ variant: 'destructive', title: 'Erro', description: 'ID do Veículo não encontrado para este abastecimento.' });
         return;
@@ -318,7 +321,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
          toast({ variant: 'destructive', title: 'Erro', description: 'Litros, Preço/Litro e KM do odômetro devem ser maiores que zero.' });
          return;
       }
-    
+
     const lastVehicleOdometerEdit = await getLastOdometerReading(vehicleIdForEdit, currentFueling.id);
     if (lastVehicleOdometerEdit !== null && odometerNumEdit <= lastVehicleOdometerEdit) {
          toast({
@@ -339,7 +342,7 @@ export const Fuelings: React.FC<FuelingsProps> = ({ tripId: tripLocalId, vehicle
      setIsSaving(true);
      const updatedLocalFuelingData: LocalFueling = {
         ...originalLocalFueling,
-        userId: ownerUserId, 
+        userId: ownerUserId,
         date: new Date(date).toISOString(),
         liters: litersNum,
         pricePerLiter: priceNum,
