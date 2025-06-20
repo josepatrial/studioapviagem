@@ -1,15 +1,16 @@
 // src/contexts/SyncContext.tsx
 'use client';
 
-import React, { createContext, useContext, useState, useCallback, ReactNode, useEffect } from 'react';
+import React, { createContext, useContext, useState, useCallback, ReactNode, useEffect, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth, User as AuthContextUserType } from './AuthContext';
 import { auth as firebaseAuthService } from '@/lib/firebase';
+import { Timestamp } from 'firebase/firestore';
 import {
     getPendingRecords,
     updateSyncStatus,
     cleanupDeletedRecords,
-    getLocalDbStore, // Use directly for parent ID fetching
+    getLocalDbStore,
     LocalTrip,
     LocalVisit,
     LocalExpense,
@@ -48,6 +49,8 @@ import {
     deleteVisitTypeFromFirestore,
     addExpenseTypeToFirestore,
     deleteExpenseTypeFromFirestore,
+    getVehicles as fetchOnlineVehicles,
+    getTrips as fetchOnlineTrips,
     Trip as FirestoreTrip,
     Visit as FirestoreVisit,
     Expense as FirestoreExpense,
@@ -75,6 +78,7 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
     const [pendingCount, setPendingCount] = useState<number>(0);
     const { toast } = useToast();
     const { user, firebaseUser } = useAuth();
+    const [initialSyncAttempted, setInitialSyncAttempted] = useState(false);
 
     const updatePendingCount = useCallback(async () => {
         try {
@@ -88,12 +92,6 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
             setPendingCount(0);
         }
     }, []);
-
-    useEffect(() => {
-        updatePendingCount();
-        const intervalId = setInterval(updatePendingCount, 30000); // Update every 30 seconds
-        return () => clearInterval(intervalId);
-    }, [user, updatePendingCount]);
 
     const syncItem = useCallback(async <
         L extends { localId?: string; id?: string; firebaseId?: string; syncStatus: 'pending' | 'error' | 'synced'; deleted?: boolean; userId?: string; name?: string; [key: string]: any },
@@ -121,7 +119,7 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
         }
 
         const { localId, id: itemIdFromItem, firebaseId: currentFirebaseIdFromItem, deleted, syncStatus: itemSyncStatus, ...dataToSyncBase } = item;
-        let currentAuthUserId = firebaseUser?.uid || user?.firebaseId; // Use firebaseUser.uid first
+        let currentAuthUserId = firebaseUser?.uid || user?.firebaseId; 
 
         console.log(`${logPrefix} User state for this operation: AuthContext user.firebaseId: ${user?.firebaseId}, AuthContext firebaseUser.uid: ${firebaseUser?.uid}. Effective currentAuthUserId: ${currentAuthUserId}`);
 
@@ -290,40 +288,43 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
 
     const startSync = useCallback(async () => {
         const syncStartTime = performance.now();
-        console.log(`[SyncContext startSync ${syncStartTime}] Initiating sync...`);
+        const logPrefix = `[SyncContext startSync ${syncStartTime}]`;
+        console.log(`${logPrefix} Initiating sync...`);
+
         if (firebaseAuthService) {
-            console.log(`[SyncContext startSync ${syncStartTime}] Firebase SDK auth.currentUser:`, firebaseAuthService.currentUser ? { uid: firebaseAuthService.currentUser.uid, email: firebaseAuthService.currentUser.email } : null);
+            console.log(`${logPrefix} Firebase SDK auth.currentUser:`, firebaseAuthService.currentUser ? { uid: firebaseAuthService.currentUser.uid, email: firebaseAuthService.currentUser.email } : null);
         } else {
-            console.log(`[SyncContext startSync ${syncStartTime}] Firebase SDK auth service (imported from firebase.ts) not available.`);
+            console.log(`${logPrefix} Firebase SDK auth service (imported from firebase.ts) not available.`);
         }
-        console.log(`[SyncContext startSync ${syncStartTime}] AuthContext user state in SyncContext:`, JSON.parse(JSON.stringify(user || {})));
-        console.log(`[SyncContext startSync ${syncStartTime}] AuthContext firebaseUser state in SyncContext:`, JSON.parse(JSON.stringify(firebaseUser || {})));
+        console.log(`${logPrefix} AuthContext user state in SyncContext:`, JSON.parse(JSON.stringify(user || {})));
+        console.log(`${logPrefix} AuthContext firebaseUser state in SyncContext:`, JSON.parse(JSON.stringify(firebaseUser || {})));
 
 
         if (syncStatus === 'syncing') {
             toast({ title: "Sincronização já em andamento." }); return;
         }
-        if (!navigator.onLine) {
+        if (typeof window !== 'undefined' && !navigator.onLine) {
             toast({ variant: 'destructive', title: "Offline", description: "Conecte-se à internet para sincronizar." }); return;
         }
 
         let currentAuthUserId = firebaseUser?.uid || user?.firebaseId;
-        console.log(`[SyncContext startSync ${syncStartTime}] Effective Firebase User ID for sync: ${currentAuthUserId}`);
+        const isAdmin = user?.role === 'admin';
+        console.log(`${logPrefix} Effective Firebase User ID for sync: ${currentAuthUserId}, IsAdmin: ${isAdmin}`);
+
 
         if (firebaseAuthService && firebaseAuthService.currentUser) {
             try {
                 await firebaseAuthService.currentUser.getIdToken(true);
-                console.log(`[SyncContext startSync ${syncStartTime}] Firebase ID token refreshed successfully for user: ${firebaseAuthService.currentUser.uid}`);
-                currentAuthUserId = firebaseAuthService.currentUser.uid; // Re-assign after successful refresh
+                console.log(`${logPrefix} Firebase ID token refreshed successfully for user: ${firebaseAuthService.currentUser.uid}`);
+                currentAuthUserId = firebaseAuthService.currentUser.uid;
             } catch (tokenError: any) {
-                console.error(`[SyncContext startSync ${syncStartTime}] Error refreshing Firebase ID token or user session is invalid:`, tokenError);
+                console.error(`${logPrefix} Error refreshing Firebase ID token or user session is invalid:`, tokenError);
                 toast({ variant: 'destructive', title: "Sessão Inválida", description: "Sua sessão de login pode ter expirado. Por favor, faça login novamente para sincronizar.", duration: 7000 });
                 setSyncStatus('error');
                 return;
             }
-        } else if (!currentAuthUserId && !(user?.role?.includes('admin') && (pendingData.visitTypes.length > 0 || pendingData.expenseTypes.length > 0))) {
-            // Allow admin to sync global types even if no user-specific auth, but block other syncs
-            console.warn(`[SyncContext startSync ${syncStartTime}] Cannot start sync: No authenticated Firebase user ID, and not an admin syncing only global types.`);
+        } else if (!currentAuthUserId && !(isAdmin && (await getPendingRecords()).visitTypes.length > 0 || (await getPendingRecords()).expenseTypes.length > 0)) {
+            console.warn(`${logPrefix} Cannot start sync: No authenticated Firebase user ID, and not an admin syncing only global types.`);
             toast({ variant: 'destructive', title: "Erro de Autenticação", description: "Usuário Firebase não autenticado. Faça login online para sincronizar seus dados." });
             setSyncStatus('idle');
             return;
@@ -338,195 +339,284 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
             pendingData = await getPendingRecords();
             const totalPending = Object.values(pendingData).reduce((sum, arr) => sum + arr.length, 0);
 
-            if (totalPending === 0) {
-                toast({ title: "Sincronização", description: "Nenhum dado pendente." });
-                setSyncStatus('success'); setLastSyncTime(new Date()); setPendingCount(0);
-                await cleanupDeletedRecords();
-                console.log(`[SyncContext startSync ${syncStartTime}] No pending records. Cleanup attempted.`);
-                return;
-            }
-            console.log(`[SyncContext startSync ${syncStartTime}] Total items to sync: ${totalPending}. Pending data:`, pendingData);
+            if (totalPending === 0 && !isAdmin) { 
+                 console.log(`${logPrefix} No pending records for non-admin. Skipping push phase.`);
+            } else {
+                 console.log(`${logPrefix} Total items to sync (push phase): ${totalPending}. Pending data:`, pendingData);
+                for (const pendingUser of pendingData.users) {
+                     const userLocalId = pendingUser.id;
+                     if (!userLocalId) { console.warn(`[SyncContext] Skipping user sync: item missing 'id'.`, pendingUser); skippedCount++; continue; }
 
-            for (const pendingUser of pendingData.users) {
-                 const userLocalId = pendingUser.id;
-                 if (!userLocalId) { console.warn(`[SyncContext] Skipping user sync: item missing 'id'.`, pendingUser); skippedCount++; continue; }
-
-                 if (pendingUser.firebaseId && !pendingUser.firebaseId.startsWith('local_')) {
-                    console.log(`[SyncContext startSync] Syncing USER (linked): ${userLocalId}, Firebase ID: ${pendingUser.firebaseId}`);
-                    const success = await syncItem<LocalUser, FirestoreUser>(
-                        pendingUser, STORE_USERS,
-                        (data, id) => setUserData(id || currentAuthUserId!, data as Partial<FirestoreUser>).then(() => id || currentAuthUserId!),
-                        (id, data) => setUserData(id, data as Partial<FirestoreUser>),
-                        async (id) => { console.warn(`[SyncContext] Deletion of user ${id} via sync is not standard.`); }
-                    );
-                    if (success) syncedCount++; else errorCount++; overallSuccess = overallSuccess && success;
-                 } else if (!pendingUser.firebaseId && userLocalId === currentAuthUserId) {
-                    console.log(`[SyncContext startSync] Syncing CURRENT USER (not fully linked locally): ${userLocalId}`);
-                     const success = await syncItem<LocalUser, FirestoreUser>(
-                        {...pendingUser, firebaseId: currentAuthUserId },
-                        STORE_USERS,
-                        (data, id) => setUserData(id || currentAuthUserId!, data as Partial<FirestoreUser>).then(() => id || currentAuthUserId!),
-                        (id, data) => setUserData(id, data as Partial<FirestoreUser>),
-                        async (id) => { console.warn(`[SyncContext] Deletion of user ${id} via sync is not standard.`); }
-                    );
-                    if (success) syncedCount++; else errorCount++; overallSuccess = overallSuccess && success;
-                 } else {
-                    console.warn(`[SyncContext] Skipping sync for user ${userLocalId}. Not linked to Firebase or not current user. FirebaseId: ${pendingUser.firebaseId}. CurrentAuthId: ${currentAuthUserId}`);
-                    skippedCount++;
-                 }
-            }
-
-            for (const vType of pendingData.visitTypes) {
-                const success = await syncItem<LocalCustomType, FirestoreCustomType>(
-                    vType, STORE_VISIT_TYPES,
-                    (data) => addVisitTypeToFirestore(data.name!),
-                    async (id, data) => { console.warn(`[SyncContext] Update for CustomType ${id} not implemented, treating as add/delete.`); return Promise.resolve(); },
-                    deleteVisitTypeFromFirestore
-                );
-                if (success) syncedCount++; else errorCount++; overallSuccess = overallSuccess && success;
-            }
-
-            for (const eType of pendingData.expenseTypes) {
-                const success = await syncItem<LocalCustomType, FirestoreCustomType>(
-                    eType, STORE_EXPENSE_TYPES,
-                    (data) => addExpenseTypeToFirestore(data.name!),
-                    async (id, data) => { console.warn(`[SyncContext] Update for CustomType ${id} not implemented.`); return Promise.resolve(); },
-                    deleteExpenseTypeFromFirestore
-                );
-                if (success) syncedCount++; else errorCount++; overallSuccess = overallSuccess && success;
-            }
-
-            if (currentAuthUserId) {
-                for (const vehicle of pendingData.vehicles) {
-                    const success = await syncItem<LocalVehicle, FirestoreVehicle>(vehicle, STORE_VEHICLES, addVehicle, updateVehicle, deleteFirestoreVehicle);
-                    if (success) syncedCount++; else errorCount++; overallSuccess = overallSuccess && success;
-                }
-
-                const getParentFirebaseId = async (localParentId: string | undefined, parentStoreName: string): Promise<string | null> => {
-                     if (!localParentId) return null;
-                     try {
-                        const store = await getLocalDbStore(parentStoreName, 'readonly');
-                        const request = store.get(localParentId);
-                        return new Promise<string | null>((resolve) => {
-                            request.onsuccess = () => {
-                                const parent = request.result;
-                                resolve(parent && parent.syncStatus === 'synced' && parent.firebaseId && !parent.firebaseId.startsWith('local_') ? parent.firebaseId : null);
-                            };
-                            request.onerror = () => {
-                                console.error(`Error fetching parent ${localParentId} from ${parentStoreName}:`, request.error);
-                                resolve(null);
-                            };
-                        });
-                     } catch (error) {
-                        console.error(`Error opening store ${parentStoreName} to get parent ${localParentId}:`, error);
-                        return null;
+                     if (pendingUser.firebaseId && !pendingUser.firebaseId.startsWith('local_')) {
+                        console.log(`[SyncContext startSync] Syncing USER (linked): ${userLocalId}, Firebase ID: ${pendingUser.firebaseId}`);
+                        const success = await syncItem<LocalUser, FirestoreUser>(
+                            pendingUser, STORE_USERS,
+                            (data, id) => setUserData(id || currentAuthUserId!, data as Partial<FirestoreUser>).then(() => id || currentAuthUserId!),
+                            (id, data) => setUserData(id, data as Partial<FirestoreUser>),
+                            async (id) => { console.warn(`[SyncContext] Deletion of user ${id} via sync is not standard.`); }
+                        );
+                        if (success) syncedCount++; else errorCount++; overallSuccess = overallSuccess && success;
+                     } else if (!pendingUser.firebaseId && userLocalId === currentAuthUserId) {
+                        console.log(`[SyncContext startSync] Syncing CURRENT USER (not fully linked locally): ${userLocalId}`);
+                         const success = await syncItem<LocalUser, FirestoreUser>(
+                            {...pendingUser, firebaseId: currentAuthUserId },
+                            STORE_USERS,
+                            (data, id) => setUserData(id || currentAuthUserId!, data as Partial<FirestoreUser>).then(() => id || currentAuthUserId!),
+                            (id, data) => setUserData(id, data as Partial<FirestoreUser>),
+                            async (id) => { console.warn(`[SyncContext] Deletion of user ${id} via sync is not standard.`); }
+                        );
+                        if (success) syncedCount++; else errorCount++; overallSuccess = overallSuccess && success;
+                     } else {
+                        console.warn(`[SyncContext] Skipping sync for user ${userLocalId}. Not linked to Firebase or not current user. FirebaseId: ${pendingUser.firebaseId}. CurrentAuthId: ${currentAuthUserId}`);
+                        skippedCount++;
                      }
-                };
-
-                for (const trip of pendingData.trips) {
-                    let vehicleFirebaseId = trip.vehicleId;
-                    if (trip.vehicleId && (trip.vehicleId as string).startsWith('local_')) {
-                        const fetchedVehicleFirebaseId = await getParentFirebaseId(trip.vehicleId, STORE_VEHICLES);
-                        if (!fetchedVehicleFirebaseId) {
-                            console.warn(`[SyncContext] Skipping trip ${trip.localId}, parent vehicle ${trip.vehicleId} not synced or missing Firebase ID.`);
-                            skippedCount++; continue;
-                        }
-                        vehicleFirebaseId = fetchedVehicleFirebaseId;
-                    }
-                    const tripDataForSync = { ...trip, vehicleId: vehicleFirebaseId };
-                    const success = await syncItem<LocalTrip, FirestoreTrip>(tripDataForSync, STORE_TRIPS, data => addTrip(data as Omit<FirestoreTrip, 'id'>), updateTrip, deleteTripAndRelatedData);
-                    if (success) syncedCount++; else errorCount++; overallSuccess = overallSuccess && success;
                 }
 
-                for (const visit of pendingData.visits) {
-                    const parentTripFirebaseId = await getParentFirebaseId(visit.tripLocalId, STORE_TRIPS);
-                    if (!parentTripFirebaseId) { skippedCount++; console.warn(`[SyncContext] Skipping visit ${visit.localId}, parent trip ${visit.tripLocalId} not synced.`); continue; }
-                    const success = await syncItem<LocalVisit, FirestoreVisit>({...visit, tripId: parentTripFirebaseId}, STORE_VISITS, data => addVisit(data as Omit<FirestoreVisit, 'id'>), updateVisit, deleteVisit);
-                    if (success) syncedCount++; else errorCount++; overallSuccess = overallSuccess && success;
-                }
-                for (const expense of pendingData.expenses) {
-                    const parentTripFirebaseId = await getParentFirebaseId(expense.tripLocalId, STORE_TRIPS);
-                    if (!parentTripFirebaseId) { skippedCount++; console.warn(`[SyncContext] Skipping expense ${expense.localId}, parent trip ${expense.tripLocalId} not synced.`); continue; }
-                    const success = await syncItem<LocalExpense, FirestoreExpense>(
-                        {...expense, tripId: parentTripFirebaseId},
-                        STORE_EXPENSES,
-                        data => addExpense(data as Omit<FirestoreExpense, 'id'>),
-                        updateExpense,
-                        deleteFirestoreExpense,
-                        uploadReceipt,
-                        deleteReceipt,
-                        'receiptUrl',
-                        'receiptUrl',
-                        'receiptPath'
+                for (const vType of pendingData.visitTypes) {
+                    const success = await syncItem<LocalCustomType, FirestoreCustomType>(
+                        vType, STORE_VISIT_TYPES,
+                        (data) => addVisitTypeToFirestore(data.name!),
+                        async (id, data) => { console.warn(`[SyncContext] Update for CustomType ${id} not implemented, treating as add/delete.`); return Promise.resolve(); },
+                        deleteVisitTypeFromFirestore
                     );
                     if (success) syncedCount++; else errorCount++; overallSuccess = overallSuccess && success;
                 }
-                for (const fueling of pendingData.fuelings) {
-                    const parentTripFirebaseId = await getParentFirebaseId(fueling.tripLocalId, STORE_TRIPS);
-                    let vehicleFirebaseId = fueling.vehicleId;
 
-                    if (vehicleFirebaseId && vehicleFirebaseId.startsWith('local_')) {
-                         const fetchedVehicleFirebaseId = await getParentFirebaseId(vehicleFirebaseId, STORE_VEHICLES);
-                         if (!fetchedVehicleFirebaseId) {
-                             console.warn(`[SyncContext] Skipping fueling ${fueling.localId}, its vehicle ${vehicleFirebaseId} is not synced or missing Firebase ID.`);
-                             skippedCount++; continue;
+                for (const eType of pendingData.expenseTypes) {
+                    const success = await syncItem<LocalCustomType, FirestoreCustomType>(
+                        eType, STORE_EXPENSE_TYPES,
+                        (data) => addExpenseTypeToFirestore(data.name!),
+                        async (id, data) => { console.warn(`[SyncContext] Update for CustomType ${id} not implemented.`); return Promise.resolve(); },
+                        deleteExpenseTypeFromFirestore
+                    );
+                    if (success) syncedCount++; else errorCount++; overallSuccess = overallSuccess && success;
+                }
+
+                if (currentAuthUserId) {
+                    for (const vehicle of pendingData.vehicles) {
+                        const success = await syncItem<LocalVehicle, FirestoreVehicle>(vehicle, STORE_VEHICLES, addVehicle, updateVehicle, deleteFirestoreVehicle);
+                        if (success) syncedCount++; else errorCount++; overallSuccess = overallSuccess && success;
+                    }
+
+                    const getParentFirebaseId = async (localParentId: string | undefined, parentStoreName: string): Promise<string | null> => {
+                         if (!localParentId) return null;
+                         try {
+                            const store = await getLocalDbStore(parentStoreName, 'readonly');
+                            const request = store.get(localParentId);
+                            return new Promise<string | null>((resolve) => {
+                                request.onsuccess = () => {
+                                    const parent = request.result;
+                                    resolve(parent && parent.syncStatus === 'synced' && parent.firebaseId && !parent.firebaseId.startsWith('local_') ? parent.firebaseId : null);
+                                };
+                                request.onerror = () => {
+                                    console.error(`Error fetching parent ${localParentId} from ${parentStoreName}:`, request.error);
+                                    resolve(null);
+                                };
+                            });
+                         } catch (error) {
+                            console.error(`Error opening store ${parentStoreName} to get parent ${localParentId}:`, error);
+                            return null;
                          }
-                         vehicleFirebaseId = fetchedVehicleFirebaseId;
-                    } else if (!vehicleFirebaseId && fueling.tripLocalId) {
-                        const parentTripStore = await getLocalDbStore(STORE_TRIPS, 'readonly');
-                        const parentTripReq = parentTripStore.get(fueling.tripLocalId!);
-                        const parentTripDoc = await new Promise<LocalTrip|null>(res => { parentTripReq.onsuccess = () => res(parentTripReq.result); parentTripReq.onerror = () => res(null); });
-                        if(parentTripDoc && parentTripDoc.vehicleId) {
-                            if (parentTripDoc.vehicleId.startsWith('local_')) {
-                                 const fetchedVehicleFirebaseIdFromTrip = await getParentFirebaseId(parentTripDoc.vehicleId, STORE_VEHICLES);
-                                 if (!fetchedVehicleFirebaseIdFromTrip) {
-                                    console.warn(`[SyncContext] Skipping fueling ${fueling.localId}, its trip's vehicle ${parentTripDoc.vehicleId} is not synced or missing Firebase ID.`);
-                                    skippedCount++; continue;
+                    };
+
+                    for (const trip of pendingData.trips) {
+                        let vehicleFirebaseId = trip.vehicleId;
+                        if (trip.vehicleId && (trip.vehicleId as string).startsWith('local_')) {
+                            const fetchedVehicleFirebaseId = await getParentFirebaseId(trip.vehicleId, STORE_VEHICLES);
+                            if (!fetchedVehicleFirebaseId) {
+                                console.warn(`[SyncContext] Skipping trip ${trip.localId}, parent vehicle ${trip.vehicleId} not synced or missing Firebase ID.`);
+                                skippedCount++; continue;
+                            }
+                            vehicleFirebaseId = fetchedVehicleFirebaseId;
+                        }
+                        const tripDataForSync = { ...trip, vehicleId: vehicleFirebaseId };
+                        const success = await syncItem<LocalTrip, FirestoreTrip>(tripDataForSync, STORE_TRIPS, data => addTrip(data as Omit<FirestoreTrip, 'id' | 'createdAt' | 'updatedAt'>), updateTrip, deleteTripAndRelatedData);
+                        if (success) syncedCount++; else errorCount++; overallSuccess = overallSuccess && success;
+                    }
+
+                    for (const visit of pendingData.visits) {
+                        const parentTripFirebaseId = await getParentFirebaseId(visit.tripLocalId, STORE_TRIPS);
+                        if (!parentTripFirebaseId) { skippedCount++; console.warn(`[SyncContext] Skipping visit ${visit.localId}, parent trip ${visit.tripLocalId} not synced.`); continue; }
+                        const success = await syncItem<LocalVisit, FirestoreVisit>({...visit, tripId: parentTripFirebaseId}, STORE_VISITS, data => addVisit(data as Omit<FirestoreVisit, 'id' | 'createdAt' | 'updatedAt'>), updateVisit, deleteVisit);
+                        if (success) syncedCount++; else errorCount++; overallSuccess = overallSuccess && success;
+                    }
+                    for (const expense of pendingData.expenses) {
+                        const parentTripFirebaseId = await getParentFirebaseId(expense.tripLocalId, STORE_TRIPS);
+                        if (!parentTripFirebaseId) { skippedCount++; console.warn(`[SyncContext] Skipping expense ${expense.localId}, parent trip ${expense.tripLocalId} not synced.`); continue; }
+                        const success = await syncItem<LocalExpense, FirestoreExpense>(
+                            {...expense, tripId: parentTripFirebaseId},
+                            STORE_EXPENSES,
+                            data => addExpense(data as Omit<FirestoreExpense, 'id' | 'createdAt' | 'updatedAt'>),
+                            updateExpense,
+                            deleteFirestoreExpense,
+                            uploadReceipt,
+                            deleteReceipt,
+                            'receiptUrl',
+                            'receiptUrl',
+                            'receiptPath'
+                        );
+                        if (success) syncedCount++; else errorCount++; overallSuccess = overallSuccess && success;
+                    }
+                    for (const fueling of pendingData.fuelings) {
+                        const parentTripFirebaseId = await getParentFirebaseId(fueling.tripLocalId, STORE_TRIPS);
+                        let vehicleFirebaseId = fueling.vehicleId;
+
+                        if (vehicleFirebaseId && vehicleFirebaseId.startsWith('local_')) {
+                             const fetchedVehicleFirebaseId = await getParentFirebaseId(vehicleFirebaseId, STORE_VEHICLES);
+                             if (!fetchedVehicleFirebaseId) {
+                                console.warn(`[SyncContext] Skipping fueling ${fueling.localId}, its vehicle ${vehicleFirebaseId} is not synced or missing Firebase ID.`);
+                                skippedCount++; continue;
+                            }
+                            vehicleFirebaseId = fetchedVehicleFirebaseId;
+                        } else if (!vehicleFirebaseId && fueling.tripLocalId) {
+                            const parentTripStore = await getLocalDbStore(STORE_TRIPS, 'readonly');
+                            const parentTripReq = parentTripStore.get(fueling.tripLocalId!);
+                            const parentTripDoc = await new Promise<LocalTrip|null>(res => { parentTripReq.onsuccess = () => res(parentTripReq.result); parentTripReq.onerror = () => res(null); });
+                            if(parentTripDoc && parentTripDoc.vehicleId) {
+                                if (parentTripDoc.vehicleId.startsWith('local_')) {
+                                     const fetchedVehicleFirebaseIdFromTrip = await getParentFirebaseId(parentTripDoc.vehicleId, STORE_VEHICLES);
+                                     if (!fetchedVehicleFirebaseIdFromTrip) {
+                                        console.warn(`[SyncContext] Skipping fueling ${fueling.localId}, its trip's vehicle ${parentTripDoc.vehicleId} is not synced or missing Firebase ID.`);
+                                        skippedCount++; continue;
+                                    }
+                                    vehicleFirebaseId = fetchedVehicleFirebaseIdFromTrip;
+                                } else {
+                                    vehicleFirebaseId = parentTripDoc.vehicleId;
                                 }
-                                vehicleFirebaseId = fetchedVehicleFirebaseIdFromTrip;
-                            } else {
-                                vehicleFirebaseId = parentTripDoc.vehicleId;
                             }
                         }
-                    }
 
-                    if (!parentTripFirebaseId && fueling.tripLocalId) {
-                        skippedCount++; console.warn(`[SyncContext] Skipping fueling ${fueling.localId}, parent trip ${fueling.tripLocalId} not synced.`); continue;
-                    }
-                    if (!vehicleFirebaseId) { skippedCount++; console.warn(`[SyncContext] Skipping fueling ${fueling.localId}, could not determine a valid vehicleFirebaseId.`); continue; }
+                        if (!parentTripFirebaseId && fueling.tripLocalId) {
+                            skippedCount++; console.warn(`[SyncContext] Skipping fueling ${fueling.localId}, parent trip ${fueling.tripLocalId} not synced.`); continue;
+                        }
+                        if (!vehicleFirebaseId) { skippedCount++; console.warn(`[SyncContext] Skipping fueling ${fueling.localId}, could not determine a valid vehicleFirebaseId.`); continue; }
 
-                    const success = await syncItem<LocalFueling, FirestoreFueling>(
-                        {...fueling, tripId: parentTripFirebaseId, vehicleId: vehicleFirebaseId },
-                        STORE_FUELINGS,
-                        data => addFueling(data as Omit<FirestoreFueling, 'id'>),
-                        updateFueling,
-                        deleteFirestoreFueling,
-                        uploadReceipt,
-                        deleteReceipt,
-                        'receiptUrl',
-                        'receiptUrl',
-                        'receiptPath'
-                    );
-                    if (success) syncedCount++; else errorCount++; overallSuccess = overallSuccess && success;
+                        const success = await syncItem<LocalFueling, FirestoreFueling>(
+                            {...fueling, tripId: parentTripFirebaseId, vehicleId: vehicleFirebaseId },
+                            STORE_FUELINGS,
+                            data => addFueling(data as Omit<FirestoreFueling, 'id' | 'createdAt' | 'updatedAt'>),
+                            updateFueling,
+                            deleteFirestoreFueling,
+                            uploadReceipt,
+                            deleteReceipt,
+                            'receiptUrl',
+                            'receiptUrl',
+                            'receiptPath'
+                        );
+                        if (success) syncedCount++; else errorCount++; overallSuccess = overallSuccess && success;
+                    }
+                } else if (pendingData.vehicles.length > 0 || pendingData.trips.length > 0 || pendingData.visits.length > 0 || pendingData.expenses.length > 0 || pendingData.fuelings.length > 0) {
+                    const userSpecificPendingCount = pendingData.vehicles.length + pendingData.trips.length + pendingData.visits.length + pendingData.expenses.length + pendingData.fuelings.length + pendingData.users.filter(u => u.id !== currentAuthUserId).length;
+                    if(userSpecificPendingCount > 0) {
+                        console.warn(`${logPrefix} User-specific data pending but no authenticated Firebase user. ${userSpecificPendingCount} items will remain pending.`);
+                        skippedCount += userSpecificPendingCount;
+                    }
                 }
-            } else if (pendingData.vehicles.length > 0 || pendingData.trips.length > 0 || pendingData.visits.length > 0 || pendingData.expenses.length > 0 || pendingData.fuelings.length > 0) {
-                const userSpecificPendingCount = pendingData.vehicles.length + pendingData.trips.length + pendingData.visits.length + pendingData.expenses.length + pendingData.fuelings.length + pendingData.users.filter(u => u.id !== currentAuthUserId).length;
-                if(userSpecificPendingCount > 0) {
-                    console.warn(`[SyncContext startSync] User-specific data pending but no authenticated Firebase user. ${userSpecificPendingCount} items will remain pending.`);
-                    skippedCount += userSpecificPendingCount;
+            } 
+
+            let pulledVehicleCount = 0;
+            let pulledTripCount = 0;
+
+            if (isAdmin) { 
+                console.log(`${logPrefix} PULL Phase: Admin fetching ALL vehicles from Firestore...`);
+                const onlineVehicles = await fetchOnlineVehicles();
+                console.log(`${logPrefix} PULL Phase: Pulled ${onlineVehicles.length} vehicles from Firestore.`);
+                for (const onlineVehicle of onlineVehicles) {
+                    if (!onlineVehicle.id) { console.warn(`${logPrefix} PULL: Skipping online vehicle due to missing ID:`, onlineVehicle); continue; }
+                    const existingLocalVehicle = await getLocalDbStore(STORE_VEHICLES, 'readonly').then(store => new Promise<LocalVehicle | null>(res => {const r = store.get(onlineVehicle.id); r.onsuccess=()=>res(r.result); r.onerror=()=>res(null);}));
+                    const vehicleToSaveLocally: LocalVehicle = {
+                        localId: onlineVehicle.id, 
+                        firebaseId: onlineVehicle.id,
+                        model: onlineVehicle.model,
+                        year: onlineVehicle.year,
+                        licensePlate: onlineVehicle.licensePlate,
+                        syncStatus: 'synced',
+                        deleted: onlineVehicle.deleted || false,
+                    };
+                    if (!existingLocalVehicle || (existingLocalVehicle && existingLocalVehicle.syncStatus !== 'pending')) {
+                        await updateLocalRecord(STORE_VEHICLES, vehicleToSaveLocally);
+                        pulledVehicleCount++;
+                    }
                 }
+                console.log(`${logPrefix} PULL Phase: Processed ${pulledVehicleCount} vehicles from Firestore into local DB.`);
             }
 
+            if (currentAuthUserId) { 
+                console.log(`${logPrefix} PULL Phase: Fetching trips from Firestore for user ${currentAuthUserId} (isAdmin: ${isAdmin})...`);
+                const tripFilters = isAdmin && user?.base ? { base: user.base } : { userId: currentAuthUserId };
+                const onlineTrips = await fetchOnlineTrips(tripFilters);
+                console.log(`${logPrefix} PULL Phase: Pulled ${onlineTrips.length} trips from Firestore.`);
+
+                for (const onlineTrip of onlineTrips) {
+                    if (!onlineTrip.id) { console.warn(`${logPrefix} PULL: Skipping online trip due to missing ID:`, onlineTrip); continue; }
+                    const existingLocalTrip = await getLocalDbStore(STORE_TRIPS, 'readonly').then(store => new Promise<LocalTrip | null>(res => {const r = store.get(onlineTrip.id); r.onsuccess=()=>res(r.result); r.onerror=()=>res(null);}));
+                    const tripToSaveLocally: LocalTrip = {
+                        localId: onlineTrip.id, 
+                        firebaseId: onlineTrip.id,
+                        name: onlineTrip.name,
+                        vehicleId: onlineTrip.vehicleId,
+                        userId: onlineTrip.userId,
+                        status: onlineTrip.status,
+                        createdAt: onlineTrip.createdAt instanceof Timestamp ? onlineTrip.createdAt.toDate().toISOString() : new Date().toISOString(),
+                        updatedAt: onlineTrip.updatedAt instanceof Timestamp ? onlineTrip.updatedAt.toDate().toISOString() : new Date().toISOString(),
+                        base: onlineTrip.base,
+                        finalKm: onlineTrip.finalKm,
+                        totalDistance: onlineTrip.totalDistance,
+                        syncStatus: 'synced',
+                        deleted: false, 
+                    };
+
+                    if (!existingLocalTrip || (existingLocalTrip && existingLocalTrip.syncStatus !== 'pending' && new Date(tripToSaveLocally.updatedAt) > new Date(existingLocalTrip.updatedAt))) {
+                        await updateLocalRecord(STORE_TRIPS, tripToSaveLocally);
+                        pulledTripCount++;
+                    }
+                }
+                console.log(`${logPrefix} PULL Phase: Processed ${pulledTripCount} trips from Firestore into local DB.`);
+            }
+            
             await cleanupDeletedRecords();
             const finalSyncStatus = overallSuccess ? 'success' : 'error';
             setSyncStatus(finalSyncStatus); setLastSyncTime(new Date()); updatePendingCount();
-            toast({ title: `Sincronização ${finalSyncStatus === 'success' ? 'Concluída' : 'Parcial'}`, description: `${syncedCount} de ${totalPending - skippedCount} itens processados. Falhas: ${errorCount}. Ignorados: ${skippedCount}.` });
+            toast({ title: `Sincronização ${finalSyncStatus === 'success' ? 'Concluída' : 'Parcial'}`, description: `${syncedCount} de ${totalPending - skippedCount} itens enviados. ${pulledVehicleCount + pulledTripCount} itens recebidos. Falhas: ${errorCount}. Ignorados: ${skippedCount}.` });
         } catch (error: any) {
-            console.error(`[SyncContext startSync ${syncStartTime}] Overall Sync Error:`, error);
+            console.error(`${logPrefix} Overall Sync Error:`, error);
             toast({ variant: 'destructive', title: "Erro na Sincronização", description: `Erro: ${error.message}` });
             setSyncStatus('error');
         }
-    }, [syncStatus, toast, user, firebaseUser, updatePendingCount, syncItem]); // Added firebaseUser here
+    }, [syncStatus, toast, user, firebaseUser, updatePendingCount, syncItem]);
+
+    const startSyncCallbackRef = useRef(startSync);
+
+    useEffect(() => {
+        startSyncCallbackRef.current = startSync;
+    }, [startSync]);
+
+    useEffect(() => {
+        const performInitialSync = async () => {
+            if (firebaseUser && typeof window !== 'undefined' && navigator.onLine && !initialSyncAttempted) {
+                console.log("[SyncContext performInitialSync] Firebase user detected, online, and initial sync not attempted. Starting initial sync...");
+                setInitialSyncAttempted(true);
+                await startSyncCallbackRef.current();
+            } else {
+                if (!firebaseUser) console.log("[SyncContext performInitialSync] No firebaseUser for initial sync.");
+                if (typeof window !== 'undefined' && !navigator.onLine) console.log("[SyncContext performInitialSync] Offline, skipping initial sync.");
+                if (initialSyncAttempted) console.log("[SyncContext performInitialSync] Initial sync already attempted this session.");
+            }
+        };
+        
+        if (firebaseUser && !initialSyncAttempted && typeof window !== 'undefined') {
+           performInitialSync();
+        }
+
+    }, [firebaseUser, initialSyncAttempted]);
+
+
+    useEffect(() => {
+        updatePendingCount();
+        const intervalId = setInterval(updatePendingCount, 30000);
+        return () => clearInterval(intervalId);
+    }, [user, updatePendingCount]);
+
 
     return (
         <SyncContext.Provider value={{ syncStatus, lastSyncTime, pendingCount, startSync }}>
