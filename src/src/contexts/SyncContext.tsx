@@ -1,11 +1,12 @@
-// src/contexts/SyncContext.tsx
+
+// src/src/contexts/SyncContext.tsx
 'use client';
 
 import React, { createContext, useContext, useState, useCallback, ReactNode, useEffect, useRef } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { useAuth, User as AuthContextUserType } from './AuthContext';
 import { auth as firebaseAuthService } from '@/lib/firebase';
-import { Timestamp } from 'firebase/firestore'; // << IMPORTAÇÃO CORRIGIDA AQUI
+import { Timestamp } from 'firebase/firestore';
 import {
     getPendingRecords,
     updateSyncStatus,
@@ -49,8 +50,8 @@ import {
     deleteVisitTypeFromFirestore,
     addExpenseTypeToFirestore,
     deleteExpenseTypeFromFirestore,
-    getVehicles as fetchOnlineVehicles, // Renamed for clarity
-    getTrips as fetchOnlineTrips,       // Renamed for clarity
+    getVehicles as fetchOnlineVehicles,
+    getTrips as fetchOnlineTrips,
     Trip as FirestoreTrip,
     Visit as FirestoreVisit,
     Expense as FirestoreExpense,
@@ -58,7 +59,6 @@ import {
     VehicleInfo as FirestoreVehicle,
     User as FirestoreUser,
     FirestoreCustomType,
-    // Timestamp REMOVIDO DESTA LISTA
 } from '@/services/firestoreService';
 import { deleteReceipt, uploadReceipt } from '@/services/storageService';
 
@@ -285,11 +285,12 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
             await updateSyncStatus(storeName, itemLocalIdForDb, currentFirebaseIdFromItem, 'error');
             return false;
         }
-    }, [user, firebaseUser, toast]);
+    }, [user, firebaseUser, toast]); // syncItem dependencies
 
-    const startSync = useCallback(async () => {
+
+    const startSyncInternal = useCallback(async () => {
         const syncStartTime = performance.now();
-        const logPrefix = `[SyncContext startSync ${syncStartTime}]`;
+        const logPrefix = `[SyncContext startSyncInternal ${syncStartTime}]`;
         console.log(`${logPrefix} Initiating sync...`);
 
         if (firebaseAuthService) {
@@ -324,7 +325,7 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
                 setSyncStatus('error');
                 return;
             }
-        } else if (!currentAuthUserId && !(isAdmin && (await getPendingRecords()).visitTypes.length > 0 || (await getPendingRecords()).expenseTypes.length > 0)) {
+        } else if (!currentAuthUserId && !(isAdmin && (await getPendingRecords().catch(() => ({visitTypes:[], expenseTypes:[]}))).visitTypes.length > 0 || (await getPendingRecords().catch(() => ({visitTypes:[], expenseTypes:[]}))).expenseTypes.length > 0)) {
             console.warn(`${logPrefix} Cannot start sync: No authenticated Firebase user ID, and not an admin syncing only global types.`);
             toast({ variant: 'destructive', title: "Erro de Autenticação", description: "Usuário Firebase não autenticado. Faça login online para sincronizar seus dados." });
             setSyncStatus('idle');
@@ -349,7 +350,7 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
                      if (!userLocalId) { console.warn(`[SyncContext] Skipping user sync: item missing 'id'.`, pendingUser); skippedCount++; continue; }
 
                      if (pendingUser.firebaseId && !pendingUser.firebaseId.startsWith('local_')) {
-                        console.log(`[SyncContext startSync] Syncing USER (linked): ${userLocalId}, Firebase ID: ${pendingUser.firebaseId}`);
+                        console.log(`[SyncContext startSyncInternal] Syncing USER (linked): ${userLocalId}, Firebase ID: ${pendingUser.firebaseId}`);
                         const success = await syncItem<LocalUser, FirestoreUser>(
                             pendingUser, STORE_USERS,
                             (data, id) => setUserData(id || currentAuthUserId!, data as Partial<FirestoreUser>).then(() => id || currentAuthUserId!),
@@ -358,7 +359,7 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
                         );
                         if (success) syncedCount++; else errorCount++; overallSuccess = overallSuccess && success;
                      } else if (!pendingUser.firebaseId && userLocalId === currentAuthUserId) {
-                        console.log(`[SyncContext startSync] Syncing CURRENT USER (not fully linked locally): ${userLocalId}`);
+                        console.log(`[SyncContext startSyncInternal] Syncing CURRENT USER (not fully linked locally): ${userLocalId}`);
                          const success = await syncItem<LocalUser, FirestoreUser>(
                             {...pendingUser, firebaseId: currentAuthUserId },
                             STORE_USERS,
@@ -584,28 +585,34 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
             toast({ variant: 'destructive', title: "Erro na Sincronização", description: `Erro: ${error.message}` });
             setSyncStatus('error');
         }
-    }, [syncStatus, toast, user, firebaseUser, updatePendingCount, syncItem]);
+    }, [syncStatus, toast, user, firebaseUser, updatePendingCount, syncItem]); // startSyncInternal dependencies
 
-    const startSyncCallbackRef = useRef(startSync);
+    const startSyncCallbackRef = useRef(startSyncInternal);
 
     useEffect(() => {
-        startSyncCallbackRef.current = startSync;
-    }, [startSync]);
+        startSyncCallbackRef.current = startSyncInternal;
+    }, [startSyncInternal]);
 
     useEffect(() => {
         const performInitialSync = async () => {
-            if (firebaseUser && typeof window !== 'undefined' && navigator.onLine && !initialSyncAttempted) {
+            if (typeof window !== 'undefined' && firebaseUser && navigator.onLine && !initialSyncAttempted) {
                 console.log("[SyncContext performInitialSync] Firebase user detected, online, and initial sync not attempted. Starting initial sync...");
                 setInitialSyncAttempted(true);
-                await startSyncCallbackRef.current();
+                if (startSyncCallbackRef.current) {
+                    await startSyncCallbackRef.current();
+                } else {
+                    console.warn("[SyncContext performInitialSync] startSyncCallbackRef.current is not yet defined. Sync will be skipped or retried on next effect run.");
+                }
             } else {
-                if (!firebaseUser) console.log("[SyncContext performInitialSync] No firebaseUser for initial sync.");
-                if (typeof window !== 'undefined' && !navigator.onLine) console.log("[SyncContext performInitialSync] Offline, skipping initial sync.");
-                if (initialSyncAttempted) console.log("[SyncContext performInitialSync] Initial sync already attempted this session.");
+                if (typeof window !== 'undefined') {
+                    if (!firebaseUser) console.log("[SyncContext performInitialSync] No firebaseUser for initial sync.");
+                    if (!navigator.onLine) console.log("[SyncContext performInitialSync] Offline, skipping initial sync.");
+                    if (initialSyncAttempted) console.log("[SyncContext performInitialSync] Initial sync already attempted this session.");
+                }
             }
         };
         
-        if (firebaseUser && !initialSyncAttempted && typeof window !== 'undefined') {
+        if (typeof window !== 'undefined' && firebaseUser && !initialSyncAttempted) {
            performInitialSync();
         }
 
@@ -613,14 +620,16 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
 
 
     useEffect(() => {
-        updatePendingCount();
-        const intervalId = setInterval(updatePendingCount, 30000);
-        return () => clearInterval(intervalId);
-    }, [user, updatePendingCount]);
+        if (typeof window !== 'undefined') {
+            updatePendingCount();
+            const intervalId = setInterval(updatePendingCount, 30000);
+            return () => clearInterval(intervalId);
+        }
+    }, [updatePendingCount]);
 
 
     return (
-        <SyncContext.Provider value={{ syncStatus, lastSyncTime, pendingCount, startSync }}>
+        <SyncContext.Provider value={{ syncStatus, lastSyncTime, pendingCount, startSync: startSyncCallbackRef.current }}>
             {children}
         </SyncContext.Provider>
     );
@@ -634,3 +643,4 @@ export const useSync = (): SyncContextType => {
     return context;
 };
 
+    
