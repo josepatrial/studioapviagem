@@ -5,7 +5,7 @@ import React, { createContext, useContext, useState, useCallback, ReactNode, use
 import { useToast } from '@/hooks/use-toast';
 import { useAuth, User as AuthContextUserType } from './AuthContext';
 import { auth as firebaseAuthService } from '@/lib/firebase';
-import { Timestamp } from 'firebase/firestore';
+import { Timestamp } from 'firebase/firestore'; // << IMPORTAÇÃO CORRIGIDA AQUI
 import {
     getPendingRecords,
     updateSyncStatus,
@@ -49,8 +49,8 @@ import {
     deleteVisitTypeFromFirestore,
     addExpenseTypeToFirestore,
     deleteExpenseTypeFromFirestore,
-    getVehicles as fetchOnlineVehicles,
-    getTrips as fetchOnlineTrips,
+    getVehicles as fetchOnlineVehicles, // Renamed for clarity
+    getTrips as fetchOnlineTrips,       // Renamed for clarity
     Trip as FirestoreTrip,
     Visit as FirestoreVisit,
     Expense as FirestoreExpense,
@@ -58,6 +58,7 @@ import {
     VehicleInfo as FirestoreVehicle,
     User as FirestoreUser,
     FirestoreCustomType,
+    // Timestamp REMOVIDO DESTA LISTA
 } from '@/services/firestoreService';
 import { deleteReceipt, uploadReceipt } from '@/services/storageService';
 
@@ -632,3 +633,4 @@ export const useSync = (): SyncContextType => {
     }
     return context;
 };
+
