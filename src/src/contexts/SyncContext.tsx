@@ -1,3 +1,4 @@
+
 // src/src/contexts/SyncContext.tsx
 'use client';
 
@@ -52,6 +53,11 @@ import {
     deleteExpenseTypeFromFirestore,
     getVehicles as fetchOnlineVehicles, // Renamed for clarity
     getTrips as fetchOnlineTrips,       // Renamed for clarity
+    getVisits as fetchOnlineVisits,
+    getExpenses as fetchOnlineExpenses,
+    getFuelings as fetchOnlineFuelings,
+    getVisitTypesFromFirestore,
+    getExpenseTypesFromFirestore,
     Trip as FirestoreTrip,
     Visit as FirestoreVisit,
     Expense as FirestoreExpense,
@@ -516,70 +522,152 @@ export const SyncProvider = ({ children }: { children: ReactNode }) => {
                 }
             } 
 
-            let pulledVehicleCount = 0;
-            let pulledTripCount = 0;
-
+            // PULL PHASE
+            let pulledDataCounts = { vehicles: 0, trips: 0, visits: 0, expenses: 0, fuelings: 0, visitTypes: 0, expenseTypes: 0 };
+            
+            // Pull Vehicles (Admin)
             if (isAdmin) { 
                 console.log(`${logPrefix} PULL Phase: Admin fetching ALL vehicles from Firestore...`);
                 const onlineVehicles = await fetchOnlineVehicles();
-                console.log(`${logPrefix} PULL Phase: Pulled ${onlineVehicles.length} vehicles from Firestore.`);
                 for (const onlineVehicle of onlineVehicles) {
                     if (!onlineVehicle.id) { console.warn(`${logPrefix} PULL: Skipping online vehicle due to missing ID:`, onlineVehicle); continue; }
-                    const existingLocalVehicle = await getLocalDbStore(STORE_VEHICLES, 'readonly').then(store => new Promise<LocalVehicle | null>(res => {const r = store.get(onlineVehicle.id); r.onsuccess=()=>res(r.result); r.onerror=()=>res(null);}));
-                    const vehicleToSaveLocally: LocalVehicle = {
-                        localId: onlineVehicle.id, 
-                        firebaseId: onlineVehicle.id,
-                        model: onlineVehicle.model,
-                        year: onlineVehicle.year,
-                        licensePlate: onlineVehicle.licensePlate,
-                        syncStatus: 'synced',
-                        deleted: onlineVehicle.deleted || false,
+                    const existing = await getLocalDbStore(STORE_VEHICLES, 'readonly').then(s => new Promise<LocalVehicle | null>(res => {const r = s.get(onlineVehicle.id); r.onsuccess=()=>res(r.result); r.onerror=()=>res(null);}));
+                    const localData: LocalVehicle = {
+                        localId: onlineVehicle.id, firebaseId: onlineVehicle.id, syncStatus: 'synced', deleted: onlineVehicle.deleted || false,
+                        model: onlineVehicle.model, year: onlineVehicle.year, licensePlate: onlineVehicle.licensePlate,
                     };
-                    if (!existingLocalVehicle || (existingLocalVehicle && existingLocalVehicle.syncStatus !== 'pending')) {
-                        await updateLocalRecord(STORE_VEHICLES, vehicleToSaveLocally);
-                        pulledVehicleCount++;
+                    if (!existing || (existing && existing.syncStatus !== 'pending')) {
+                        await updateLocalRecord(STORE_VEHICLES, localData);
+                        pulledDataCounts.vehicles++;
                     }
                 }
-                console.log(`${logPrefix} PULL Phase: Processed ${pulledVehicleCount} vehicles from Firestore into local DB.`);
             }
 
+            // Pull Trips, Visits, Expenses, Fuelings (for current user)
             if (currentAuthUserId) { 
-                console.log(`${logPrefix} PULL Phase: Fetching trips from Firestore for user ${currentAuthUserId} (isAdmin: ${isAdmin})...`);
+                console.log(`${logPrefix} PULL Phase: Fetching data for user ${currentAuthUserId} (isAdmin: ${isAdmin})...`);
+                const userFilter = { userId: currentAuthUserId };
                 const tripFilters = isAdmin && user?.base ? { base: user.base } : { userId: currentAuthUserId };
-                const onlineTrips = await fetchOnlineTrips(tripFilters);
-                console.log(`${logPrefix} PULL Phase: Pulled ${onlineTrips.length} trips from Firestore.`);
 
-                for (const onlineTrip of onlineTrips) {
-                    if (!onlineTrip.id) { console.warn(`${logPrefix} PULL: Skipping online trip due to missing ID:`, onlineTrip); continue; }
-                    const existingLocalTrip = await getLocalDbStore(STORE_TRIPS, 'readonly').then(store => new Promise<LocalTrip | null>(res => {const r = store.get(onlineTrip.id); r.onsuccess=()=>res(r.result); r.onerror=()=>res(null);}));
-                    const tripToSaveLocally: LocalTrip = {
-                        localId: onlineTrip.id, 
-                        firebaseId: onlineTrip.id,
-                        name: onlineTrip.name,
-                        vehicleId: onlineTrip.vehicleId,
-                        userId: onlineTrip.userId,
-                        status: onlineTrip.status,
-                        createdAt: onlineTrip.createdAt instanceof Timestamp ? onlineTrip.createdAt.toDate().toISOString() : new Date().toISOString(),
-                        updatedAt: onlineTrip.updatedAt instanceof Timestamp ? onlineTrip.updatedAt.toDate().toISOString() : new Date().toISOString(),
-                        base: onlineTrip.base,
-                        finalKm: onlineTrip.finalKm,
-                        totalDistance: onlineTrip.totalDistance,
-                        syncStatus: 'synced',
-                        deleted: false, 
+                const [onlineTrips, onlineVisits, onlineExpenses, onlineFuelings] = await Promise.all([
+                    fetchOnlineTrips(tripFilters),
+                    fetchOnlineVisits(userFilter),
+                    fetchOnlineExpenses(userFilter),
+                    fetchOnlineFuelings(userFilter)
+                ]);
+                
+                for (const online of onlineTrips) {
+                    if (!online.id) continue;
+                    const existing = await getLocalDbStore(STORE_TRIPS, 'readonly').then(s => new Promise<LocalTrip | null>(res => {const r = s.get(online.id); r.onsuccess=()=>res(r.result); r.onerror=()=>res(null);}));
+                    const localData: LocalTrip = {
+                        localId: online.id, firebaseId: online.id, syncStatus: 'synced', deleted: false,
+                        name: online.name, vehicleId: online.vehicleId, userId: online.userId, status: online.status,
+                        createdAt: online.createdAt instanceof Timestamp ? online.createdAt.toDate().toISOString() : new Date().toISOString(),
+                        updatedAt: online.updatedAt instanceof Timestamp ? online.updatedAt.toDate().toISOString() : new Date().toISOString(),
+                        base: online.base, finalKm: online.finalKm, totalDistance: online.totalDistance,
                     };
-
-                    if (!existingLocalTrip || (existingLocalTrip && existingLocalTrip.syncStatus !== 'pending' && new Date(tripToSaveLocally.updatedAt) > new Date(existingLocalTrip.updatedAt))) {
-                        await updateLocalRecord(STORE_TRIPS, tripToSaveLocally);
-                        pulledTripCount++;
+                    if (!existing || (existing.syncStatus !== 'pending' && new Date(localData.updatedAt) > new Date(existing.updatedAt))) {
+                        await updateLocalRecord(STORE_TRIPS, localData);
+                        pulledDataCounts.trips++;
                     }
                 }
-                console.log(`${logPrefix} PULL Phase: Processed ${pulledTripCount} trips from Firestore into local DB.`);
+
+                for (const online of onlineVisits) {
+                    if (!online.id) continue;
+                    const existing = await getLocalDbStore(STORE_VISITS, 'readonly').then(s => new Promise<LocalVisit | null>(res => { const r = s.get(online.id); r.onsuccess = () => res(r.result); r.onerror = () => res(null); }));
+                    const localData: LocalVisit = {
+                        localId: online.id, firebaseId: online.id, syncStatus: 'synced', deleted: false,
+                        tripLocalId: online.tripId, userId: online.userId, clientName: online.clientName,
+                        location: online.location, latitude: online.latitude, longitude: online.longitude,
+                        initialKm: online.initialKm, reason: online.reason, visitType: online.visitType,
+                        timestamp: online.timestamp instanceof Timestamp ? online.timestamp.toDate().toISOString() : new Date().toISOString()
+                    };
+                    if (!existing || existing.syncStatus !== 'pending') {
+                        await updateLocalRecord(STORE_VISITS, localData);
+                        pulledDataCounts.visits++;
+                    }
+                }
+
+                for (const online of onlineExpenses) {
+                    if (!online.id) continue;
+                    const existing = await getLocalDbStore(STORE_EXPENSES, 'readonly').then(s => new Promise<LocalExpense | null>(res => { const r = s.get(online.id); r.onsuccess = () => res(r.result); r.onerror = () => res(null); }));
+                    const localData: LocalExpense = {
+                        localId: online.id, firebaseId: online.id, syncStatus: 'synced', deleted: false,
+                        tripLocalId: online.tripId, userId: online.userId, description: online.description,
+                        value: online.value, expenseType: online.expenseType,
+                        expenseDate: online.expenseDate instanceof Timestamp ? online.expenseDate.toDate().toISOString() : new Date().toISOString(),
+                        timestamp: online.createdAt instanceof Timestamp ? online.createdAt.toDate().toISOString() : new Date().toISOString(),
+                        comments: online.comments, receiptFilename: online.receiptFilename, receiptUrl: online.receiptUrl, receiptPath: online.receiptPath
+                    };
+                     if (!existing || existing.syncStatus !== 'pending') {
+                        await updateLocalRecord(STORE_EXPENSES, localData);
+                        pulledDataCounts.expenses++;
+                    }
+                }
+
+                 for (const online of onlineFuelings) {
+                    if (!online.id) continue;
+                    const existing = await getLocalDbStore(STORE_FUELINGS, 'readonly').then(s => new Promise<LocalFueling | null>(res => { const r = s.get(online.id); r.onsuccess = () => res(r.result); r.onerror = () => res(null); }));
+                    const localData: LocalFueling = {
+                        localId: online.id, firebaseId: online.id, syncStatus: 'synced', deleted: false,
+                        tripLocalId: online.tripId, userId: online.userId, vehicleId: online.vehicleId,
+                        date: online.date instanceof Timestamp ? online.date.toDate().toISOString() : new Date().toISOString(),
+                        liters: online.liters, pricePerLiter: online.pricePerLiter, totalCost: online.totalCost,
+                        location: online.location, comments: online.comments, odometerKm: online.odometerKm, fuelType: online.fuelType,
+                        receiptFilename: online.receiptFilename, receiptUrl: online.receiptUrl, receiptPath: online.receiptPath
+                    };
+                    if (!existing || existing.syncStatus !== 'pending') {
+                        await updateLocalRecord(STORE_FUELINGS, localData);
+                        pulledDataCounts.fuelings++;
+                    }
+                }
+            }
+
+            // Pull Global Custom Types
+            const [onlineVisitTypes, onlineExpenseTypes] = await Promise.all([
+                getVisitTypesFromFirestore(),
+                getExpenseTypesFromFirestore()
+            ]);
+            for (const onlineType of onlineVisitTypes) {
+                if (!onlineType.id) continue;
+                const existing = await getLocalDbStore(STORE_VISIT_TYPES, 'readonly').then(s => new Promise<LocalCustomType | null>(res => {const r = s.get(onlineType.id); r.onsuccess=()=>res(r.result); r.onerror=()=>res(null);}));
+                const localData: LocalCustomType = {
+                    localId: onlineType.id, firebaseId: onlineType.id, syncStatus: 'synced', deleted: false, name: onlineType.name
+                };
+                if (!existing || existing.syncStatus !== 'pending') {
+                   await updateLocalRecord(STORE_VISIT_TYPES, localData);
+                   pulledDataCounts.visitTypes++;
+                }
+            }
+             for (const onlineType of onlineExpenseTypes) {
+                if (!onlineType.id) continue;
+                const existing = await getLocalDbStore(STORE_EXPENSE_TYPES, 'readonly').then(s => new Promise<LocalCustomType | null>(res => {const r = s.get(onlineType.id); r.onsuccess=()=>res(r.result); r.onerror=()=>res(null);}));
+                const localData: LocalCustomType = {
+                    localId: onlineType.id, firebaseId: onlineType.id, syncStatus: 'synced', deleted: false, name: onlineType.name
+                };
+                 if (!existing || existing.syncStatus !== 'pending') {
+                   await updateLocalRecord(STORE_EXPENSE_TYPES, localData);
+                   pulledDataCounts.expenseTypes++;
+                }
             }
             
             await cleanupDeletedRecords();
             const finalSyncStatus = overallSuccess ? 'success' : 'error';
             setSyncStatus(finalSyncStatus); setLastSyncTime(new Date()); updatePendingCount();
-            toast({ title: `Sincronização ${finalSyncStatus === 'success' ? 'Concluída' : 'Parcial'}`, description: `${syncedCount} de ${totalPending - skippedCount} itens enviados. ${pulledVehicleCount + pulledTripCount} itens recebidos. Falhas: ${errorCount}. Ignorados: ${skippedCount}.` });
+            
+            const pullSummaryParts = [
+                pulledDataCounts.vehicles > 0 ? `${pulledDataCounts.vehicles} veículos` : '',
+                pulledDataCounts.trips > 0 ? `${pulledDataCounts.trips} viagens` : '',
+                pulledDataCounts.visits > 0 ? `${pulledDataCounts.visits} visitas` : '',
+                pulledDataCounts.expenses > 0 ? `${pulledDataCounts.expenses} despesas` : '',
+                pulledDataCounts.fuelings > 0 ? `${pulledDataCounts.fuelings} abastec.` : '',
+                pulledDataCounts.visitTypes > 0 ? `${pulledDataCounts.visitTypes} tipos de visita` : '',
+                pulledDataCounts.expenseTypes > 0 ? `${pulledDataCounts.expenseTypes} tipos de despesa` : '',
+            ].filter(Boolean);
+
+            const pullSummary = pullSummaryParts.length > 0 ? ` Recebidos: ${pullSummaryParts.join(', ')}.` : '';
+
+            toast({ title: `Sincronização ${finalSyncStatus === 'success' ? 'Concluída' : 'Parcial'}`, description: `${syncedCount} de ${totalPending - skippedCount} itens enviados.${pullSummary} Falhas: ${errorCount}. Ignorados: ${skippedCount}.` });
         } catch (error: any) {
             console.error(`${logPrefix} Overall Sync Error:`, error);
             toast({ variant: 'destructive', title: "Erro na Sincronização", description: `Erro: ${error.message}` });
