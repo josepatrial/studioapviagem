@@ -1,4 +1,3 @@
-
 // src/src/contexts/SyncContext.tsx
 'use client';
 
@@ -12,6 +11,7 @@ import {
     updateSyncStatus,
     cleanupDeletedRecords,
     getLocalDbStore,
+    updateLocalRecord, // Added missing import
     LocalTrip,
     LocalVisit,
     LocalExpense,
@@ -50,8 +50,8 @@ import {
     deleteVisitTypeFromFirestore,
     addExpenseTypeToFirestore,
     deleteExpenseTypeFromFirestore,
-    getVehicles as fetchOnlineVehicles,
-    getTrips as fetchOnlineTrips,
+    getVehicles as fetchOnlineVehicles, // Renamed for clarity
+    getTrips as fetchOnlineTrips,       // Renamed for clarity
     Trip as FirestoreTrip,
     Visit as FirestoreVisit,
     Expense as FirestoreExpense,
@@ -642,5 +642,3 @@ export const useSync = (): SyncContextType => {
     }
     return context;
 };
-
-    
