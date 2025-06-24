@@ -1,12 +1,12 @@
 
 // src/services/localDbService.ts
 import type { VehicleInfo } from '@/components/Vehicle';
-import type { Trip } from '@/components/Trips/Trips';
 import type { User, UserRole } from '@/contexts/AuthContext';
 import { v4 as uuidv4 } from 'uuid';
 import bcrypt from 'bcryptjs';
 import type { DateRange } from 'react-day-picker';
 import { parseISO, startOfDay, endOfDay, isWithinInterval } from 'date-fns';
+import type { BaseTrip } from '../types/trip';
 
 
 const DB_NAME = 'RotaCertaDB';
@@ -31,7 +31,12 @@ interface LocalRecord {
 }
 
 export type LocalVehicle = Omit<VehicleInfo & { id: string }, 'id'> & LocalRecord & { localId: string; id?: string };
-export type LocalTrip = Omit<Trip, 'id'> & LocalRecord & { localId: string; id?: string };
+
+export interface LocalTrip extends BaseTrip, LocalRecord {
+  localId: string; // Primary key for IndexedDB
+  id?: string;      // Alias for localId or firebaseId for generic functions
+}
+
 
 interface CoreExpenseData {
   description: string;
@@ -1127,5 +1132,3 @@ if (typeof window !== 'undefined') {
         }
     });
 }
-
-    

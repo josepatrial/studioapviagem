@@ -61,12 +61,9 @@ import { TripAccordionItem } from './TripAccordionItem';
 import { Textarea } from '../ui/textarea';
 
 
-export interface Trip extends Omit<DbLocalTrip, 'localId' | 'syncStatus' | 'deleted' | 'firebaseId'> {
-    id: string; 
-    localId: string; 
-    firebaseId?: string;
-    syncStatus: DbLocalTrip['syncStatus']; 
-    deleted?: DbLocalTrip['deleted'];     
+export interface Trip extends DbLocalTrip {
+    id: string;
+    localId: string;
     visitCount?: number;
     expenseCount?: number;
     fuelingCount?: number;
@@ -289,7 +286,7 @@ export const Trips: React.FC<TripsProps> = ({ activeSubTab }) => {
     }
 
 
-    const newTripDataForDb: Omit<DbLocalTrip, 'localId' | 'syncStatus' | 'deleted' | 'firebaseId' | 'finalKm' | 'totalDistance'> = {
+    const newTripDataForDb: Omit<DbLocalTrip, 'localId' | 'syncStatus' | 'deleted' | 'firebaseId' | 'finalKm' | 'totalDistance' | 'id'> = {
       name: generatedTripName,
       vehicleId: vehicleForTrip.firebaseId || vehicleForTrip.localId, // Use the primary ID of the vehicle record
       userId: user.id,
